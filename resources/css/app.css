@@ -1,0 +1,1736 @@
+body {
+    margin: 0;
+    background: #f4f6f5;
+}
+
+.pms-shell {
+    min-height: 100vh;
+}
+
+.pms-brand {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 18px 16px;
+    color: #fff;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+}
+
+.pms-brand-mark {
+    display: grid;
+    place-items: center;
+    width: 32px;
+    height: 32px;
+    border-radius: 8px;
+    background: #1e3a72;
+    font-size: 13px;
+    flex: 0 0 auto;
+}
+
+.pms-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 0 24px;
+    background: #fff;
+    border-bottom: 1px solid #e6e9e8;
+    /* Ant's Header sets a 64px line-height, which the stacked name and role
+       inherit — two lines of it overflow the bar and clip the name. */
+    line-height: normal;
+}
+
+.pms-header .pms-header-user {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    min-width: 0;
+}
+
+.pms-header .pms-header-user > div {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 220px;
+}
+
+.pms-content {
+    padding: 24px;
+}
+
+.pms-page-title {
+    margin: 0 0 4px;
+    font-size: 20px;
+    font-weight: 600;
+}
+
+.pms-page-subtitle {
+    margin: 0 0 20px;
+    color: #6b7280;
+}
+
+.pms-login {
+    min-height: 100vh;
+    display: grid;
+    grid-template-columns: 1.05fr 0.95fr;
+    background: #f6f7f9;
+}
+
+.pms-login-brand {
+    position: relative;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 28px;
+    padding: 56px clamp(40px, 6vw, 88px);
+    color: #fff;
+    background: linear-gradient(160deg, #12332a 0%, #1e3a72 100%);
+}
+
+.pms-login-brand::before,
+.pms-login-brand::after {
+    content: "";
+    position: absolute;
+    border-radius: 50%;
+    pointer-events: none;
+}
+
+.pms-login-brand::before {
+    width: 520px;
+    height: 520px;
+    top: -180px;
+    right: -160px;
+    background: radial-gradient(circle, rgba(255, 255, 255, 0.14) 0%, transparent 70%);
+}
+
+.pms-login-brand::after {
+    width: 420px;
+    height: 420px;
+    bottom: -170px;
+    left: -120px;
+    background: radial-gradient(circle, rgba(120, 220, 180, 0.16) 0%, transparent 70%);
+}
+
+.pms-login-brand > * {
+    position: relative;
+    z-index: 1;
+}
+
+.pms-login-mark {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+}
+
+.pms-login-mark img {
+    width: 62px;
+    height: 62px;
+    object-fit: contain;
+    background: #fff;
+    border-radius: 14px;
+    padding: 7px;
+}
+
+.pms-login-mark .pms-login-org {
+    font-size: 20px;
+    font-weight: 700;
+    line-height: 1.25;
+    letter-spacing: -0.01em;
+}
+
+.pms-login-mark .pms-login-place {
+    font-size: 13px;
+    color: rgba(255, 255, 255, 0.62);
+}
+
+.pms-login-lede {
+    font-size: clamp(28px, 3.1vw, 40px);
+    font-weight: 700;
+    line-height: 1.15;
+    letter-spacing: -0.02em;
+    margin: 0;
+    max-width: 15ch;
+}
+
+.pms-login-sub {
+    font-size: 15px;
+    line-height: 1.6;
+    color: rgba(255, 255, 255, 0.72);
+    max-width: 46ch;
+    margin: -14px 0 0;
+}
+
+.pms-login-points {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.pms-login-points li {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    font-size: 14px;
+    line-height: 1.5;
+    color: rgba(255, 255, 255, 0.86);
+}
+
+.pms-login-points .anticon {
+    flex: none;
+    margin-top: 2px;
+    font-size: 16px;
+    color: rgba(255, 255, 255, 0.55);
+}
+
+.pms-login-panel {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 40px 24px;
+    min-width: 0;
+}
+
+.pms-login-card {
+    width: 100%;
+    max-width: 400px;
+    box-shadow: 0 1px 2px rgba(16, 24, 40, 0.05), 0 12px 32px rgba(16, 24, 40, 0.08);
+}
+
+.pms-login-card .ant-card-body {
+    padding: clamp(24px, 3vw, 36px);
+}
+
+.pms-login-heading {
+    margin-bottom: 24px;
+}
+
+.pms-login-heading h1 {
+    font-size: 24px;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    margin: 0 0 4px;
+}
+
+.pms-login-heading p {
+    margin: 0;
+    color: #6b7280;
+    font-size: 14px;
+}
+
+.pms-login-inline-mark {
+    display: none;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 20px;
+}
+
+.pms-login-inline-mark img {
+    width: 44px;
+    height: 44px;
+    object-fit: contain;
+}
+
+.pms-login-inline-mark span {
+    font-size: 15px;
+    font-weight: 700;
+    line-height: 1.25;
+    color: #1e3a72;
+}
+
+.pms-login-foot {
+    margin: 20px 0 0;
+    text-align: center;
+    font-size: 12.5px;
+    color: #8b93a1;
+}
+
+@media (max-width: 900px) {
+    .pms-login {
+        grid-template-columns: 1fr;
+        background: linear-gradient(160deg, #12332a 0%, #1e3a72 100%);
+    }
+
+    .pms-login-brand {
+        display: none;
+    }
+
+    .pms-login-inline-mark {
+        display: flex;
+    }
+}
+
+.pms-section-heading td {
+    background: #f0f2f1 !important;
+    font-weight: 600;
+    text-transform: uppercase;
+    font-size: 12px;
+    letter-spacing: 0.06em;
+}
+
+.pms-indicator-cell {
+    white-space: pre-wrap;
+}
+
+.pms-indicator-source {
+    margin-top: 4px;
+    font-size: 0.85em;
+    font-style: italic;
+    opacity: 0.75;
+}
+
+@media print {
+    .pms-no-print {
+        display: none !important;
+    }
+
+    body {
+        background: #fff;
+    }
+
+    .pms-content {
+        padding: 0;
+    }
+}
+
+.pms-print-sheet {
+    background: #fff;
+    padding: 32px;
+}
+
+.pms-print-sheet table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+}
+
+.pms-print-sheet th,
+.pms-print-sheet td {
+    border: 1px solid #000;
+    padding: 6px;
+    vertical-align: top;
+    text-align: left;
+}
+
+.pms-print-sheet th {
+    text-align: center;
+    font-weight: 600;
+}
+
+.pms-signature {
+    margin-top: 40px;
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 24px;
+}
+
+.pms-signature-line {
+    border-top: 1px solid #000;
+    padding-top: 6px;
+    text-align: center;
+    font-size: 12px;
+}
+
+.pms-print-official {
+    color: #000;
+    font-size: 12px;
+}
+
+.pms-print-letterhead {
+    display: grid;
+    grid-template-columns: 72px 1fr 72px;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 10px;
+}
+
+.pms-print-letterhead h1 {
+    margin: 0;
+    font-size: 16px;
+    font-weight: 700;
+    text-align: center;
+    letter-spacing: 0.2px;
+    text-transform: none;
+}
+
+.pms-print-seal {
+    width: 72px;
+    height: 72px;
+    display: grid;
+    place-items: center;
+}
+
+.pms-print-seal img {
+    max-width: 64px;
+    max-height: 64px;
+    object-fit: contain;
+}
+
+.pms-print-lead {
+    text-align: justify;
+    line-height: 1.45;
+    margin: 8px 0 12px;
+}
+
+.pms-print-opcr-head {
+    display: grid;
+    grid-template-columns: 1fr 220px 1fr;
+    gap: 16px;
+    margin-bottom: 12px;
+    align-items: start;
+}
+
+.pms-print-signblock {
+    text-align: center;
+    font-size: 12px;
+}
+
+.pms-print-approve {
+    display: grid;
+    grid-template-columns: 1fr 90px 140px;
+    gap: 8px;
+    font-size: 12px;
+}
+
+.pms-print-scale {
+    font-size: 11px;
+    line-height: 1.4;
+}
+
+.pms-print-review {
+    margin: 8px 0 12px;
+}
+
+.pms-print-review th,
+.pms-print-review td {
+    text-align: center;
+}
+
+.pms-print-sub {
+    font-weight: 400;
+    font-size: 10px;
+}
+
+.pms-print-comments {
+    min-height: 40px;
+    margin-top: 6px;
+}
+
+.pms-print-siglabel {
+    text-align: center;
+    margin-bottom: 28px;
+    font-size: 12px;
+}
+
+.pms-print-certify {
+    text-align: center;
+    font-size: 10px;
+    color: #555;
+    margin-bottom: 16px;
+}
+
+.pms-print-legend {
+    margin-top: 10px;
+    font-size: 11px;
+    font-style: italic;
+}
+
+@media print {
+    @page {
+        size: legal landscape;
+        margin: 10mm 8mm;
+    }
+
+    .pms-print-official {
+        padding: 0;
+    }
+}
+
+/* --- Rich text ------------------------------------------------------------ */
+
+.pms-richtext {
+    border: 1px solid #d9d9d9;
+    border-radius: 6px;
+    background: #fff;
+    transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.pms-richtext:focus-within {
+    border-color: #1e3a72;
+    box-shadow: 0 0 0 2px rgba(30, 58, 114, 0.1);
+}
+
+.pms-richtext-disabled {
+    background: rgba(0, 0, 0, 0.04);
+}
+
+.pms-richtext-toolbar {
+    padding: 4px 6px;
+    border-bottom: 1px solid #f0f0f0;
+}
+
+.pms-richtext-count {
+    padding: 2px 8px 4px;
+    font-size: 11px;
+    color: #8c8c8c;
+    text-align: right;
+}
+
+.pms-richtext-button {
+    border: 0;
+    background: transparent;
+    border-radius: 4px;
+    padding: 3px 7px;
+    cursor: pointer;
+    color: rgba(0, 0, 0, 0.65);
+    line-height: 1;
+}
+
+.pms-richtext-button:hover {
+    background: rgba(0, 0, 0, 0.05);
+}
+
+.pms-richtext-button.is-active {
+    background: rgba(30, 58, 114, 0.12);
+    color: #1e3a72;
+}
+
+.pms-richtext .ProseMirror {
+    padding: 8px 11px;
+    outline: none;
+}
+
+/* Tiptap's placeholder only exists as an attribute on the empty first line. */
+.pms-richtext .ProseMirror p.is-editor-empty:first-child::before {
+    content: attr(data-placeholder);
+    color: rgba(0, 0, 0, 0.25);
+    float: left;
+    height: 0;
+    pointer-events: none;
+}
+
+.pms-richtext .ProseMirror p,
+.pms-richtext-view p {
+    margin: 0 0 6px;
+}
+
+.pms-richtext .ProseMirror p:last-child,
+.pms-richtext-view p:last-child {
+    margin-bottom: 0;
+}
+
+.pms-richtext .ProseMirror ul,
+.pms-richtext .ProseMirror ol,
+.pms-richtext-view ul,
+.pms-richtext-view ol {
+    margin: 0 0 6px;
+    padding-left: 20px;
+}
+
+.pms-mention,
+.pms-richtext-view a[href^="/people/"] {
+    color: #1e3a72;
+    background: rgba(30, 58, 114, 0.1);
+    border-radius: 4px;
+    padding: 0 4px;
+    text-decoration: none;
+    cursor: pointer;
+    font-weight: 500;
+}
+
+.pms-mention:hover,
+.pms-richtext-view a[href^="/people/"]:hover {
+    background: rgba(30, 58, 114, 0.18);
+}
+
+/* The printed form: markup must sit inside a table cell without reflowing it. */
+@media print {
+    .pms-richtext-toolbar {
+        display: none;
+    }
+
+    .pms-richtext-view p {
+        margin: 0;
+    }
+
+    .pms-richtext-view ul,
+    .pms-richtext-view ol {
+        margin: 0;
+        padding-left: 14px;
+    }
+
+    .pms-richtext-view a[href^="/people/"] {
+        background: none;
+        color: inherit;
+        padding: 0;
+        font-weight: inherit;
+    }
+}
+
+/* The @ menu, positioned against the caret by RichText. */
+.pms-mention-popup {
+    position: absolute;
+    z-index: 1100;
+}
+
+.pms-mention-list {
+    background: #fff;
+    border-radius: 8px;
+    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.12);
+    padding: 4px;
+    min-width: 240px;
+    max-height: 260px;
+    overflow-y: auto;
+}
+
+.pms-mention-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    border: 0;
+    background: transparent;
+    padding: 6px 8px;
+    border-radius: 6px;
+    cursor: pointer;
+    text-align: left;
+}
+
+.pms-mention-item.is-active {
+    background: rgba(30, 58, 114, 0.1);
+}
+
+.pms-mention-name {
+    flex: 1;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* --- Form history --------------------------------------------------------- */
+
+.pms-history-dot {
+    font-size: 15px;
+    line-height: 1;
+    background: #fff;
+}
+
+.pms-history-entry {
+    padding-bottom: 2px;
+}
+
+.pms-history-note {
+    margin-top: 6px;
+    padding: 6px 10px;
+    border-left: 3px solid rgba(30, 58, 114, 0.35);
+    background: rgba(0, 0, 0, 0.02);
+    border-radius: 0 4px 4px 0;
+    font-size: 13px;
+}
+
+/* A stage the workflow passed over is context, not an action somebody took. */
+.pms-history-note.is-quiet {
+    border-left-color: rgba(0, 0, 0, 0.1);
+    color: rgba(0, 0, 0, 0.45);
+    font-style: italic;
+}
+
+/* --- The review chain ----------------------------------------------------- */
+
+.pms-chain {
+    padding: 4px 2px;
+}
+
+/* Ant sizes the label column to the longest word, which wraps short phrases
+   like "Waiting for the head" onto three cramped lines. */
+.pms-chain .ant-steps-item-title {
+    font-size: 13px;
+    font-weight: 600;
+    line-height: 1.35;
+}
+
+/* Vertical labels give each step the full column, so a name sits on one line
+   instead of wrapping a word at a time. */
+.pms-chain .ant-steps-item-description {
+    font-size: 12px;
+    line-height: 1.4;
+    max-width: 160px;
+    margin: 0 auto;
+}
+
+.pms-chain .ant-steps-item-content {
+    width: 160px !important;
+}
+
+.pms-chain .ant-steps-item-tail {
+    top: 14px !important;
+    margin-inline-start: 0 !important;
+    padding: 0 8px !important;
+}
+
+.pms-chain-dot {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    border: 1.5px solid #d9d9d9;
+    background: #fff;
+    color: rgba(0, 0, 0, 0.3);
+    font-size: 13px;
+    transition: border-color 0.2s, color 0.2s, box-shadow 0.2s;
+}
+
+/* Where the form actually is — the one thing worth finding at a glance. */
+/* Where the form is now, in the app's own colour rather than the stage's —
+   the ring is a "you are here", not another piece of information. */
+.pms-chain-dot.is-here {
+    border-width: 2px;
+    border-color: #1e3a72 !important;
+    color: #1e3a72 !important;
+    box-shadow: 0 0 0 4px rgba(30, 58, 114, 0.12);
+    background: #fff;
+}
+
+.pms-chain-dot.is-done {
+    border-color: #1e3a72;
+    background: #1e3a72;
+    color: #fff;
+}
+
+.pms-chain-dot.is-skipped {
+    border-style: dashed;
+    color: rgba(0, 0, 0, 0.25);
+}
+
+.pms-chain .ant-steps-item-finish .ant-steps-item-tail::after {
+    background-color: #1e3a72;
+}
+
+/* A skipped stage is context, not an achievement. */
+.pms-chain .ant-steps-item:has(.is-skipped) .ant-steps-item-title,
+.pms-chain .ant-steps-item:has(.is-skipped) .ant-steps-item-description {
+    color: rgba(0, 0, 0, 0.3) !important;
+    font-style: italic;
+}
+
+@media (max-width: 991px) {
+    .pms-chain .ant-steps-item-description {
+        max-width: none;
+    }
+}
+
+/* --- The OPCR sheet ------------------------------------------------------- */
+/* The same grid the college prints, filled in place. */
+
+/* The grid scrolls inside its own frame so the column headings stay put —
+   twenty-five lines of commitments is a lot to read without them. */
+.pms-sheet-wrap {
+    overflow: auto;
+    max-height: calc(100vh - 340px);
+    min-height: 320px;
+    border: 1px solid #d9d9d9;
+    border-radius: 8px;
+}
+
+.pms-sheet {
+    width: 100%;
+    min-width: 1080px;
+    border-collapse: collapse;
+    font-size: 12.5px;
+    background: #fff;
+}
+
+.pms-sheet th,
+.pms-sheet td {
+    border: 1px solid #d9d9d9;
+    padding: 6px 8px;
+    vertical-align: top;
+    text-align: left;
+}
+
+.pms-sheet th {
+    text-align: center;
+    font-weight: 600;
+    background: #fafafa;
+    position: sticky;
+    z-index: 3;
+    /* A sticky cell keeps no border of its own while scrolling. */
+    box-shadow: inset 0 -1px 0 #d9d9d9, inset 0 1px 0 #d9d9d9;
+}
+
+.pms-sheet thead th {
+    top: 0;
+}
+
+/* Nothing scrolls through the heading band. */
+.pms-sheet thead {
+    background: #fafafa;
+}
+
+
+.pms-sheet-subhead {
+    font-weight: 400;
+    font-size: 11px;
+    color: rgba(0, 0, 0, 0.45);
+}
+
+.pms-sheet-section td {
+    background: #f0f0f0;
+    font-weight: 700;
+    letter-spacing: 0.03em;
+    box-shadow: inset 0 -1px 0 #d9d9d9;
+}
+
+.pms-assigned-targets {
+    margin: 8px 0 0;
+    padding-left: 18px;
+}
+
+.pms-assigned-targets li + li {
+    margin-top: 4px;
+}
+
+/* The item number sits beside its text the way it does on the paper form. */
+.pms-sheet-number {
+    display: flex;
+    gap: 6px;
+}
+
+.pms-sheet-number > span:first-child {
+    color: rgba(0, 0, 0, 0.45);
+    white-space: nowrap;
+}
+
+.pms-sheet-number > *:last-child {
+    flex: 1;
+    min-width: 0;
+}
+
+.pms-sheet-locked {
+    min-height: 20px;
+    white-space: pre-wrap;
+    cursor: default;
+    border-left: 2px solid #1e3a72;
+    padding-left: 6px;
+}
+
+.pms-target-tag {
+    margin: 4px 0 0;
+    font-size: 11px;
+    line-height: 18px;
+    padding-inline: 6px;
+}
+
+.pms-target-select {
+    display: block;
+    width: 100%;
+    margin-top: 4px;
+}
+
+.pms-target-pick {
+    color: #2f54eb;
+}
+
+.pms-sheet-rowtools-divider {
+    display: inline-block;
+    width: 1px;
+    height: 14px;
+    margin: 0 2px;
+    background: rgba(0, 0, 0, 0.12);
+    vertical-align: middle;
+}
+
+.pms-sheet-money .pms-cell,
+.pms-sheet-score {
+    text-align: right;
+}
+
+.pms-sheet-score {
+    text-align: center;
+    color: rgba(0, 0, 0, 0.65);
+}
+
+.pms-sheet-muted {
+    color: rgba(0, 0, 0, 0.65);
+}
+
+.pms-sheet-empty {
+    color: rgba(0, 0, 0, 0.3);
+    font-style: italic;
+}
+
+/* Row tools stay out of the way until the row is under the pointer. */
+.pms-sheet-rowtools {
+    opacity: 0;
+    transition: opacity 0.15s;
+}
+
+.pms-sheet tr:hover .pms-sheet-rowtools,
+.pms-sheet-rowtools:focus-within {
+    opacity: 1;
+}
+
+/* A cell reads as text until you click it, then behaves like a field. */
+.pms-cell {
+    min-height: 20px;
+    white-space: pre-wrap;
+    cursor: text;
+    border-radius: 3px;
+    outline: none;
+}
+
+.pms-cell:not(.is-readonly):hover {
+    box-shadow: inset 0 0 0 1px #d9d9d9;
+}
+
+.pms-cell:focus {
+    box-shadow: inset 0 0 0 2px rgba(30, 58, 114, 0.4);
+}
+
+.pms-cell-empty {
+    color: rgba(0, 0, 0, 0.25);
+}
+
+/* A row that has just appeared, so it is not lost at the foot of a long sheet. */
+@keyframes pms-row-arrived {
+    from { background-color: rgba(30, 58, 114, 0.18); }
+    to   { background-color: transparent; }
+}
+
+.pms-sheet tr.is-new > td {
+    animation: pms-row-arrived 2.2s ease-out;
+}
+
+/* An accountable person opens rather than just reading as text. */
+.pms-person-link {
+    color: #1e3a72;
+    cursor: pointer;
+}
+
+.pms-person-link:hover {
+    text-decoration: underline;
+}
+
+.pms-person-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    cursor: pointer;
+    padding: 1px 5px 1px 1px;
+    border-radius: 999px;
+    transition: background-color 0.15s;
+}
+
+.pms-person-chip:hover {
+    background: rgba(30, 58, 114, 0.08);
+}
+
+.pms-person-open {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    cursor: pointer;
+}
+
+/* The remove sits quiet until you are looking at the person. */
+.pms-person-remove {
+    font-size: 10px;
+    color: rgba(0, 0, 0, 0.3);
+    cursor: pointer;
+    opacity: 0;
+    transition: opacity 0.15s, color 0.15s;
+}
+
+.pms-person-chip:hover .pms-person-remove {
+    opacity: 1;
+}
+
+.pms-person-remove:hover {
+    color: #cf1322;
+}
+
+/* The sheet opened full width: give the grid the whole drawer. */
+.pms-sheet-drawer .ant-drawer-body {
+    padding: 16px;
+}
+
+.pms-sheet-drawer .pms-sheet-wrap {
+    max-height: calc(100vh - 150px);
+}
+
+/* The bands the paper form closes each block with. */
+.pms-sheet-summary td {
+    background: #fafafa;
+    font-weight: 600;
+    font-size: 11.5px;
+    letter-spacing: 0.02em;
+}
+
+.pms-sheet-total td {
+    background: #f0f0f0;
+    font-weight: 700;
+}
+
+/* The college crest on the rail — a light plate keeps the navy shield legible. */
+.pms-brand {
+    overflow: hidden;
+    white-space: nowrap;
+    cursor: pointer;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    transition: background 0.15s;
+}
+
+.pms-brand:hover {
+    background: rgba(255, 255, 255, 0.05);
+}
+
+.pms-brand.is-collapsed {
+    justify-content: center;
+    padding-inline: 0;
+}
+
+.pms-brand-words {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    line-height: 1.25;
+}
+
+.pms-brand-name {
+    font-size: 15px;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+}
+
+.pms-brand-sub {
+    font-size: 10.5px;
+    font-weight: 400;
+    letter-spacing: 0.02em;
+    color: rgba(255, 255, 255, 0.55);
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.pms-brand-logo {
+    flex-shrink: 0;
+    width: 36px;
+    height: 36px;
+    object-fit: contain;
+    background: #fff;
+    border-radius: 8px;
+    padding: 3px;
+}
+
+/* A cell whose save is still travelling. */
+.pms-cell.is-saving {
+    opacity: 0.75;
+}
+
+.pms-cell-spinner {
+    margin-left: 6px;
+    font-size: 11px;
+    color: #1e3a72;
+}
+
+/* --- Progress on the sheets ------------------------------------------------ */
+
+.pms-sheet-progress {
+    min-width: 130px;
+}
+
+.pms-progress {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.pms-progress .ant-progress {
+    margin: 0;
+    line-height: 1;
+}
+
+.pms-progress .ant-progress-inner {
+    border-radius: 6px;
+}
+
+.pms-progress-label {
+    font-size: 11px;
+    font-weight: 600;
+    white-space: nowrap;
+}
+
+.pms-progress[data-done="yes"] .pms-progress-label::after {
+    content: " ✓";
+}
+
+.pms-progress-editable {
+    cursor: pointer;
+    border-radius: 6px;
+    padding: 2px 4px;
+    margin: -2px -4px;
+    transition: background 0.15s;
+}
+
+.pms-progress-editable:hover {
+    background: #f5f5f5;
+}
+
+.pms-status-face {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    line-height: 1;
+}
+
+.pms-status-face .anticon {
+    font-size: 13px;
+}
+
+.pms-status-select .ant-select-selection-item {
+    font-weight: 500;
+}
+
+.pms-status-select .ant-select-item-option-selected .pms-status-face {
+    font-weight: 600;
+}
+
+.pms-delivery-count {
+    font-size: 12px;
+    font-weight: 600;
+    color: #1e3a72;
+}
+
+/* --- Charts ---------------------------------------------------------------- */
+
+.viz-bars,
+.viz-stack {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.viz-bar-row {
+    display: grid;
+    grid-template-columns: minmax(0, 150px) 1fr auto;
+    align-items: center;
+    gap: 10px;
+    min-height: 26px;
+    padding: 2px 4px;
+    border-radius: 6px;
+    transition: background 0.15s;
+}
+
+.viz-bar-row:hover {
+    background: #fafafa;
+}
+
+.viz-bar-label {
+    font-size: 12.5px;
+    color: #52514e;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.viz-bar-track {
+    display: flex;
+    gap: 2px;
+    height: 10px;
+    width: 100%;
+    background: #f0efec;
+    border-radius: 6px;
+    overflow: hidden;
+}
+
+.viz-bar-fill {
+    display: block;
+    height: 100%;
+    border-radius: 4px;
+    transition: width 0.25s ease;
+}
+
+.viz-bar-segment {
+    flex: none;
+}
+
+.viz-bar-value {
+    font-size: 12.5px;
+    font-weight: 600;
+    color: #0b0b0b;
+    font-variant-numeric: tabular-nums;
+    min-width: 34px;
+    text-align: right;
+}
+
+.viz-legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 14px;
+    margin-bottom: 8px;
+}
+
+.viz-legend-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    color: #52514e;
+}
+
+.viz-swatch {
+    width: 10px;
+    height: 10px;
+    border-radius: 3px;
+}
+
+.viz-plot {
+    position: relative;
+    width: 100%;
+}
+
+.viz-plot svg {
+    display: block;
+    overflow: visible;
+}
+
+.viz-tick {
+    font-size: 11px;
+    fill: #898781;
+    font-variant-numeric: tabular-nums;
+}
+
+.viz-point-label {
+    font-size: 11px;
+    font-weight: 600;
+    fill: #52514e;
+}
+
+.viz-tooltip {
+    position: absolute;
+    transform: translate(-50%, -100%);
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 6px 9px;
+    background: #fff;
+    border: 1px solid rgba(11, 11, 11, 0.1);
+    border-radius: 6px;
+    box-shadow: 0 4px 14px rgba(11, 11, 11, 0.12);
+    font-size: 12px;
+    line-height: 1.35;
+    white-space: nowrap;
+    pointer-events: none;
+    z-index: 2;
+}
+
+.viz-tile .ant-card-body {
+    padding: 14px 16px;
+}
+
+.viz-tile-label {
+    font-size: 12px;
+    color: #52514e;
+}
+
+.viz-tile-value {
+    display: flex;
+    align-items: center;
+    margin-top: 2px;
+    font-size: 28px;
+    font-weight: 600;
+    line-height: 1.25;
+    color: #0b0b0b;
+}
+
+.viz-tile-suffix {
+    font-size: 13px;
+    font-weight: 400;
+}
+
+.viz-tile-hint {
+    margin-top: 6px;
+    font-size: 11.5px;
+    color: #898781;
+}
+
+.viz-meter-head {
+    display: flex;
+    justify-content: space-between;
+    gap: 10px;
+    margin-bottom: 5px;
+    font-size: 12px;
+    color: #52514e;
+}
+
+.viz-meter-head strong {
+    color: #0b0b0b;
+    font-variant-numeric: tabular-nums;
+}
+
+.viz-meter + .viz-meter {
+    margin-top: 10px;
+}
+
+.pms-board-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 10px;
+}
+
+.viz-card {
+    height: 100%;
+}
+
+/* --- Movement history ------------------------------------------------------ */
+
+.pms-stages {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.pms-stage {
+    position: relative;
+    flex: 1 1 116px;
+    min-width: 116px;
+    padding: 8px 10px;
+    border: 1px solid #f0f0f0;
+    border-radius: 8px;
+    background: #fafafa;
+    font-size: 12.5px;
+}
+
+.pms-stage strong {
+    display: block;
+    color: #0b0b0b;
+    font-variant-numeric: tabular-nums;
+}
+
+.pms-stage-label {
+    display: block;
+    font-size: 11px;
+    color: #898781;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+.pms-stage-gap {
+    position: absolute;
+    top: 6px;
+    right: 8px;
+    font-size: 11px;
+    color: #898781;
+    font-variant-numeric: tabular-nums;
+}
+
+.pms-stage-total {
+    background: #eef3fc;
+    border-color: #c4d3f0;
+}
+
+.pms-history .ant-timeline {
+    margin-top: 4px;
+}
+
+.pms-history-day {
+    margin: 2px 0 6px;
+    font-size: 11.5px;
+    font-weight: 600;
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
+    color: #898781;
+}
+
+.pms-history-day-dot {
+    display: block;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: #d9d9d9;
+}
+
+.pms-history-detail {
+    margin-top: 2px;
+    font-size: 13px;
+    color: #52514e;
+}
+
+/* --- Notifications --------------------------------------------------------- */
+
+.pms-bell-panel {
+    width: 380px;
+    max-width: 92vw;
+}
+
+.pms-bell-head,
+.pms-bell-foot {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 14px;
+}
+
+.pms-bell-head {
+    border-bottom: 1px solid #f0f0f0;
+}
+
+.pms-bell-foot {
+    justify-content: center;
+    border-top: 1px solid #f0f0f0;
+}
+
+.pms-bell-list {
+    max-height: 60vh;
+    overflow-y: auto;
+    padding: 6px;
+}
+
+.pms-note {
+    position: relative;
+    display: flex;
+    gap: 10px;
+    width: 100%;
+    padding: 10px 12px;
+    border: 0;
+    border-radius: 8px;
+    background: transparent;
+    text-align: left;
+    cursor: pointer;
+    transition: background 0.15s;
+}
+
+.pms-note:hover {
+    background: #f5f5f5;
+}
+
+.pms-note.is-unread {
+    background: #f2f7fc;
+}
+
+.pms-note.is-unread:hover {
+    background: #e9f1fa;
+}
+
+.pms-note-row {
+    align-items: flex-start;
+    padding: 12px;
+    border-bottom: 1px solid #f5f5f5;
+    border-radius: 0;
+}
+
+.pms-note-row:last-of-type {
+    border-bottom: 0;
+}
+
+.pms-note-icon {
+    flex: none;
+    font-size: 16px;
+    line-height: 1.4;
+}
+
+.pms-note-avatar {
+    position: relative;
+    flex: none;
+}
+
+.pms-note-badge {
+    position: absolute;
+    right: -4px;
+    bottom: -3px;
+    display: grid;
+    place-items: center;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: #fff;
+    box-shadow: 0 0 0 1px #f0f0f0;
+    font-size: 10px;
+}
+
+.pms-note-body {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+    flex: 1;
+}
+
+.pms-note-title {
+    font-weight: 600;
+    color: #0b0b0b;
+    line-height: 1.4;
+}
+
+.pms-note-text {
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    color: #52514e;
+    font-size: 13px;
+    line-height: 1.45;
+}
+
+.pms-note-meta {
+    color: #898781;
+    font-size: 11.5px;
+}
+
+.pms-note-dot {
+    flex: none;
+    align-self: center;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #2a78d6;
+}
+
+.pms-note-day {
+    margin: 14px 0 4px;
+    font-size: 11.5px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: #898781;
+}
+
+.pms-note-day:first-child {
+    margin-top: 0;
+}
+
+/* --- The sidebar rail ------------------------------------------------------ */
+
+.pms-shell > .ant-layout-sider {
+    position: sticky;
+    top: 0;
+    height: 100vh;
+}
+
+.pms-shell .ant-layout-sider-children {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+}
+
+.pms-sider {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-height: 0;
+}
+
+.pms-sider-nav {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-width: thin;
+    scrollbar-color: transparent transparent;
+    scrollbar-gutter: stable;
+}
+
+.pms-sider-nav:hover,
+.pms-sider-nav:focus-within {
+    scrollbar-color: rgba(255, 255, 255, 0.28) transparent;
+}
+
+.pms-sider-nav::-webkit-scrollbar {
+    width: 6px;
+}
+
+.pms-sider-nav::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.pms-sider-nav::-webkit-scrollbar-thumb {
+    background: transparent;
+    border-radius: 999px;
+}
+
+.pms-sider-nav:hover::-webkit-scrollbar-thumb,
+.pms-sider-nav:focus-within::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.28);
+}
+
+.pms-sider-nav::before,
+.pms-sider-nav::after {
+    content: "";
+    display: block;
+    position: sticky;
+    left: 0;
+    right: 0;
+    height: 14px;
+    pointer-events: none;
+    z-index: 1;
+}
+
+.pms-sider-nav::before {
+    top: 0;
+    margin-bottom: -14px;
+    background: linear-gradient(#001529, rgba(0, 21, 41, 0));
+}
+
+.pms-sider-nav::after {
+    bottom: 0;
+    margin-top: -14px;
+    background: linear-gradient(rgba(0, 21, 41, 0), #001529);
+}
+
+.pms-sider-foot {
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
+    padding-bottom: 48px;
+}
+
+.pms-sider-cycle {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    padding: 10px 16px 8px;
+    font-size: 11px;
+    line-height: 1.35;
+    color: rgba(255, 255, 255, 0.45);
+}
+
+.pms-sider-cycle span {
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.pms-sider-cycle strong {
+    color: rgba(255, 255, 255, 0.85);
+    font-size: 12.5px;
+    font-weight: 600;
+}
+
+.pms-sider-user {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 16px;
+    cursor: pointer;
+    transition: background 0.15s;
+}
+
+.pms-sider-user:hover {
+    background: rgba(255, 255, 255, 0.06);
+}
+
+.pms-sider-who {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    line-height: 1.3;
+}
+
+.pms-sider-name {
+    color: #fff;
+    font-size: 13px;
+    font-weight: 600;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.pms-sider-role {
+    color: rgba(255, 255, 255, 0.5);
+    font-size: 11.5px;
+}
+
+.pms-sider-foot .ant-menu {
+    background: transparent;
+}
+
+.pms-sider-foot .ant-menu-item {
+    margin-block: 2px;
+}
+
+/* --- The top bar ----------------------------------------------------------- */
+
+.pms-header {
+    position: sticky;
+    top: 0;
+    z-index: 20;
+}
+
+.pms-header-title {
+    display: flex;
+    flex-direction: column;
+    line-height: 1.25;
+    min-width: 0;
+}
+
+.pms-header-org {
+    font-size: 14.5px;
+    font-weight: 700;
+    color: #0b0b0b;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.pms-header-sub {
+    font-size: 11.5px;
+    color: #898781;
+    letter-spacing: 0.02em;
+}
+
+.pms-header-cycle {
+    background: #eef3fc;
+    color: #1e3a72;
+    font-weight: 600;
+    font-size: 12px;
+    padding-inline: 10px;
+}
+
+@media (max-width: 640px) {
+    .pms-header-sub,
+    .pms-header-cycle {
+        display: none;
+    }
+}
+
+/* The rail when it is minimised: icons only, but nothing lost. */
+.ant-layout-sider-collapsed .pms-brand-logo {
+    width: 34px;
+    height: 34px;
+}
+
+.ant-layout-sider-collapsed .pms-sider-nav .anticon,
+.ant-layout-sider-collapsed .pms-sider-foot .anticon {
+    font-size: 17px;
+}
+
+.pms-sider-user.is-collapsed {
+    justify-content: center;
+    padding: 12px 0 10px;
+}
+
+.ant-layout-sider-collapsed .pms-sider-foot {
+    padding-top: 2px;
+}
+
+/* Collapsed, the count has nowhere to sit — a dot on the bell carries it. */
+.ant-layout-sider-collapsed .pms-has-unread .anticon {
+    position: relative;
+    overflow: visible;
+}
+
+.ant-layout-sider-collapsed .pms-has-unread .anticon::after {
+    content: "";
+    position: absolute;
+    top: -2px;
+    right: -4px;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #ff4d4f;
+    box-shadow: 0 0 0 2px #001529;
+}
