@@ -25,6 +25,21 @@ if [ ! -f storage/oauth-private.key ]; then
     php artisan passport:keys --force
 fi
 
+if ! php -r '
+require "vendor/autoload.php";
+$app = require "bootstrap/app.php";
+$kernel = $app->make(Illuminate\Contracts\Console\Kernel::class);
+$kernel->bootstrap();
+try {
+    app(Laravel\Passport\ClientRepository::class)->personalAccessClient(config("auth.guards.api.provider"));
+    exit(0);
+} catch (RuntimeException $e) {
+    exit(1);
+}
+'; then
+    php artisan passport:client --personal --name="OCC PMS" --provider=users
+fi
+
 php artisan storage:link || true
 
 exec php artisan serve --host=0.0.0.0 --port="${PORT:-10000}"
