@@ -35,9 +35,22 @@ import UserAvatar from "~/components/UserAvatar";
 import { usePerson } from "~/hooks/usePerson";
 import { toPlainText } from "~/components/RichTextView";
 import ProgressCell from "~/components/ProgressCell";
-import { ADJECTIVAL_COLORS, DELAY_META, NARRATIVE_MAX, SECTION_LABELS } from "~/utils/constants";
+import { ADJECTIVAL_COLORS, DELAY_META, NARRATIVE_MAX, RATING_LEGEND, SECTION_LABELS } from "~/utils/constants";
 
 const SECTIONS = ["strategic", "core", "support"];
+
+const SCORE_OPTIONS = RATING_LEGEND.map((band) => ({
+    value: band.value,
+    label: String(band.value),
+}));
+
+function averageOf(row) {
+    const given = [row?.q, row?.e, row?.t].filter((value) => value != null);
+
+    if (given.length === 0) return null;
+
+    return (given.reduce((sum, value) => sum + value, 0) / given.length).toFixed(2);
+}
 
 export default function IpcrSheet({
     form,
@@ -46,6 +59,7 @@ export default function IpcrSheet({
     canRecordProgress,
     canAssign,
     canAssignHeadings,
+    canScore = false,
     opcrTargets = [],
     summary,
     onAddOutput,
@@ -57,8 +71,54 @@ export default function IpcrSheet({
     const [assigning, setAssigning] = useState(null);
     const [picked, setPicked] = useState([]);
     const { openPerson } = usePerson();
+    const [draftScores, setDraftScores] = useState({});
 
     const refresh = () => queryClient.invalidateQueries({ queryKey: ["pcr-form", String(form.id)] });
+
+    useEffect(() => {
+        const next = {};
+
+        form.outputs?.forEach((output) => {
+            output.indicators?.forEach((line) => {
+                const rating = (line.ratings ?? []).find((row) => row.rating_period_id === periodId);
+                next[line.id] = {
+                    q: rating?.q ?? null,
+                    e: rating?.e ?? null,
+                    t: rating?.t ?? null,
+                    remarks: rating?.remarks ?? "",
+                };
+            });
+        });
+
+        setDraftScores(next);
+    }, [form, periodId]);
+
+    const saveScore = (lineId, dimension, value) => {
+        const current = draftScores[lineId] ?? { q: null, e: null, t: null, remarks: "" };
+        const next = { ...current, [dimension]: value ?? null };
+
+        setDraftScores((prev) => ({ ...prev, [lineId]: next }));
+
+        if (!canScore || !periodId) return;
+
+        api.post("pcr-ratings", {
+            form_id: form.id,
+            rating_period_id: periodId,
+            ratings: [
+                {
+                    indicator_id: lineId,
+                    q: next.q,
+                    e: next.e,
+                    t: next.t,
+                    remarks: next.remarks,
+                },
+            ],
+        })
+            .then(() => refresh())
+            .catch((error) => {
+                message.error(error.response?.data?.message ?? "The score could not be saved.");
+            });
+    };
 
     const { data: people = [] } = useQuery({
         queryKey: ["assignable-users"],
@@ -205,10 +265,23 @@ export default function IpcrSheet({
         return null;
     }, [openLineId, form.outputs]);
 
-    const accountableFor = (indicator) =>
-        (indicator.children ?? [])
-            .filter((c) => c.output?.form?.owner)
-            .map((c) => ({ ...c.output.form.owner, childId: c.id }));
+    const accountableFor = (indicator) => {
+        const assigned = (indicator.assignments ?? [])
+            .filter((row) => row.user)
+            .map((row) => ({ ...row.user, assignmentId: row.id, assigned: true }));
+
+        const already = new Set(assigned.map((person) => person.id));
+
+        const fromChildren = (indicator.children ?? [])
+            .filter((c) => c.output?.form?.owner && !already.has(c.output.form.owner.id))
+            .map((c) => ({
+                ...c.output.form.owner,
+                childId: c.id,
+                assigned: Boolean(c.assigned_by),
+            }));
+
+        return [...assigned, ...fromChildren];
+    };
 
     const anyDelegated = (form.outputs ?? []).some((o) =>
         (o.indicators ?? []).some((i) => accountableFor(i).length > 0)
@@ -251,11 +324,16 @@ export default function IpcrSheet({
             const lines = output.lines;
             const span = Math.max(lines.length, 1);
             const fromCollege = Boolean(output.parent_output_id && output.assigned_by);
+            const handed = opcrTargets.filter((t) => t.assigned);
             const targets =
                 section === "support"
-                    ? []
+                    ? handed.filter((t) => t.section === "support")
                     : fromCollege
-                      ? opcrTargets.filter((t) => t.output_id === output.parent_output_id)
+                      ? opcrTargets.filter(
+                            (t) =>
+                                t.output_id === output.parent_output_id ||
+                                (t.assigned && t.section !== "support")
+                        )
                       : opcrTargets;
 
             const outputCell = (
@@ -333,14 +411,17 @@ export default function IpcrSheet({
                                             }
                                         />
                                     </Tooltip>
-                                    {!fromCollege && (
-                                        <Popconfirm
-                                            title="Remove this MFO/PPA and its lines?"
-                                            onConfirm={() => removeOutput.mutate(output.id)}
-                                        >
-                                            <Button size="small" type="text" danger icon={<DeleteOutlined />} />
-                                        </Popconfirm>
-                                    )}
+                                    <Popconfirm
+                                        title="Remove this MFO/PPA and its lines?"
+                                        description={
+                                            fromCollege
+                                                ? "This was handed down from the OPCR. Removing it takes it off your IPCR."
+                                                : undefined
+                                        }
+                                        onConfirm={() => removeOutput.mutate(output.id)}
+                                    >
+                                        <Button size="small" type="text" danger icon={<DeleteOutlined />} />
+                                    </Popconfirm>
                                 </>
                             )}
                         </Space>
@@ -428,7 +509,7 @@ export default function IpcrSheet({
                                                     </Tooltip>
                                                 </>
                                             ) : (
-                                                <Tooltip title="Pick from the OPCR">
+                                                <Tooltip title="Choose the target this line answers">
                                                     <Button
                                                         size="small"
                                                         type="text"
@@ -505,15 +586,23 @@ export default function IpcrSheet({
                             <ProgressCell
                                 status={line.progress_status ?? "not_started"}
                                 pct={line.progress_pct ?? 0}
-                                computed={(line.children ?? []).length > 0}
+                                computed
+                                computedHint={
+                                    (line.children ?? []).length > 0
+                                        ? "Rolled up from the commitments written against this line."
+                                        : "100% once the actual accomplishment is written and a file is attached."
+                                }
                             />
                         </td>
 
                         {showAccountable && (
                             <td>
                                 <Space size={4} wrap>
-                                    {handedTo.map((person) => (
-                                        <span key={person.childId} className="pms-person-chip">
+                                    {handedTo.map((person) => {
+                                        const withdrawId = person.assignmentId ?? person.childId;
+
+                                        return (
+                                        <span key={`${person.id}-${withdrawId ?? "name"}`} className="pms-person-chip">
                                             <span
                                                 className="pms-person-open"
                                                 onClick={() => openPerson(person.id)}
@@ -521,17 +610,18 @@ export default function IpcrSheet({
                                                 <UserAvatar user={person} size={18} showTooltip={false} />
                                                 <span className="pms-person-link">{person.name}</span>
                                             </span>
-                                            {canAssign && (
+                                            {canAssign && person.assigned && withdrawId && (
                                                 <Popconfirm
                                                     title={`Take this line back from ${person.name}?`}
                                                     description="Only possible while they have not worked on it."
-                                                    onConfirm={() => withdraw.mutate(person.childId)}
+                                                    onConfirm={() => withdraw.mutate(withdrawId)}
                                                 >
                                                     <CloseOutlined className="pms-person-remove" />
                                                 </Popconfirm>
                                             )}
                                         </span>
-                                    ))}
+                                        );
+                                    })}
                                     {handedTo.length === 0 && (
                                         <Tag style={{ margin: 0 }}>Mine</Tag>
                                     )}
@@ -569,11 +659,28 @@ export default function IpcrSheet({
                             />
                         </td>
 
-                        <td className="pms-sheet-score">{rating?.q ?? ""}</td>
-                        <td className="pms-sheet-score">{rating?.e ?? ""}</td>
-                        <td className="pms-sheet-score">{rating?.t ?? ""}</td>
+                        {["q", "e", "t"].map((dimension) => (
+                            <td key={dimension} className="pms-sheet-score">
+                                {canScore ? (
+                                    <Select
+                                        size="small"
+                                        style={{ width: 64 }}
+                                        allowClear
+                                        value={draftScores[line.id]?.[dimension] ?? undefined}
+                                        options={SCORE_OPTIONS}
+                                        onChange={(value) => saveScore(line.id, dimension, value)}
+                                    />
+                                ) : (
+                                    rating?.[dimension] ?? ""
+                                )}
+                            </td>
+                        ))}
                         <td className="pms-sheet-score">
-                            {rating?.a != null ? Number(rating.a).toFixed(2) : ""}
+                            {canScore
+                                ? averageOf(draftScores[line.id]) ?? ""
+                                : rating?.a != null
+                                  ? Number(rating.a).toFixed(2)
+                                  : ""}
                         </td>
                     </tr>
                 );
@@ -635,9 +742,9 @@ export default function IpcrSheet({
                             <th style={{ width: 140 }}>Progress</th>
                             {showAccountable && <th style={{ width: 180 }}>Accountable</th>}
                             <th style={{ width: 240 }}>Actual Accomplishments</th>
-                            <th style={{ width: 38 }} title="Quality">Q</th>
-                            <th style={{ width: 38 }} title="Efficiency">E</th>
-                            <th style={{ width: 38 }} title="Timeliness">T</th>
+                            <th style={{ width: canScore ? 76 : 38 }} title="Quality">Q</th>
+                            <th style={{ width: canScore ? 76 : 38 }} title="Efficiency">E</th>
+                            <th style={{ width: canScore ? 76 : 38 }} title="Timeliness">T</th>
                             <th style={{ width: 46 }} title="Average">A</th>
                         </tr>
                     </thead>

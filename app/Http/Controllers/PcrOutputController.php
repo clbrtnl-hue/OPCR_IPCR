@@ -3,7 +3,9 @@
 namespace App\Http\Controllers;
 
 use App\Models\PcrForm;
+use App\Models\PcrIndicator;
 use App\Models\PcrOutput;
+use App\Models\PcrTargetAssignment;
 use App\Services\PcrWorkflow;
 use App\Support\Html;
 use Illuminate\Http\Request;
@@ -119,10 +121,14 @@ class PcrOutputController extends Controller
             ], 409);
         }
 
-        if ($output->parent_output_id && $output->assigned_by) {
-            return response()->json([
-                'message' => 'This MFO/PPA was handed down from the college OPCR. Whoever assigned it can withdraw it.',
-            ], 409);
+        // A heading handed down from the OPCR still belongs on this IPCR only
+        // while the owner wants it. Deleting it takes their copy off the form.
+        if ($output->parent_output_id && $output->form->user_id) {
+            $parentLineIds = PcrIndicator::where('output_id', $output->parent_output_id)->pluck('id');
+
+            PcrTargetAssignment::whereIn('indicator_id', $parentLineIds)
+                ->where('user_id', $output->form->user_id)
+                ->delete();
         }
 
         $nested = PcrOutput::where('parent_output_id', $output->id)

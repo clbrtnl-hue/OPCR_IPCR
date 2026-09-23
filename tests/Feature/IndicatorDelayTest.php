@@ -3,6 +3,8 @@
 namespace Tests\Feature;
 
 use App\Models\PcrIndicator;
+use App\Models\SchoolYear;
+use App\Services\IndicatorProgressService;
 use Tests\PmsTestCase;
 
 /**
@@ -68,23 +70,21 @@ class IndicatorDelayTest extends PmsTestCase
     public function test_completing_a_task_stamps_the_delivery_date(): void
     {
         $indicator = $this->indicator(['target_date' => now()->addDay()->toDateString()]);
-        $owner     = $indicator->output->form->owner
-            ?? $this->actingAsRole('admin');
+        $this->makePeriod(SchoolYear::find($indicator->output->form->school_year_id));
 
-        $this->actingAsRole('admin');
+        $finished = $this->documentLine($indicator);
 
-        $this->postJson("/api/pcr-indicators/{$indicator->id}/progress", [
-            'progress_status' => 'completed',
-        ])->assertSuccessful();
+        $this->assertNotNull($finished->completed_on);
 
-        $this->assertNotNull($indicator->fresh()->completed_on);
+        // Taking the file back clears the stamp, so it is not judged against a stale date.
+        $finished->accomplishments->each(function ($record) {
+            $record->attachments()->delete();
+            $record->update(['actual_accomplishment' => null]);
+        });
 
-        // Reopening it clears the stamp, so it is not judged against a stale date.
-        $this->postJson("/api/pcr-indicators/{$indicator->id}/progress", [
-            'progress_status' => 'ongoing', 'progress_pct' => 50,
-        ])->assertSuccessful();
+        app(IndicatorProgressService::class)->syncFromRecord($finished->fresh());
 
-        $this->assertNull($indicator->fresh()->completed_on);
+        $this->assertNull($finished->fresh()->completed_on);
     }
 
     public function test_the_target_date_is_saved_with_the_line(): void

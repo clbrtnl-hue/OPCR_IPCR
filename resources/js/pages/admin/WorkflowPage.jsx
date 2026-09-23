@@ -215,7 +215,7 @@ export default function WorkflowPage() {
                             mode="multiple"
                             style={{ width: "100%" }}
                             value={delegation.assign_indicators ?? []}
-                            options={actingRoleOptions}
+                            options={roleOptions}
                             onChange={(v) => put("delegation", { ...delegation, assign_indicators: v })}
                         />
                     </Col>

@@ -12,6 +12,7 @@ use Barryvdh\DomPDF\Facade\Pdf;
 use App\Models\OrgUnit;
 use App\Models\PcrAccomplishment;
 use App\Models\PcrForm;
+use App\Models\PcrTargetAssignment;
 use App\Models\PcrIndicator;
 use App\Models\PcrOutput;
 use App\Models\PcrPeriodSummary;
@@ -47,7 +48,11 @@ class ReportController extends Controller
     {
         $data = ['school_year_id' => $yearId];
 
-        $forms = PcrForm::with(['orgUnit:id,name,code', 'owner:id,name,image,position_title,role'])
+        $forms = PcrForm::with([
+            'orgUnit:id,name,code',
+            'owner:id,name,image,position_title,role,org_unit_id',
+            'owner.orgUnit:id,name,code',
+        ])
             ->where('school_year_id', $data['school_year_id'])
             ->when(
                 $periodId,
@@ -97,6 +102,12 @@ class ReportController extends Controller
 
             $average = RatingScale::mean($scores);
             $lines   = $work['leaves']->whereIn('form_id', $unitForms->pluck('id'));
+            // Each person on the unit counts once, so one faculty member's four
+            // lines at a single finish read as 25%, not as four separate votes
+            // mixed with everyone else's lines.
+            $personAverages = $lines
+                ->groupBy(fn ($line) => $line['user_id'] ?: 'form-' . $line['form_id'])
+                ->map(fn ($group) => (int) round($group->avg('progress_pct')));
 
             return [
                 'id'            => $unit->id,
@@ -111,12 +122,15 @@ class ReportController extends Controller
                 'average'       => $average,
                 'adjectival'    => RatingScale::adjectival($average),
                 'commitments'   => $lines->count(),
-                'progress_pct'  => $lines->count() ? (int) round($lines->avg('progress_pct')) : null,
+                'progress_pct'  => $personAverages->count() ? (int) round($personAverages->avg()) : null,
                 'overdue'       => $lines->where('is_overdue', true)->count(),
             ];
         });
 
-        $units = $units->values();
+        // A VP office often has no forms of its own. Its number is the work
+        // filed on it (a secretary sitting there) averaged with each child
+        // unit, so faculty progress climbs to the dean, the VP, and the President.
+        $units = $this->rollProgressUp($units);
 
         $collegeScores = $summaries->pluck('final_average')->values()->all();
         $collegeMean   = RatingScale::mean($collegeScores);
@@ -155,9 +169,13 @@ class ReportController extends Controller
             'dimensions'  => $this->dimensionsFor($work['leaves'], $periodId),
             'evidence'    => $this->evidenceFor($work['leaves'], $periodId),
             'deadlines'   => $this->deadlinesFor($forms, $year, $periodId),
-            'forms'       => $this->formRowsFor($forms, $summaries, $work['leaves']),
+            'forms'       => $this->formRowsFor($forms, $summaries, $work['leaves'], $units),
             'commitments' => $work['leaves']->values()->all(),
-            'people'      => $this->peopleFor($forms, $summaries, $work['leaves']),
+            'people'      => $this->applySupervisorProgress(
+                $this->peopleFor($forms, $summaries, $work['leaves']),
+                $units,
+                $orgUnits
+            ),
             'heads'       => $this->headsFor($units, $orgUnits),
         ];
     }
@@ -428,25 +446,37 @@ class ReportController extends Controller
         ];
     }
 
-    private function formRowsFor($forms, $summaries, $leaves): array
+    private function formRowsFor($forms, $summaries, $leaves, $units): array
     {
+        $president = User::with('orgUnit:id,name,code')->where('role', 'president')->first();
+        $rolled    = collect($units)->keyBy('id');
+
         return $forms
             ->sortBy(fn ($form) => [$form->orgUnit?->name, $form->owner?->name])
-            ->map(function ($form) use ($summaries, $leaves) {
+            ->map(function ($form) use ($summaries, $leaves, $president, $rolled) {
                 $summary = $summaries[$form->id] ?? null;
                 $lines   = $leaves->where('form_id', $form->id);
+                $isOpcr  = $form->type === 'opcr';
 
                 return [
                     'id'           => $form->id,
                     'type'         => strtoupper($form->type),
-                    'owner'        => $form->owner?->name ?? $form->orgUnit?->name,
-                    'unit'         => $form->orgUnit?->name,
-                    'unit_code'    => $form->orgUnit?->code,
+                    'owner'        => $isOpcr
+                        ? ($president?->name ?? $form->orgUnit?->name)
+                        : ($form->owner?->name ?? $form->orgUnit?->name),
+                    'unit'         => $isOpcr
+                        ? ($president?->orgUnit?->name ?? $form->orgUnit?->name)
+                        : $form->orgUnit?->name,
+                    'unit_code'    => $isOpcr
+                        ? ($president?->orgUnit?->code ?? $form->orgUnit?->code)
+                        : $form->orgUnit?->code,
                     'status'       => $form->status,
                     'submitted_at' => $form->submitted_at?->toDateString(),
                     'rated_at'     => $form->rated_at?->toDateString(),
                     'commitments'  => $lines->count(),
-                    'progress_pct' => $lines->count() ? (int) round($lines->avg('progress_pct')) : null,
+                    'progress_pct' => $isOpcr
+                        ? ($rolled[$form->org_unit_id]['progress_pct'] ?? null)
+                        : ($lines->count() ? (int) round($lines->avg('progress_pct')) : null),
                     'overdue'      => $lines->where('is_overdue', true)->count(),
                     'strategic'    => $summary?->strategic_average !== null ? (float) $summary->strategic_average : null,
                     'core'         => $summary?->core_average !== null ? (float) $summary->core_average : null,
@@ -462,7 +492,7 @@ class ReportController extends Controller
     private function peopleFor($forms, $summaries, $leaves): array
     {
         return $forms
-            ->filter(fn ($form) => $form->user_id && $form->owner)
+            ->filter(fn ($form) => $form->user_id && $form->owner && $form->owner->role !== 'president')
             ->groupBy('user_id')
             ->map(function ($theirs) use ($summaries, $leaves) {
                 $owner  = $theirs->first()->owner;
@@ -478,8 +508,8 @@ class ReportController extends Controller
                     'name'         => $owner->name,
                     'position'     => $owner->position_title,
                     'role'         => $owner->role,
-                    'unit'         => $theirs->first()->orgUnit?->name,
-                    'unit_code'    => $theirs->first()->orgUnit?->code,
+                    'unit'         => $owner->orgUnit?->name ?? $theirs->first()->orgUnit?->name,
+                    'unit_code'    => $owner->orgUnit?->code ?? $theirs->first()->orgUnit?->code,
                     'forms'        => $theirs->count(),
                     'submitted'    => $theirs->where('status', '!=', 'draft')->count(),
                     'commitments'  => $lines->count(),
@@ -494,6 +524,110 @@ class ReportController extends Controller
             ->sortBy('name')
             ->values()
             ->all();
+    }
+
+    /**
+     * A dean's number is the office they head, already rolled up through the
+     * faculty on it. A VP's number is the office they review, which already
+     * includes each college. Someone who is neither keeps the average of
+     * their own lines.
+     */
+    private function applySupervisorProgress(array $people, $units, $orgUnits): array
+    {
+        $rolled = collect($units)->keyBy('id');
+        $byId   = $orgUnits->keyBy('id');
+
+        return array_map(function (array $person) use ($rolled, $orgUnits, $byId) {
+            $overseen = $orgUnits->filter(
+                fn ($unit) => (int) $unit->head_user_id === (int) $person['id']
+                    || (int) $unit->vp_user_id === (int) $person['id']
+            );
+
+            if ($overseen->isEmpty()) {
+                return $person;
+            }
+
+            $ids = $overseen->pluck('id')->map(fn ($id) => (int) $id)->all();
+
+            $tops = $overseen->filter(function ($unit) use ($ids, $byId) {
+                $parent = $unit->parent_id ? (int) $unit->parent_id : null;
+
+                while ($parent && $byId->has($parent)) {
+                    if (in_array($parent, $ids, true)) {
+                        return false;
+                    }
+
+                    $parent = $byId[$parent]->parent_id ? (int) $byId[$parent]->parent_id : null;
+                }
+
+                return true;
+            });
+
+            $pcts = $tops
+                ->map(fn ($unit) => $rolled[$unit->id]['progress_pct'] ?? null)
+                ->filter(fn ($pct) => $pct !== null)
+                ->values();
+
+            if ($pcts->isNotEmpty()) {
+                $person['progress_pct'] = (int) round($pcts->avg());
+            }
+
+            return $person;
+        }, $people);
+    }
+
+    /**
+     * Each child unit counts once, already rolled up, so a line is not averaged
+     * again at every level above it. A unit with no lines and no working
+     * children stays blank rather than reading as zero.
+     */
+    private function rollProgressUp($units)
+    {
+        $byId = $units->keyBy('id');
+        $childrenOf = [];
+
+        foreach ($units as $unit) {
+            $parentId = $unit['parent_id'] ?? null;
+
+            if ($parentId && (int) $parentId !== (int) $unit['id'] && $byId->has($parentId)) {
+                $childrenOf[$parentId][] = $unit['id'];
+            }
+        }
+
+        $rolled = [];
+
+        $visit = function (int $id, array $stack) use (&$visit, &$rolled, $byId, $childrenOf) {
+            if (array_key_exists($id, $rolled)) {
+                return $rolled[$id];
+            }
+
+            if (isset($stack[$id])) {
+                return $byId[$id]['progress_pct'];
+            }
+
+            $stack[$id] = true;
+            $parts = [];
+
+            if ($byId[$id]['progress_pct'] !== null) {
+                $parts[] = $byId[$id]['progress_pct'];
+            }
+
+            foreach ($childrenOf[$id] ?? [] as $childId) {
+                $child = $visit((int) $childId, $stack);
+
+                if ($child !== null) {
+                    $parts[] = $child;
+                }
+            }
+
+            return $rolled[$id] = $parts === [] ? null : (int) round(array_sum($parts) / count($parts));
+        };
+
+        return $units->map(function (array $unit) use ($visit) {
+            $unit['progress_pct'] = $visit((int) $unit['id'], []);
+
+            return $unit;
+        })->values();
     }
 
     private function headsFor($units, $orgUnits): array
@@ -550,12 +684,16 @@ class ReportController extends Controller
             ->pluck('parent_indicator_id')
             ->flip();
 
+        $assigned = PcrTargetAssignment::whereIn('indicator_id', $indicators->pluck('id'))
+            ->pluck('indicator_id')
+            ->flip();
+
         $outputById = $outputs->keyBy('id');
         $formById   = $forms->keyBy('id');
         $today      = now()->startOfDay();
 
         $leaves = $indicators
-            ->reject(fn ($line) => $parents->has($line->id))
+            ->reject(fn ($line) => $parents->has($line->id) || $assigned->has($line->id))
             ->map(function ($line) use ($outputById, $formById, $today) {
                 $output = $outputById[$line->output_id] ?? null;
                 $form   = $output ? ($formById[$output->form_id] ?? null) : null;
@@ -565,6 +703,7 @@ class ReportController extends Controller
                 return [
                     'id'             => $line->id,
                     'form_id'        => $form?->id,
+                    'user_id'        => $form?->user_id,
                     'unit_id'        => $form?->org_unit_id,
                     'section'        => $output?->section,
                     'description'    => Html::toText($line->description),
@@ -895,9 +1034,12 @@ class ReportController extends Controller
     {
         $done = $leaves->where('progress_status', 'completed');
 
+        $awaitingFile = $this->awaitingFileCount($leaves, $periodId);
+
         $blank = [
             'completed' => 0, 'compliant' => 0, 'pct' => null,
             'missing_evidence' => 0, 'blank_narrative' => 0, 'no_accomplishment' => 0,
+            'awaiting_file' => $awaitingFile,
             'attachments' => 0, 'units' => [], 'gaps' => [],
         ];
 
@@ -956,6 +1098,7 @@ class ReportController extends Controller
             'missing_evidence'  => $rows->where('missing_evidence', true)->count(),
             'blank_narrative'   => $rows->where('blank_narrative', true)->count(),
             'no_accomplishment' => $rows->where('no_accomplishment', true)->count(),
+            'awaiting_file'     => $awaitingFile,
             'attachments'       => (int) $rows->sum('attachments'),
             'units'             => $units,
             'gaps'              => $rows
@@ -964,6 +1107,30 @@ class ReportController extends Controller
                 ->values()
                 ->all(),
         ];
+    }
+
+    /**
+     * A written accomplishment with no file is not progress yet. Count the
+     * lines, not only the ones already marked completed.
+     */
+    private function awaitingFileCount($leaves, ?int $periodId): int
+    {
+        if ($leaves->isEmpty()) {
+            return 0;
+        }
+
+        $records = PcrAccomplishment::whereIn('indicator_id', $leaves->pluck('id'))
+            ->when($periodId, fn ($q, $p) => $q->where('rating_period_id', $p))
+            ->withCount('attachments')
+            ->get(['id', 'indicator_id', 'actual_accomplishment'])
+            ->groupBy('indicator_id');
+
+        return $leaves->filter(function ($line) use ($records) {
+            return ($records[$line['id']] ?? collect())->contains(
+                fn ($record) => ! Html::isBlank($record->actual_accomplishment)
+                    && (int) $record->attachments_count === 0
+            );
+        })->count();
     }
 
     private function deadlinesFor($forms, ?SchoolYear $year, ?int $periodId): array

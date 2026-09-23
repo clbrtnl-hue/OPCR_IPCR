@@ -93,7 +93,7 @@ export default function AppRoutes() {
                                 <Route
                                     path="/rating"
                                     element={
-                                        <Protected roles={["qa"]}>
+                                        <Protected roles={["qa", "program_head", "vp", "admin"]}>
                                             <RatingPage />
                                         </Protected>
                                     }

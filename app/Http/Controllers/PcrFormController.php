@@ -10,6 +10,7 @@ use App\Models\PcrComment;
 use App\Models\PcrForm;
 use App\Models\PcrIndicator;
 use App\Models\PcrOutput;
+use App\Models\PcrRating;
 use App\Models\RatingPeriod;
 use App\Models\PcrStatusLog;
 use App\Models\PcrTargetAssignment;
@@ -102,9 +103,11 @@ class PcrFormController extends Controller
                         ->where('actual_accomplishment', '!=', ''),
                     'attachments as attachments_count',
                 ]),
-            'outputs.indicators.children.output.form.owner:id,name,position_title,image',
+            'outputs.indicators.children.output.form.owner:id,name,position_title,image,role',
             'outputs.indicators.assignments.user:id,name,position_title,image',
         ]);
+
+        $this->hidePresidentZeroOnHisOpcr($form);
 
         $form->outputs->loadCount([
             'childOutputs as nested_outputs_count' => fn ($q) => $q->where('form_id', $form->id),
@@ -512,10 +515,34 @@ class PcrFormController extends Controller
                 ], 422);
             }
 
+            $form->loadMissing('owner');
+
+            // QA rates their own IPCR. It is not sent to the president.
+            if ($form->owner?->role === 'qa') {
+                $to = 'qa_rating';
+                $form->forceFill([
+                    'head_reviewer_id' => null,
+                    'vp_reviewer_id'   => null,
+                ])->save();
+            }
         }
 
         if ($from === 'head_review' && $to !== 'returned') {
+            $form->loadMissing('headReviewer');
+
+            if ($form->headReviewer?->role === 'qa') {
+                return response()->json([
+                    'message' => 'Rate this IPCR and finalize it. It is not sent on to a VP or the president.',
+                ], 409);
+            }
+
             $to = PcrWorkflow::nextStatusFor($form, $from) ?? $to;
+        }
+
+        if (in_array($from, ['head_review', 'vp_review'], true) && $to !== 'returned' && $this->hasUnratedLines($form)) {
+            return response()->json([
+                'message' => 'Rate every line before sending this on.',
+            ], 422);
         }
 
         $data['note'] = Html::clean($data['note'] ?? null);
@@ -556,17 +583,19 @@ class PcrFormController extends Controller
         });
 
         ActivityLog::record('PcrForm', $form->id, 'status', "Form moved from {$from} to {$to}");
-        $this->notifyTransition($form, $to, $data['note'] ?? null);
+        $this->notifyTransition($form, $from, $to, $data['note'] ?? null);
 
         return response()->json(['data' => 'updated', 'form' => $form->fresh()]);
     }
 
-    private function notifyTransition(PcrForm $form, string $to, ?string $note): void
+    private function notifyTransition(PcrForm $form, string $from, string $to, ?string $note): void
     {
         $note = Html::toText($note) ?: null;
 
         $label   = strtoupper($form->type);
         $subject = $form->owner?->name ?? $form->orgUnit?->name;
+
+        $this->notifyOwnerTheirRatingMovedOn($form, $from, $to);
 
         if ($to === 'head_review') {
             Notification::send(
@@ -647,6 +676,37 @@ class PcrFormController extends Controller
                 $form->id
             );
         }
+    }
+
+    /**
+     * The person whose IPCR was just scored hears that it moved on.
+     * A submission of their own form is not a rating, so it stays quiet.
+     */
+    private function notifyOwnerTheirRatingMovedOn(PcrForm $form, string $from, string $to): void
+    {
+        if ($form->type !== 'ipcr' || ! $form->user_id) {
+            return;
+        }
+
+        $sentTo = match (true) {
+            $from === 'head_review' && $to === 'vp_review' => 'the VP',
+            in_array($from, ['head_review', 'vp_review'], true) && $to === 'qa_rating' => 'QA',
+            default => null,
+        };
+
+        if (! $sentTo) {
+            return;
+        }
+
+        Notification::send(
+            $form->user_id,
+            'review',
+            "Your IPCR was rated and forwarded to {$sentTo}",
+            $from === 'vp_review'
+                ? 'The VP has rated it and sent it on.'
+                : 'The head has rated it and sent it on.',
+            $form->id
+        );
     }
 
     private function notifyOpcrPublished(PcrForm $form): void
@@ -1055,39 +1115,87 @@ class PcrFormController extends Controller
             return collect();
         }
 
-        $opcr = $this->publishedOpcrFor($form);
+        $assigned    = $this->assignmentsFor($form);
+        $assignedIds = $assigned->pluck('indicator_id');
+        $opcr        = $this->publishedOpcrFor($form);
+        $fromOpcr    = collect();
 
-        if (! $opcr) {
-            return collect();
+        if ($opcr) {
+            $fromOpcr = $opcr->outputs->flatMap(function ($output) use ($form, $assignedIds) {
+                return $output->indicators
+                    ->filter(fn ($indicator) => ! $form->rating_period_id
+                        || ! $indicator->rating_period_id
+                        || (int) $indicator->rating_period_id === (int) $form->rating_period_id)
+                    ->map(fn ($indicator) => [
+                        'id'               => $indicator->id,
+                        'section'          => $output->section,
+                        'output_id'        => $output->id,
+                        'output_title'     => $this->outputPath($output),
+                        'description'      => $indicator->description,
+                        'rating_period_id' => $indicator->rating_period_id,
+                        'assigned'         => $assignedIds->contains($indicator->id),
+                    ]);
+            });
         }
 
-        $assignedIds = PcrTargetAssignment::where('user_id', $form->user_id)
-            ->pluck('indicator_id');
+        $fromPeople = $assigned
+            ->reject(fn ($assignment) => $assignment->indicator->output->form->type === 'opcr')
+            ->map(fn ($assignment) => [
+                'id'               => $assignment->indicator_id,
+                'section'          => $assignment->indicator->output->section,
+                'output_id'        => $assignment->indicator->output_id,
+                'output_title'     => $this->outputPath($assignment->indicator->output),
+                'description'      => $assignment->indicator->description,
+                'rating_period_id' => $assignment->rating_period_id,
+                'assigned'         => true,
+                'assigned_by_name' => $assignment->assigned_by_name,
+            ]);
 
-        return $opcr->outputs->flatMap(function ($output) use ($form, $assignedIds) {
-            return $output->indicators
-                ->filter(fn ($indicator) => ! $form->rating_period_id
-                    || ! $indicator->rating_period_id
-                    || (int) $indicator->rating_period_id === (int) $form->rating_period_id)
-                ->map(fn ($indicator) => [
-                    'id'               => $indicator->id,
-                    'section'          => $output->section,
-                    'output_id'        => $output->id,
-                    'output_title'     => $this->outputPath($output),
-                    'description'      => $indicator->description,
-                    'rating_period_id' => $indicator->rating_period_id,
-                    'assigned'         => $assignedIds->contains($indicator->id),
-                ]);
-        })->values();
+        if ($form->picksAssignedTargetsOnly()) {
+            return $fromPeople->values();
+        }
+
+        return $fromPeople->concat($fromOpcr)->unique('id')->values();
     }
 
     private function assignedTargetsFor(PcrForm $form): array
     {
-        return PcrTargetAssignment::with('indicator.output.parentOutput')
+        $assignments = $this->assignmentsFor($form);
+
+        if ($form->picksAssignedTargetsOnly()) {
+            $assignments = $assignments->reject(
+                fn ($assignment) => $assignment->indicator->output->form->type === 'opcr'
+            );
+        }
+
+        return $assignments
+            ->map(fn ($assignment) => [
+                'id'               => $assignment->indicator_id,
+                'assignment_id'    => $assignment->id,
+                'section'          => $assignment->indicator->output->section,
+                'output_title'     => $this->outputPath($assignment->indicator->output),
+                'description'      => $assignment->indicator->description,
+                'assigned_by_name' => $assignment->assigned_by_name,
+            ])
+            ->values()
+            ->all();
+    }
+
+    /**
+     * Targets handed to this person, whether they sit on the college OPCR or on
+     * a head or VP IPCR. The form they already own is not one of them.
+     */
+    private function assignmentsFor(PcrForm $form)
+    {
+        if ($form->type !== 'ipcr' || ! $form->user_id) {
+            return collect();
+        }
+
+        return PcrTargetAssignment::with(['indicator.output.form', 'indicator.output.parentOutput'])
             ->where('user_id', $form->user_id)
             ->whereHas('indicator.output.form', function ($query) use ($form) {
-                $query->where('type', 'opcr')
-                    ->where('school_year_id', $form->school_year_id);
+                $query->where('school_year_id', $form->school_year_id)
+                    ->where('id', '!=', $form->id);
             })
             ->when(
                 $form->rating_period_id,
@@ -1097,15 +1205,9 @@ class PcrFormController extends Controller
                 })
             )
             ->get()
-            ->map(fn ($assignment) => [
-                'id'           => $assignment->indicator_id,
-                'assignment_id'=> $assignment->id,
-                'section'      => $assignment->indicator->output->section,
-                'output_title' => $this->outputPath($assignment->indicator->output),
-                'description'  => $assignment->indicator->description,
-            ])
-            ->values()
-            ->all();
+            ->filter(fn ($assignment) => $assignment->indicator?->output?->form)
+            ->unique('indicator_id')
+            ->values();
     }
 
     private function outputPath(PcrOutput $output): string
@@ -1125,6 +1227,28 @@ class PcrFormController extends Controller
         }
 
         return implode(' — ', $titles);
+    }
+
+    private function hasUnratedLines(PcrForm $form): bool
+    {
+        $ids = PcrIndicator::query()
+            ->whereHas('output', fn ($q) => $q->where('form_id', $form->id))
+            ->pluck('id');
+
+        if ($ids->isEmpty()) {
+            return false;
+        }
+
+        $rated = PcrRating::query()
+            ->whereIn('indicator_id', $ids)
+            ->when($form->rating_period_id, fn ($q) => $q->where('rating_period_id', $form->rating_period_id))
+            ->whereNotNull('q')
+            ->whereNotNull('e')
+            ->whereNotNull('t')
+            ->pluck('indicator_id')
+            ->unique();
+
+        return $rated->count() < $ids->count();
     }
 
     /** Human notes for stages the form jumped over on this transition. */
@@ -1175,6 +1299,33 @@ class PcrFormController extends Controller
         });
     }
 
+    /**
+     * The president's own OPCR should not list him again as a person who
+     * delivered nothing. His write-up lives on the office line itself.
+     */
+    private function hidePresidentZeroOnHisOpcr(PcrForm $form): void
+    {
+        if ($form->type !== 'opcr') {
+            return;
+        }
+
+        foreach ($form->outputs as $output) {
+            foreach ($output->indicators as $indicator) {
+                if (! $indicator->relationLoaded('children')) {
+                    continue;
+                }
+
+                $indicator->setRelation('children', $indicator->children->reject(function ($child) {
+                    $owner = $child->output?->form?->owner;
+
+                    return $owner
+                        && $owner->role === 'president'
+                        && (int) ($child->progress_pct ?? 0) === 0;
+                })->values());
+            }
+        }
+    }
+
     private function scopeToViewer($query, User $user, bool $queueOnly): void
     {
         if (in_array($user->role, ['admin', 'qa', 'president'], true)) {
@@ -1187,8 +1338,15 @@ class PcrFormController extends Controller
 
             if ($user->role === 'qa' && $queueOnly) {
                 $approves = in_array('qa', app(WorkflowSettings::class)->opcr('approver_roles'), true);
+                $waiting  = $approves ? ['qa_rating', 'qa_approval'] : ['qa_rating'];
 
-                $query->whereIn('status', $approves ? ['qa_rating', 'qa_approval'] : ['qa_rating']);
+                // Staff IPCRs stay with the QA director. They are not sent upward.
+                $query->where(function ($q) use ($user, $waiting) {
+                    $q->whereIn('status', $waiting)
+                        ->orWhere(function ($inner) use ($user) {
+                            $inner->where('status', 'head_review')->where('head_reviewer_id', $user->id);
+                        });
+                });
             }
 
             return;
@@ -1196,9 +1354,7 @@ class PcrFormController extends Controller
 
         // Units this person oversees in either capacity — one person may hold
         // both a head and a VP post, so this is a union, not a role lookup.
-        $unitIds = OrgUnit::where('head_user_id', $user->id)
-            ->orWhere('vp_user_id', $user->id)
-            ->pluck('id');
+        $unitIds = collect(OrgUnit::overseenIds((int) $user->id));
 
         if ($unitIds->isNotEmpty() || in_array($user->role, ['program_head', 'vp'], true)) {
             if ($queueOnly) {

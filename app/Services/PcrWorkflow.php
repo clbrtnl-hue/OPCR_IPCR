@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Models\OrgUnit;
 use App\Models\PcrForm;
 use App\Models\User;
 
@@ -139,6 +140,51 @@ class PcrWorkflow
     }
 
     /** Whoever is named for this stage on this form — not whoever holds a role. */
+    /**
+     * The head scores a faculty IPCR, the VP scores a head's IPCR and may
+     * change the faculty score, and QA scores a VP's IPCR and may change any
+     * score that reaches them. QA also scores their own IPCR and their staff's.
+     */
+    public static function mayScore(User $user, PcrForm $form): bool
+    {
+        if ($user->isAdmin()) {
+            return true;
+        }
+
+        if ($form->type !== 'ipcr') {
+            return $form->status === 'qa_rating' && $user->role === 'qa';
+        }
+
+        if ($form->status === 'head_review' && (int) $form->head_reviewer_id === (int) $user->id) {
+            return true;
+        }
+
+        if ($form->status === 'vp_review' && (int) $form->vp_reviewer_id === (int) $user->id) {
+            return true;
+        }
+
+        return $form->status === 'qa_rating' && $user->role === 'qa';
+    }
+
+    /** QA closes the rating. On their own staff they close it without sending it up. */
+    public static function mayFinalize(User $user, PcrForm $form): bool
+    {
+        if ($user->isAdmin()) {
+            return true;
+        }
+
+        if ($user->role !== 'qa') {
+            return false;
+        }
+
+        if ($form->status === 'qa_rating') {
+            return true;
+        }
+
+        return $form->status === 'head_review'
+            && (int) $form->head_reviewer_id === (int) $user->id;
+    }
+
     public static function isReviewerFor(User $user, PcrForm $form, string $status): bool
     {
         if ($user->isAdmin()) {
@@ -224,13 +270,11 @@ class PcrWorkflow
             return true;
         }
 
-        if ($user->role === 'program_head') {
-            return (int) $form->orgUnit?->head_user_id === (int) $user->id;
-        }
-
-        if ($user->role === 'vp') {
-            return (int) $form->orgUnit?->vp_user_id === (int) $user->id
-                || ($form->type === 'opcr' && (int) $form->org_unit_id === (int) $user->org_unit_id);
+        if (in_array($user->role, ['program_head', 'vp'], true)) {
+            return in_array((int) $form->org_unit_id, OrgUnit::overseenIds((int) $user->id), true)
+                || ($user->role === 'vp'
+                    && $form->type === 'opcr'
+                    && (int) $form->org_unit_id === (int) $user->org_unit_id);
         }
 
         return false;

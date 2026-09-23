@@ -50,7 +50,11 @@ export default function ReviewQueuePage() {
             key: "actions",
             render: (_, record) => (
                 <Button type="primary" size="small" onClick={() => navigate(`/forms/${record.id}`)}>
-                    {record.status === "qa_approval" ? "Approve" : record.status === "qa_rating" ? "Rate" : "Review"}
+                    {record.status === "qa_approval"
+                        ? "Approve"
+                        : ["qa_rating", "head_review", "vp_review"].includes(record.status)
+                          ? "Rate"
+                          : "Review"}
                 </Button>
             ),
         },

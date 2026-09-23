@@ -11,6 +11,7 @@ use App\Models\PcrRating;
 use App\Models\PcrStatusLog;
 use App\Models\RatingPeriod;
 use App\Support\Html;
+use App\Services\PcrWorkflow;
 use App\Services\RatingScale;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -40,7 +41,7 @@ class PcrRatingController extends Controller
             ], 409);
         }
 
-        if ($form->status !== 'qa_rating') {
+        if (! PcrWorkflow::mayScore($user, $form)) {
             return response()->json([
                 'message' => 'This form is not waiting for a rating yet.',
             ], 409);
@@ -114,7 +115,7 @@ class PcrRatingController extends Controller
             ], 409);
         }
 
-        if ($form->status !== 'qa_rating') {
+        if (! PcrWorkflow::mayFinalize($user, $form)) {
             return response()->json(['message' => 'This form is not waiting for a rating.'], 409);
         }
 
@@ -148,6 +149,8 @@ class PcrRatingController extends Controller
                 ]
             );
 
+            $fromStatus = $form->status;
+
             $form->update([
                 'status'        => 'rated',
                 'rated_by'      => $user->id,
@@ -157,7 +160,7 @@ class PcrRatingController extends Controller
 
             PcrStatusLog::record(
                 $form->id,
-                'qa_rating',
+                $fromStatus,
                 'rated',
                 "{$period->label}: {$summary['final_average']} ({$summary['adjectival']})"
             );

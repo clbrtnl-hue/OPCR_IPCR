@@ -175,6 +175,17 @@ export default function FormEditorPage({ formId = null }) {
         },
     });
 
+    const finalize = useMutation({
+        mutationFn: () =>
+            api.post(`pcr-forms/${form.id}/finalize-rating`, { rating_period_id: activePeriodId }),
+        onSuccess: ({ data }) => {
+            message.success(
+                `Rated ${Number(data.summary.final_average).toFixed(2)} — ${data.summary.adjectival}.`
+            );
+            refresh();
+        },
+    });
+
     const isOwner = useMemo(() => {
         if (!form || !user) return false;
         // Mirrors PcrWorkflow::owns() — admin bypasses, as everywhere else.
@@ -205,14 +216,25 @@ export default function FormEditorPage({ formId = null }) {
     const isOpcr = form.type === "opcr";
 
     const isAdmin = user.role === "admin";
+    const samePerson = (left, right) => Number(left) === Number(right);
 
-    // Authority is being named on this form, not holding a role — a VP's own
-    // IPCR is reviewed by the president, and one person may hold two posts.
+    // Authority is being named on this form. One person may hold two posts.
+    // QA rates their own staff here and does not send that IPCR upward.
     const isMyReviewStep =
         !isOpcr &&
-        ((form.status === "head_review" && form.head_reviewer_id === user.id) ||
-            (form.status === "vp_review" && form.vp_reviewer_id === user.id) ||
+        ((form.status === "head_review" && samePerson(form.head_reviewer_id, user.id)) ||
+            (form.status === "vp_review" && samePerson(form.vp_reviewer_id, user.id)) ||
             (isAdmin && ["head_review", "vp_review"].includes(form.status)));
+
+    const qaRatesStaff =
+        user.role === "qa" && form.status === "head_review" && samePerson(form.head_reviewer_id, user.id);
+
+    const canScore =
+        !isOpcr &&
+        ((form.status === "head_review" && samePerson(form.head_reviewer_id, user.id)) ||
+            (form.status === "vp_review" && samePerson(form.vp_reviewer_id, user.id)) ||
+            (user.role === "qa" && form.status === "qa_rating") ||
+            (user.role === "admin" && form.status === "qa_rating"));
 
     const nextStatus = form.status === "head_review" ? "vp_review" : "qa_rating";
 
@@ -376,23 +398,44 @@ export default function FormEditorPage({ formId = null }) {
                                 </Button>
                             </Popconfirm>
                         )}
+                        {canScore && (user.role === "qa" || user.role === "admin") && (
+                            <Button
+                                type="primary"
+                                loading={finalize.isPending}
+                                onClick={() => finalize.mutate()}
+                            >
+                                Finalize rating
+                            </Button>
+                        )}
                         {isMyReviewStep && (
                             <>
                                 <Button danger onClick={() => setReturnModal(true)}>
                                     Return
                                 </Button>
-                                <Button
-                                    type="primary"
-                                    loading={move.isPending}
-                                    onClick={() => move.mutate({ status: nextStatus })}
-                                >
-                                    Endorse
-                                </Button>
+                                {!qaRatesStaff && (
+                                    <Button
+                                        type="primary"
+                                        loading={move.isPending}
+                                        onClick={() => move.mutate({ status: nextStatus })}
+                                    >
+                                        {form.status === "head_review" ? "Send to the VP" : "Send to QA"}
+                                    </Button>
+                                )}
                             </>
                         )}
                     </Space>
                 }
             />
+
+            {canScore && (
+                <Alert
+                    type="info"
+                    showIcon
+                    style={{ marginBottom: 16 }}
+                    message="Enter the rating on each line"
+                    description="Set Quality, Efficiency and Timeliness in the Q, E and T columns. Send the form on once every line has a score."
+                />
+            )}
 
             {form.status === "returned" && (
                 <Alert
@@ -516,7 +559,7 @@ export default function FormEditorPage({ formId = null }) {
                                 type="info"
                                 showIcon
                                 style={{ marginBottom: 16 }}
-                                message="Office targets assigned to you"
+                                message="Targets assigned to you"
                                 description={
                                     <ul className="pms-assigned-targets">
                                         {(form.assigned_targets ?? []).map((target) => (
@@ -524,6 +567,7 @@ export default function FormEditorPage({ formId = null }) {
                                                 <strong>{target.output_title}</strong>
                                                 {" — "}
                                                 {toPlainText(target.description)}
+                                                {target.assigned_by_name ? ` · ${target.assigned_by_name}` : ""}
                                             </li>
                                         ))}
                                     </ul>
@@ -549,6 +593,7 @@ export default function FormEditorPage({ formId = null }) {
                                 canRecordProgress={canRecordProgress}
                                 canAssign={canAssign}
                                 canAssignHeadings={canAssignHeadings}
+                                canScore={canScore}
                                 opcrTargets={opcrTargets}
                                 summary={summary}
                                 onAddOutput={(section) => {
@@ -632,6 +677,7 @@ export default function FormEditorPage({ formId = null }) {
                         canRecordProgress={canRecordProgress}
                         canAssign={canAssign}
                         canAssignHeadings={canAssignHeadings}
+                        canScore={canScore}
                         opcrTargets={opcrTargets}
                         summary={summary}
                         onAddOutput={(section) => {

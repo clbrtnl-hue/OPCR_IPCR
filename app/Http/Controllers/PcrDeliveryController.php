@@ -25,7 +25,7 @@ class PcrDeliveryController extends Controller
 
         $children = $indicator->children()
             ->with([
-                'output.form.owner:id,name,position_title,image',
+                'output.form.owner:id,name,position_title,image,role',
                 'output.form.ratingPeriod:id,label,seq',
                 'accomplishments.attachments',
             ])
@@ -40,7 +40,13 @@ class PcrDeliveryController extends Controller
             ->get()
             ->groupBy('indicator_id');
 
-        $delivered = $children->map(function ($child) use ($comments, $period) {
+        $ownOpcr = $indicator->output->form->type === 'opcr';
+
+        $delivered = $children
+            ->reject(fn ($child) => $ownOpcr
+                && $child->output?->form?->owner?->role === 'president'
+                && (int) ($child->progress_pct ?? 0) === 0)
+            ->map(function ($child) use ($comments, $period) {
             $form           = $child->output?->form;
             $accomplishment = $child->accomplishments->first();
 
@@ -96,9 +102,10 @@ class PcrDeliveryController extends Controller
         $named = $delivered->pluck('owner.id')->filter();
 
         $pending = $indicator->assignments()
-            ->with('user:id,name,position_title,image')
+            ->with('user:id,name,position_title,image,role')
             ->get()
-            ->reject(fn ($row) => $named->contains($row->user_id))
+            ->reject(fn ($row) => $named->contains($row->user_id)
+                || ($ownOpcr && $row->user?->role === 'president'))
             ->map(fn ($row) => [
                 'child_id'            => null,
                 'assignment_id'       => $row->id,

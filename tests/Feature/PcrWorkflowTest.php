@@ -34,6 +34,20 @@ class PcrWorkflowTest extends PmsTestCase
         return compact('year', 'period', 'unit', 'head', 'vp', 'qa', 'employee', 'form');
     }
 
+    private function rate(User $actor, PcrForm $form, $period): void
+    {
+        Passport::actingAs($actor, [], 'api');
+
+        $this->postJson('/api/pcr-ratings', [
+            'form_id'          => $form->id,
+            'rating_period_id' => $period->id,
+            'ratings'          => [[
+                'indicator_id' => $form->indicators()->first()->id,
+                'q' => 4, 'e' => 4, 't' => 4,
+            ]],
+        ])->assertOk();
+    }
+
     private function move(User $actor, PcrForm $form, string $status, ?string $note = null)
     {
         Passport::actingAs($actor, [], 'api');
@@ -46,12 +60,13 @@ class PcrWorkflowTest extends PmsTestCase
 
     public function test_form_travels_the_full_chain_to_qa(): void
     {
-        ['form' => $form, 'employee' => $employee, 'head' => $head, 'vp' => $vp] = $this->scenario();
+        ['form' => $form, 'period' => $period, 'employee' => $employee, 'head' => $head, 'vp' => $vp] = $this->scenario();
 
         $this->move($employee, $form, 'head_review')->assertOk();
         $this->assertSame('head_review', $form->fresh()->status);
         $this->assertNotNull($form->fresh()->submitted_at);
 
+        $this->rate($head, $form, $period);
         $this->move($head, $form, 'vp_review')->assertOk();
         $this->assertSame($head->name, $form->fresh()->reviewed_by_name);
 
@@ -132,11 +147,12 @@ class PcrWorkflowTest extends PmsTestCase
 
     public function test_admin_may_move_a_form_at_any_stage(): void
     {
-        ['form' => $form] = $this->scenario();
+        ['form' => $form, 'period' => $period] = $this->scenario();
 
         $admin = User::factory()->create(['role' => 'admin']);
 
         $this->move($admin, $form, 'head_review')->assertOk();
+        $this->rate($admin, $form, $period);
         $this->move($admin, $form, 'vp_review')->assertOk();
         $this->move($admin, $form, 'qa_rating')->assertOk();
     }

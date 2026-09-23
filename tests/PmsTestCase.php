@@ -4,9 +4,12 @@ namespace Tests;
 
 use App\Models\Organization;
 use App\Models\OrgUnit;
+use App\Models\PcrAccomplishment;
+use App\Models\PcrAttachment;
 use App\Models\PcrForm;
 use App\Models\PcrIndicator;
 use App\Models\PcrOutput;
+use App\Services\IndicatorProgressService;
 use App\Models\RatingPeriod;
 use App\Models\SchoolYear;
 use App\Models\User;
@@ -133,5 +136,39 @@ abstract class PmsTestCase extends TestCase
             'progress_status'     => $attributes['progress_status'] ?? 'not_started',
             'progress_pct'        => $attributes['progress_pct'] ?? 0,
         ]);
+    }
+
+    /**
+     * A line is finished only by a narrative and a file. Pass $withFile false
+     * to leave it written but not counted.
+     */
+    protected function documentLine(PcrIndicator $line, bool $withFile = true, ?string $text = '<p>Done.</p>'): PcrIndicator
+    {
+        $line->loadMissing('output.form');
+
+        $periodId = $line->rating_period_id ?: $line->output->form->rating_period_id;
+
+        if (! $periodId) {
+            $periodId = RatingPeriod::where('school_year_id', $line->output->form->school_year_id)->value('id');
+        }
+
+        $record = PcrAccomplishment::updateOrCreate(
+            ['indicator_id' => $line->id, 'rating_period_id' => $periodId],
+            ['actual_accomplishment' => $text]
+        );
+
+        if ($withFile && ! $record->attachments()->exists()) {
+            PcrAttachment::create([
+                'accomplishment_id' => $record->id,
+                'file_path'         => 'evidence-test.png',
+                'original_name'     => 'evidence.png',
+                'mime'              => 'image/png',
+                'file_size'         => 100,
+            ]);
+        }
+
+        app(IndicatorProgressService::class)->syncFromRecord($line->fresh());
+
+        return $line->fresh();
     }
 }

@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Models\PcrIndicator;
 use App\Models\PcrOutput;
+use App\Support\Html;
 
 /**
  * A delegated commitment is only as far along as the work under it. When a leaf
@@ -15,6 +16,49 @@ use App\Models\PcrOutput;
  */
 class IndicatorProgressService
 {
+    /**
+     * A leaf is finished only when the writer has both a narrative and a file.
+     * Anything short of that stays at 0, and the lines above it are averaged again.
+     * A line that was handed on is not the writer's own number — it follows the
+     * people they named.
+     */
+    public function syncFromRecord(PcrIndicator $line): void
+    {
+        $line->loadMissing('output.form');
+
+        if ($line->children()->exists() || $line->assignments()->exists()) {
+            $child = $line->children()->first();
+
+            if ($child) {
+                $this->recalculateFrom($child);
+            }
+
+            return;
+        }
+
+        $records = $line->accomplishments()->withCount('attachments')->get();
+
+        if ($line->rating_period_id) {
+            $records = $records->where('rating_period_id', $line->rating_period_id);
+        }
+
+        $done = $records->contains(
+            fn ($record) => ! Html::isBlank($record->actual_accomplishment) && (int) $record->attachments_count > 0
+        );
+
+        $started = $records->contains(
+            fn ($record) => ! Html::isBlank($record->actual_accomplishment) || (int) $record->attachments_count > 0
+        );
+
+        $line->forceFill([
+            'progress_pct'    => $done ? 100 : 0,
+            'progress_status' => $done ? 'completed' : ($started ? 'ongoing' : 'not_started'),
+            'completed_on'    => $done ? ($line->completed_on ?? now()->toDateString()) : null,
+        ])->save();
+
+        $this->recalculateFrom($line);
+    }
+
     public function recalculateFrom(PcrIndicator $line): void
     {
         $current = $line->parent;
@@ -33,6 +77,10 @@ class IndicatorProgressService
                 'progress_pct'    => (int) round($children->avg('progress_pct')),
                 'progress_status' => $this->statusFor($children),
             ])->save();
+
+            // The parent may sit under an office heading even when the leaf's
+            // own output does not, so the office target has to be remeasured here.
+            $this->climbHeadings($current);
 
             $current = $current->parent;
         }

@@ -159,7 +159,7 @@ class OpcrLifecycleTest extends PmsTestCase
         ]);
         $target = $this->makeIndicator($opcr, 'core');
 
-        $employee = User::factory()->create(['role' => 'employee', 'org_unit_id' => $unit->id]);
+        $employee = User::factory()->create(['role' => 'program_head', 'org_unit_id' => $unit->id]);
         $ipcr     = $this->makeForm([
             'type' => 'ipcr', 'org_unit_id' => $unit->id,
             'school_year_id' => $year->id, 'user_id' => $employee->id,

@@ -111,10 +111,9 @@ Route::middleware('auth:api')->group(function () {
     Route::post('notifications/{id}/read', [NotificationController::class, 'markRead']);
     Route::post('notifications/read-all', [NotificationController::class, 'markAllRead']);
 
-    /* ----------------------------------------------------- QA: ratings */
-    Route::post('pcr-ratings', [PcrRatingController::class, 'store'])->middleware($PMS_QA);
-    Route::post('pcr-forms/{id}/finalize-rating', [PcrRatingController::class, 'finalize'])
-        ->middleware($PMS_QA);
+    /* ---------------------------------------------------------- Ratings */
+    Route::post('pcr-ratings', [PcrRatingController::class, 'store']);
+    Route::post('pcr-forms/{id}/finalize-rating', [PcrRatingController::class, 'finalize']);
 
     /* ------------------------------------------------------- Reports */
     Route::get('reports/my-summary', [ReportController::class, 'mySummary']);

@@ -173,11 +173,6 @@ export default function OpcrSheet({ form, periodId, canEdit, canAssign, canRecor
             ...changes,
         });
 
-    const saveProgress = useMutation({
-        mutationFn: ({ id, ...values }) => api.post(`pcr-indicators/${id}/progress`, values),
-        onSuccess: refresh,
-    });
-
     const removeIndicator = useMutation({
         mutationFn: (id) => api.delete(`pcr-indicators/${id}`),
         onSuccess: () => {
@@ -571,10 +566,12 @@ export default function OpcrSheet({ form, periodId, canEdit, canAssign, canRecor
                             <ProgressCell
                                 status={line.progress_status ?? "not_started"}
                                 pct={line.progress_pct ?? 0}
-                                computed={computed}
-                                editable={canRecordProgress}
-                                saving={saveProgress.isPending}
-                                onSave={(values) => saveProgress.mutate({ id: line.id, ...values })}
+                                computed
+                                computedHint={
+                                    computed
+                                        ? "Rolled up from the commitments written against this line."
+                                        : "100% once the actual accomplishment is written and a file is attached."
+                                }
                             />
                         </td>
 

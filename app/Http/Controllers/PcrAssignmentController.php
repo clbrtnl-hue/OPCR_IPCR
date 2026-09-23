@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\Notification;
+use App\Models\OrgUnit;
 use App\Models\PcrForm;
 use App\Models\PcrIndicator;
 use App\Models\PcrOutput;
@@ -20,14 +21,22 @@ class PcrAssignmentController extends Controller
     {
     }
 
-    /** Everyone who may be made accountable — the whole organization bar system accounts. */
-    public function assignableUsers()
+    /** People this account may name. A head or VP only sees their own team. */
+    public function assignableUsers(Request $request)
     {
+        $actor = $request->user();
+
+        $query = User::whereNotIn('role', app(WorkflowSettings::class)->get('delegation')['assignable_excludes_roles'] ?? ['admin'])
+            ->where('status', 'active');
+
+        $team = $this->teamUnitIds($actor);
+
+        if ($team !== null) {
+            $query->whereIn('org_unit_id', $team);
+        }
+
         return response()->json(
-            User::whereNotIn('role', app(WorkflowSettings::class)->get('delegation')['assignable_excludes_roles'] ?? ['admin'])
-                ->where('status', 'active')
-                ->orderByPerson()
-                ->get(['id', 'name', 'position_title', 'role', 'org_unit_id'])
+            $query->orderByPerson()->get(['id', 'name', 'position_title', 'role', 'org_unit_id'])
         );
     }
 
@@ -60,9 +69,17 @@ class PcrAssignmentController extends Controller
                 ->value('id');
         }
 
+        $assignees = $this->assigneesFrom($data, $parent->form, $actor);
+
+        if ($assignees->isEmpty()) {
+            return response()->json([
+                'message' => 'None of those people are on your team.',
+            ], 422);
+        }
+
         $created = 0;
 
-        foreach ($this->assigneesFrom($data, $parent->form) as $assignee) {
+        foreach ($assignees as $assignee) {
             $already = PcrOutput::where('parent_output_id', $parent->id)
                 ->whereHas('form', fn ($q) => $q->where('user_id', $assignee->id)
                     ->where('rating_period_id', $periodId))
@@ -90,9 +107,17 @@ class PcrAssignmentController extends Controller
             return $problem;
         }
 
+        $assignees = $this->assigneesFrom($data, $form, $actor);
+
+        if ($assignees->isEmpty()) {
+            return response()->json([
+                'message' => 'None of those people are on your team.',
+            ], 422);
+        }
+
         $created = 0;
 
-        foreach ($this->assigneesFrom($data, $form) as $assignee) {
+        foreach ($assignees as $assignee) {
             $already = PcrTargetAssignment::where('indicator_id', $parent->id)
                 ->where('user_id', $assignee->id)
                 ->exists();
@@ -166,11 +191,11 @@ class PcrAssignmentController extends Controller
             ], 409);
         }
 
-        $assignees = $this->assigneesFrom($data, $form);
+        $assignees = $this->assigneesFrom($data, $form, $actor);
 
         if ($assignees->isEmpty()) {
             return response()->json([
-                'message' => 'None of those people can be made accountable for this form.',
+                'message' => 'None of those people are on your team.',
             ], 422);
         }
 
@@ -237,7 +262,7 @@ class PcrAssignmentController extends Controller
      */
     private function mayDelegate(User $actor, PcrForm $form, string $level)
     {
-        if (in_array($actor->role, WorkflowSettings::REVIEW_ONLY_ROLES, true)) {
+        if ($level !== 'indicator' && in_array($actor->role, WorkflowSettings::REVIEW_ONLY_ROLES, true)) {
             return $this->reviewOnly();
         }
 
@@ -279,13 +304,38 @@ class PcrAssignmentController extends Controller
         ], 403);
     }
 
-    private function assigneesFrom(array $data, PcrForm $form)
+    private function assigneesFrom(array $data, PcrForm $form, ?User $actor = null)
     {
+        $team = $this->teamUnitIds($actor);
+
         return User::whereIn('id', $data['user_ids'])
             ->where('role', '!=', 'admin')
             ->where('status', 'active')
+            ->when($team !== null, fn ($query) => $query->whereIn('org_unit_id', $team))
             ->get()
             ->reject(fn ($u) => (int) $u->id === (int) $form->user_id);
+    }
+
+    /**
+     * Null means the whole organization. A head or VP is limited to the offices
+     * they lead and the one they sit in, including every unit under those.
+     */
+    private function teamUnitIds(?User $actor): ?array
+    {
+        if (! $actor || ! in_array($actor->role, ['program_head', 'vp'], true)) {
+            return null;
+        }
+
+        $roots = OrgUnit::overseenIds((int) $actor->id);
+
+        if ($actor->org_unit_id) {
+            $roots = array_values(array_unique(array_merge(
+                $roots,
+                OrgUnit::subtreeIds([(int) $actor->org_unit_id])
+            )));
+        }
+
+        return $roots;
     }
 
     public function destroy(Request $request, $assignmentId)

@@ -17,6 +17,7 @@ import {
 } from "antd";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import api from "~/utils/api";
+import { useAuth } from "~/hooks/useAuth";
 import {
     ADJECTIVAL_COLORS,
     RATING_LEGEND,
@@ -35,7 +36,22 @@ const SCORE_OPTIONS = RATING_LEGEND.map((band) => ({
     label: `${band.value} — ${band.label}`,
 }));
 
+function samePerson(left, right) {
+    return Number(left) === Number(right);
+}
+
+function scoreable(form, user) {
+    if (!form || !user) return false;
+    if (user.role === "admin") return form.status === "qa_rating";
+    if (form.status === "head_review" && samePerson(form.head_reviewer_id, user.id)) return true;
+    if (form.status === "vp_review" && samePerson(form.vp_reviewer_id, user.id)) return true;
+    if (user.role === "qa" && form.status === "qa_rating") return true;
+
+    return false;
+}
+
 export default function RatingPage() {
+    const { user } = useAuth();
     const queryClient = useQueryClient();
     const [selectedId, setSelectedId] = useState(null);
     const [periodId, setPeriodId] = useState(null);
@@ -46,7 +62,13 @@ export default function RatingPage() {
         queryKey: ["qa-queue"],
         queryFn: () => api.get("pcr-forms?queue=1").then((r) => r.data),
     });
-    const toRate = queue.filter((f) => f.status === "qa_rating");
+    const toRate = queue.filter((f) => scoreable(f, user));
+
+    useEffect(() => {
+        if (selectedId || toRate.length !== 1) return;
+
+        setSelectedId(toRate[0].id);
+    }, [selectedId, toRate]);
 
     const { data: form } = useQuery({
         queryKey: ["pcr-form", String(selectedId)],
@@ -54,7 +76,8 @@ export default function RatingPage() {
         enabled: Boolean(selectedId),
     });
 
-    const canRate = form?.status === "qa_rating";
+    const canRate = scoreable(form, user);
+    const closesHere = user?.role === "qa" || user?.role === "admin";
     const periods = form?.school_year?.periods ?? [];
     const formPeriodId = form?.type === "ipcr" ? (form?.rating_period_id ?? null) : null;
     const activePeriodId =
@@ -104,6 +127,19 @@ export default function RatingPage() {
         onSuccess: () => {
             message.success("Ratings saved.");
             queryClient.invalidateQueries({ queryKey: ["pcr-form", String(selectedId)] });
+        },
+    });
+
+    const sendOn = useMutation({
+        mutationFn: () =>
+            api.post(`pcr-forms/${form.id}/status`, {
+                status: form.status === "head_review" ? "vp_review" : "qa_rating",
+            }),
+        onSuccess: () => {
+            message.success(form.status === "head_review" ? "Sent to the VP." : "Sent to QA.");
+            queryClient.invalidateQueries({ queryKey: ["qa-queue"] });
+            queryClient.invalidateQueries({ queryKey: ["review-queue"] });
+            setSelectedId(null);
         },
     });
 
@@ -288,14 +324,25 @@ export default function RatingPage() {
                                         <Button loading={save.isPending} onClick={() => save.mutate()}>
                                             Save progress
                                         </Button>
-                                        <Button
-                                            type="primary"
-                                            disabled={unrated > 0}
-                                            loading={finalize.isPending}
-                                            onClick={() => save.mutateAsync().then(() => finalize.mutate())}
-                                        >
-                                            Finalize rating
-                                        </Button>
+                                        {closesHere ? (
+                                            <Button
+                                                type="primary"
+                                                disabled={unrated > 0}
+                                                loading={finalize.isPending}
+                                                onClick={() => save.mutateAsync().then(() => finalize.mutate())}
+                                            >
+                                                Finalize rating
+                                            </Button>
+                                        ) : (
+                                            <Button
+                                                type="primary"
+                                                disabled={unrated > 0}
+                                                loading={sendOn.isPending}
+                                                onClick={() => save.mutateAsync().then(() => sendOn.mutate())}
+                                            >
+                                                {form.status === "head_review" ? "Send to the VP" : "Send to QA"}
+                                            </Button>
+                                        )}
                                     </Space>
                                 )
                             }

@@ -328,4 +328,26 @@ class PcrDeliveryRollupTest extends PmsTestCase
         $this->getJson('/api/pcr-indicators/' . (PcrIndicator::max('id') + 99) . '/rollup')
             ->assertStatus(404);
     }
+
+    public function test_the_president_at_zero_is_not_listed_on_his_own_opcr(): void
+    {
+        ['target' => $target, 'head' => $head, 'faculty' => $faculty, 'year' => $year, 'period' => $period, 'opcr' => $opcr] = $this->college();
+
+        $president = User::factory()->create(['role' => 'president', 'org_unit_id' => $opcr->org_unit_id]);
+
+        $admin = $this->actingAsRole('admin');
+        $this->service()->assignIndicator($target, $president, $admin);
+        $this->service()->assignIndicator($target, $faculty, $admin);
+
+        $child = $this->commitAgainst($target, $president, ['rating_period_id' => $period->id]);
+        $child->forceFill(['progress_pct' => 0, 'progress_status' => 'not_started'])->save();
+
+        $this->actingAsUser($head);
+
+        $names = collect($this->getJson("/api/pcr-indicators/{$target->id}/rollup")->json('delivered'))
+            ->pluck('owner.name');
+
+        $this->assertFalse($names->contains($president->name));
+        $this->assertTrue($names->contains($faculty->name));
+    }
 }

@@ -125,24 +125,28 @@ export default function RichText({
                 : []),
         ],
         content: value || "",
-        editorProps: maxLength
+        // Passing `undefined` replaces Tiptap's default `{}`. createView then
+        // reads editorProps.dispatchTransaction and the whole page unmounts.
+        ...(maxLength
             ? {
-                  handleTextInput(view, from, to, text) {
-                      const current = view.state.doc.textContent.length;
-                      const replacing = Math.max(0, to - from);
+                  editorProps: {
+                      handleTextInput(view, from, to, text) {
+                          const current = view.state.doc.textContent.length;
+                          const replacing = Math.max(0, to - from);
 
-                      return current - replacing + text.length > maxLength;
-                  },
-                  handlePaste(view, event) {
-                      const pasted = event.clipboardData?.getData("text/plain") ?? "";
-                      const { from, to } = view.state.selection;
-                      const current = view.state.doc.textContent.length;
-                      const replacing = Math.max(0, to - from);
+                          return current - replacing + text.length > maxLength;
+                      },
+                      handlePaste(view, event) {
+                          const pasted = event.clipboardData?.getData("text/plain") ?? "";
+                          const { from, to } = view.state.selection;
+                          const current = view.state.doc.textContent.length;
+                          const replacing = Math.max(0, to - from);
 
-                      return current - replacing + pasted.length > maxLength;
+                          return current - replacing + pasted.length > maxLength;
+                      },
                   },
               }
-            : undefined,
+            : {}),
         onUpdate: ({ editor: current }) => {
             // An editor cleared back to nothing should read as empty, not as
             // the empty paragraph it leaves behind.

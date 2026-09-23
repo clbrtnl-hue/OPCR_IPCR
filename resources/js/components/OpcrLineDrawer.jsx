@@ -121,7 +121,12 @@ export default function OpcrLineDrawer({
                 <ProgressCell
                     status={line.progress_status}
                     pct={line.progress_pct}
-                    computed={(line.children ?? []).length > 0 || hasDelegatedHeading}
+                    computed
+                    computedHint={
+                        (line.children ?? []).length > 0 || hasDelegatedHeading
+                            ? "Rolled up from the commitments written against this line."
+                            : "100% once the actual accomplishment is written and a file is attached."
+                    }
                 />
             </div>
 

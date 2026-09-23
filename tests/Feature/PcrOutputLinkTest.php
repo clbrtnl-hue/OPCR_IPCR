@@ -314,7 +314,7 @@ class PcrOutputLinkTest extends PmsTestCase
         ])->assertStatus(422);
     }
 
-    public function test_a_delegated_heading_cannot_be_deleted_from_the_ipcr(): void
+    public function test_a_delegated_heading_can_be_removed_from_the_ipcr(): void
     {
         ['employee' => $employee, 'ipcr' => $ipcr, 'collegeOutput' => $collegeOutput] = $this->college();
 
@@ -332,8 +332,8 @@ class PcrOutputLinkTest extends PmsTestCase
 
         $this->actingAsUser($employee);
 
-        $this->deleteJson("/api/pcr-outputs/{$mine->id}")->assertStatus(409);
-        $this->assertNotNull(PcrOutput::find($mine->id));
+        $this->deleteJson("/api/pcr-outputs/{$mine->id}")->assertStatus(200);
+        $this->assertNull(PcrOutput::find($mine->id));
 
         $this->deleteJson("/api/pcr-outputs/{$own->id}")->assertStatus(200);
         $this->assertNull(PcrOutput::find($own->id));

@@ -312,6 +312,7 @@ class DashboardSignalTest extends PmsTestCase
         $this->assertSame(1, $data['evidence']['compliant']);
         $this->assertSame(25, $data['evidence']['pct']);
         $this->assertSame(2, $data['evidence']['missing_evidence']);
+        $this->assertSame(1, $data['evidence']['awaiting_file']);
         $this->assertSame(2, $data['evidence']['blank_narrative']);
         $this->assertSame(1, $data['evidence']['no_accomplishment']);
         $this->assertSame(2, $data['evidence']['attachments']);

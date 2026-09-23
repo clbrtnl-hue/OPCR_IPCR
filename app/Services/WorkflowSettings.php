@@ -31,7 +31,18 @@ class WorkflowSettings
 
         $stored = WorkflowSetting::where('key', $key)->value('value');
 
-        return $this->cache[$key] = $stored ?: $default;
+        $value = $stored ?: $default;
+
+        // The VP names the heads accountable on their own IPCR. A saved rule
+        // from before that was allowed must not keep the control hidden.
+        if ($key === 'delegation') {
+            $value['assign_indicators'] = array_values(array_unique(array_merge(
+                $value['assign_indicators'] ?? [],
+                ['vp']
+            )));
+        }
+
+        return $this->cache[$key] = $value;
     }
 
     public function all(): array
@@ -81,8 +92,7 @@ class WorkflowSettings
 
     public function mayAssignIndicators(string $role): bool
     {
-        return ! in_array($role, self::REVIEW_ONLY_ROLES, true)
-            && in_array($role, $this->get('delegation')['assign_indicators'] ?? [], true);
+        return in_array($role, $this->get('delegation')['assign_indicators'] ?? [], true);
     }
 
     public function isTerminalRole(string $role): bool

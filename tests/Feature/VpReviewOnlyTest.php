@@ -46,19 +46,19 @@ class VpReviewOnlyTest extends PmsTestCase
     {
         ['vp' => $vp] = $this->college();
 
-        $this->assertSame(['assign_outputs' => false, 'assign_indicators' => false], $vp->capabilities);
+        $this->assertSame(['assign_outputs' => false, 'assign_indicators' => true], $vp->capabilities);
     }
 
-    public function test_a_vp_cannot_assign_from_their_own_ipcr(): void
+    public function test_a_vp_assigns_a_success_indicator_but_not_a_whole_heading(): void
     {
-        ['vp' => $vp, 'vpIpcr' => $vpIpcr, 'faculty' => $faculty] = $this->college();
+        ['vp' => $vp, 'vpIpcr' => $vpIpcr, 'head' => $head] = $this->college();
 
         $line = $this->makeIndicator($vpIpcr, 'core');
 
         $this->actingAsUser($vp);
 
-        $this->postJson("/api/pcr-indicators/{$line->id}/assign", ['user_ids' => [$faculty->id]])->assertStatus(403);
-        $this->postJson("/api/pcr-outputs/{$line->output_id}/assign", ['user_ids' => [$faculty->id]])->assertStatus(403);
+        $this->postJson("/api/pcr-indicators/{$line->id}/assign", ['user_ids' => [$head->id]])->assertStatus(201);
+        $this->postJson("/api/pcr-outputs/{$line->output_id}/assign", ['user_ids' => [$head->id]])->assertStatus(403);
     }
 
     public function test_a_vp_cannot_cascade_the_college_opcr(): void
@@ -136,8 +136,13 @@ class VpReviewOnlyTest extends PmsTestCase
 
         $this->postJson('/api/workflow-settings', [
             'key'   => 'delegation',
-            'value' => ['assign_outputs' => ['president'], 'assign_indicators' => ['vp'], 'terminal_roles' => ['employee']],
+            'value' => ['assign_outputs' => ['vp'], 'assign_indicators' => ['vp'], 'terminal_roles' => ['employee']],
         ])->assertStatus(422);
+
+        $this->postJson('/api/workflow-settings', [
+            'key'   => 'delegation',
+            'value' => ['assign_outputs' => ['president'], 'assign_indicators' => ['vp', 'program_head'], 'terminal_roles' => ['employee']],
+        ])->assertSuccessful();
 
         $this->postJson('/api/workflow-settings', [
             'key'   => 'opcr',

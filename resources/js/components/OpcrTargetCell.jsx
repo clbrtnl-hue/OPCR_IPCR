@@ -67,7 +67,7 @@ export default function OpcrTargetCell({ line, targets, picking = false, onClose
                     showSearch
                     optionFilterProp="label"
                     popupMatchSelectWidth={420}
-                    placeholder="Search the OPCR success indicators"
+                    placeholder="Search targets"
                     value={picked ? line.parent_indicator_id : undefined}
                     options={options}
                     className="pms-target-select"

@@ -288,14 +288,12 @@ export default function InsightsBoard({ data }) {
                 <StatTile
                     label={
                         <Space size={4}>
-                            <FileExclamationOutlined /> Completed without evidence
+                            <FileExclamationOutlined /> Accomplishment without a file
                         </Space>
                     }
-                    value={data.evidence?.missing_evidence ?? 0}
-                    tone={(data.evidence?.missing_evidence ?? 0) > 0 ? VIZ.serious : VIZ.good}
-                    hint={`${data.evidence?.blank_narrative ?? 0} more have no written accomplishment · ${
-                        data.evidence?.pct ?? 0
-                    }% of completed work is fully documented`}
+                    value={data.evidence?.awaiting_file ?? 0}
+                    tone={(data.evidence?.awaiting_file ?? 0) > 0 ? VIZ.serious : VIZ.good}
+                    hint="Written, but not counted yet. A line stays at 0% until a file is attached."
                 />
             </Col>
             <Col xs={12} lg={6}>

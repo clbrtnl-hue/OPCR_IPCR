@@ -8,6 +8,7 @@ use App\Models\PcrAttachment;
 use App\Models\PcrIndicator;
 use App\Models\RatingPeriod;
 use App\Support\Html;
+use App\Services\IndicatorProgressService;
 use App\Services\PcrWorkflow;
 use Illuminate\Http\Request;
 
@@ -42,6 +43,8 @@ class PcrAccomplishmentController extends Controller
                 'remarks' => Html::clean($data['remarks'] ?? null),
             ]
         );
+
+        app(IndicatorProgressService::class)->syncFromRecord($accomplishment->indicator);
 
         return response()->json([
             'data'           => 'saved',
@@ -89,6 +92,10 @@ class PcrAccomplishmentController extends Controller
 
         ActivityLog::record('PcrAttachment', $attachment->id, 'upload', "Uploaded evidence {$original}");
 
+        app(IndicatorProgressService::class)->syncFromRecord(
+            PcrIndicator::findOrFail($data['indicator_id'])
+        );
+
         return response()->json(['data' => 'uploaded', 'attachment' => $attachment], 201);
     }
 
@@ -112,8 +119,11 @@ class PcrAccomplishmentController extends Controller
             @unlink($path);
         }
 
-        $name = $attachment->original_name;
+        $name      = $attachment->original_name;
+        $indicator = $attachment->accomplishment->indicator;
         $attachment->delete();
+
+        app(IndicatorProgressService::class)->syncFromRecord($indicator);
 
         ActivityLog::record('PcrAttachment', (int) $id, 'delete', "Removed evidence {$name}");
 

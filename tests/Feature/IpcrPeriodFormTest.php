@@ -152,7 +152,7 @@ class IpcrPeriodFormTest extends PmsTestCase
         ]);
         $target = $this->makeIndicator($opcr, 'core', ['rating_period_id' => $period1->id]);
 
-        $owner = $this->actingAsRole('employee', ['org_unit_id' => $unit->id]);
+        $owner = $this->actingAsRole('program_head', ['org_unit_id' => $unit->id]);
 
         $matching = $this->makeForm([
             'org_unit_id'      => $unit->id,

@@ -101,16 +101,12 @@ class PcrCascadeTest extends PmsTestCase
         $first  = $this->commitAgainst($target, $head);
         $second = $this->commitAgainst($target, $faculty);
 
-        $this->actingAsUser($head);
-        $this->postJson("/api/pcr-indicators/{$first->id}/progress", ['progress_status' => 'completed'])
-            ->assertSuccessful();
+        $this->documentLine($first);
 
         $this->assertSame(50, (int) $target->fresh()->progress_pct);
         $this->assertSame('ongoing', $target->fresh()->progress_status);
 
-        $this->actingAsUser($faculty);
-        $this->postJson("/api/pcr-indicators/{$second->id}/progress", ['progress_status' => 'completed'])
-            ->assertSuccessful();
+        $this->documentLine($second);
 
         $this->assertSame(100, (int) $target->fresh()->progress_pct);
         $this->assertSame('completed', $target->fresh()->progress_status);
@@ -127,9 +123,7 @@ class PcrCascadeTest extends PmsTestCase
         $this->service()->assignIndicator($headLine, $faculty, $head);
         $facultyLine = $this->commitAgainst($headLine, $faculty);
 
-        $this->actingAsUser($faculty);
-        $this->postJson("/api/pcr-indicators/{$facultyLine->id}/progress", ['progress_status' => 'completed'])
-            ->assertSuccessful();
+        $this->documentLine($facultyLine);
 
         $this->assertSame(100, (int) $headLine->fresh()->progress_pct);
         $this->assertSame(100, (int) $target->fresh()->progress_pct);
@@ -157,9 +151,7 @@ class PcrCascadeTest extends PmsTestCase
         $this->service()->assignIndicator($delegated, $faculty, $head);
         $facultyLine = $this->commitAgainst($delegated, $faculty);
 
-        $this->actingAsUser($faculty);
-        $this->postJson("/api/pcr-indicators/{$facultyLine->id}/progress", ['progress_status' => 'completed'])
-            ->assertSuccessful();
+        $this->documentLine($facultyLine);
 
         // The head's delegated line follows its sub-task; their own work does not.
         $this->assertSame(100, (int) $delegated->fresh()->progress_pct);
@@ -319,5 +311,101 @@ class PcrCascadeTest extends PmsTestCase
         $this->assertSame($faculty->name, $line['assignments'][0]['user']['name']);
         $this->assertCount(1, $line['children']);
         $this->assertSame($faculty->name, $line['children'][0]['output']['form']['owner']['name']);
+    }
+
+    public function test_a_head_can_only_assign_someone_on_the_team(): void
+    {
+        ['unit' => $unit, 'year' => $year, 'head' => $head, 'faculty' => $faculty] = $this->office();
+
+        $elsewhere = $this->makeUnit(['name' => 'Registrar', 'code' => 'REG']);
+        $outsider  = User::factory()->create(['role' => 'employee', 'org_unit_id' => $elsewhere->id]);
+
+        $form = $this->makeForm([
+            'org_unit_id' => $unit->id, 'school_year_id' => $year->id, 'user_id' => $head->id,
+        ]);
+        $line = $this->makeIndicator($form, 'core');
+
+        $this->actingAsUser($head);
+
+        $this->postJson("/api/pcr-indicators/{$line->id}/assign", ['user_ids' => [$outsider->id]])
+            ->assertStatus(422);
+
+        $this->postJson("/api/pcr-indicators/{$line->id}/assign", ['user_ids' => [$faculty->id]])
+            ->assertStatus(201);
+
+        $ids = array_column($this->getJson('/api/assignable-users')->json(), 'id');
+
+        $this->assertContains($faculty->id, $ids);
+        $this->assertNotContains($outsider->id, $ids);
+    }
+
+    public function test_a_pending_assignment_is_on_the_ipcr_before_anyone_writes(): void
+    {
+        ['unit' => $unit, 'year' => $year, 'head' => $head, 'faculty' => $faculty] = $this->office();
+
+        $form = $this->makeForm([
+            'org_unit_id' => $unit->id, 'school_year_id' => $year->id, 'user_id' => $head->id,
+        ]);
+        $line = $this->makeIndicator($form, 'core');
+
+        $this->actingAsUser($head);
+
+        $this->postJson("/api/pcr-indicators/{$line->id}/assign", ['user_ids' => [$faculty->id]])
+            ->assertStatus(201);
+
+        $shown = collect($this->getJson("/api/pcr-forms/{$form->id}")->assertOk()->json('outputs'))
+            ->flatMap(fn ($output) => $output['indicators'])
+            ->firstWhere('id', $line->id);
+
+        $this->assertSame($faculty->name, $shown['assignments'][0]['user']['name']);
+        $this->assertCount(0, $shown['children']);
+    }
+
+    public function test_a_faculty_member_sees_the_target_their_head_assigned(): void
+    {
+        ['unit' => $unit, 'year' => $year, 'period' => $period, 'target' => $officeTarget, 'head' => $head, 'faculty' => $faculty] = $this->office();
+
+        $form = $this->makeForm([
+            'org_unit_id' => $unit->id, 'school_year_id' => $year->id,
+            'user_id' => $head->id, 'rating_period_id' => $period->id,
+        ]);
+        $line = $this->makeIndicator($form, 'core', [
+            'description' => '<p>Raise the passing rate.</p>',
+            'rating_period_id' => $period->id,
+        ]);
+
+        $this->actingAsUser($head);
+        $this->postJson("/api/pcr-indicators/{$line->id}/assign", ['user_ids' => [$faculty->id]])
+            ->assertStatus(201);
+
+        $facultyForm = PcrForm::where('type', 'ipcr')->where('user_id', $faculty->id)->first();
+
+        $this->actingAsUser($faculty);
+
+        $targets = $this->getJson("/api/pcr-forms/{$facultyForm->id}")
+            ->assertOk()
+            ->json('assigned_targets');
+
+        $this->assertCount(1, $targets);
+        $this->assertSame($line->id, $targets[0]['id']);
+        $this->assertSame($head->name, $targets[0]['assigned_by_name']);
+
+        $picker = collect($this->getJson("/api/pcr-forms/{$facultyForm->id}/opcr-targets")->assertOk()->json());
+        $this->assertTrue($picker->contains(fn ($row) => $row['id'] === $line->id && $row['assigned'] === true));
+        $this->assertFalse($picker->contains(fn ($row) => $row['id'] === $officeTarget->id));
+
+        $output = $this->makeIndicator($facultyForm, 'core')->output;
+
+        $this->postJson('/api/pcr-indicators', [
+            'output_id'           => $output->id,
+            'description'         => 'Coach the review class.',
+            'parent_indicator_id' => $officeTarget->id,
+        ])->assertStatus(422);
+
+        $this->postJson('/api/pcr-indicators', [
+            'output_id'           => $output->id,
+            'description'         => 'Coach the review class.',
+            'parent_indicator_id' => $line->id,
+        ])->assertSuccessful();
     }
 }

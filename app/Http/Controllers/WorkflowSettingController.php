@@ -69,8 +69,8 @@ class WorkflowSettingController extends Controller
             fn ($slot) => array_intersect((array) ($value[$slot] ?? []), WorkflowSettings::REVIEW_ONLY_ROLES)
         );
 
-        if ($key === 'delegation' && $reviewOnly(['assign_outputs', 'assign_indicators'])) {
-            return 'A VP reviews only and cannot be given this step.';
+        if ($key === 'delegation' && $reviewOnly(['assign_outputs'])) {
+            return 'A VP names people on a success indicator. A whole heading is not theirs to hand out.';
         }
 
         if ($key === 'opcr' && $reviewOnly(WorkflowSettings::REVIEW_ONLY_OPCR_SLOTS)) {

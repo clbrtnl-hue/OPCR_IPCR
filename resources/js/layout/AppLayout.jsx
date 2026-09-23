@@ -65,8 +65,8 @@ const MENUS = {
     // College OPCR is the president's form; My Forms stays in the app but off this menu.
     president: [ITEMS.dashboard, ITEMS.collegeOpcr, /* ITEMS.myForms, */ ITEMS.reports],
     qa: [ITEMS.dashboard, ITEMS.reviewQueue, ITEMS.rating, ITEMS.reports],
-    vp: [ITEMS.dashboard, /* ITEMS.myIpcr, */ ITEMS.myForms, ITEMS.myTeam, ITEMS.reviewQueue],
-    program_head: [ITEMS.dashboard, /* ITEMS.myIpcr, */ ITEMS.myForms, ITEMS.myTeam, ITEMS.reviewQueue],
+    vp: [ITEMS.dashboard, /* ITEMS.myIpcr, */ ITEMS.myForms, ITEMS.myTeam, ITEMS.reviewQueue, ITEMS.rating],
+    program_head: [ITEMS.dashboard, /* ITEMS.myIpcr, */ ITEMS.myForms, ITEMS.myTeam, ITEMS.reviewQueue, ITEMS.rating],
     employee: [ITEMS.dashboard, /* ITEMS.myIpcr, */ ITEMS.myForms],
 };
 

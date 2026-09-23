@@ -48,6 +48,14 @@ class PcrForm extends Model
         return $this->belongsTo(User::class, 'user_id');
     }
 
+    /** Faculty and staff answer only what a head or VP assigned. They do not pick OPCR lines. */
+    public function picksAssignedTargetsOnly(): bool
+    {
+        $this->loadMissing('owner');
+
+        return $this->owner?->role === 'employee';
+    }
+
     public function outputs()
     {
         return $this->hasMany(PcrOutput::class, 'form_id')->orderBy('sort_order');

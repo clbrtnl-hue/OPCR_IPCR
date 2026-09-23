@@ -1,11 +1,10 @@
-import React, { useEffect, useState } from "react";
+import React, { useState } from "react";
 import {
     Alert,
     Button,
     Card,
     Descriptions,
     Input,
-    InputNumber,
     Modal,
     Popconfirm,
     Progress,
@@ -28,13 +27,13 @@ import {
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import dayjs from "dayjs";
 import api from "~/utils/api";
-import { DELAY_META, NARRATIVE_MAX, PROGRESS_META, UPLOAD_ACCEPT, UPLOAD_MAX_MB, progressTone } from "~/utils/constants";
+import { DELAY_META, NARRATIVE_MAX, PROGRESS_META, UPLOAD_ACCEPT, UPLOAD_MAX_MB } from "~/utils/constants";
 import CommentThread from "~/components/CommentThread";
 import AccomplishmentView, { AttachmentGallery } from "~/components/AccomplishmentView";
 import RichText from "~/components/RichText";
 import RichTextView, { toPlainText } from "~/components/RichTextView";
-import ProgressStatusSelect from "~/components/ProgressStatusSelect";
 import DeliveredBy from "~/components/DeliveredBy";
+import ProgressCell from "~/components/ProgressCell";
 
 export default function IndicatorRow({
     indicator,
@@ -57,22 +56,6 @@ export default function IndicatorRow({
     const [picked, setPicked] = useState([]);
     const [uploading, setUploading] = useState({});
 
-    // The percentage is committed when the person leaves the field, not on every
-    // keystroke — firing per change also fired when the server set it to 100 on
-    // completion, posting back a stale status and undoing the completion.
-    const [pct, setPct] = useState(indicator.progress_pct ?? 0);
-
-    useEffect(() => setPct(indicator.progress_pct ?? 0), [indicator.progress_pct]);
-
-    const commitPct = () => {
-        if ((pct ?? 0) === (indicator.progress_pct ?? 0)) return;
-
-        saveProgress.mutate({
-            progress_status: indicator.progress_status,
-            progress_pct: pct ?? 0,
-        });
-    };
-
     const refresh = () => queryClient.invalidateQueries({ queryKey: ["pcr-form", String(formId)] });
 
     const saveAccomplishment = useMutation({
@@ -86,11 +69,6 @@ export default function IndicatorRow({
             message.success("Accomplishment saved.");
             refresh();
         },
-    });
-
-    const saveProgress = useMutation({
-        mutationFn: (values) => api.post(`pcr-indicators/${indicator.id}/progress`, values),
-        onSuccess: refresh,
     });
 
     const removeIndicator = useMutation({
@@ -257,7 +235,7 @@ export default function IndicatorRow({
                 />
             )}
 
-            {indicator.children?.length > 0 && (
+            {(indicator.children?.length > 0 || indicator.assignments?.length > 0) && (
                 <div style={{ marginBottom: 12 }}>
                     <Typography.Text strong style={{ display: "block", marginBottom: 8 }}>
                         Delivered by
@@ -271,32 +249,18 @@ export default function IndicatorRow({
                 </div>
             )}
 
-            {canRecordProgress && (
-                <Space wrap style={{ marginBottom: 12 }}>
-                    <ProgressStatusSelect
-                        value={indicator.progress_status}
-                        onChange={(status) => saveProgress.mutate({ progress_status: status })}
-                    />
-                    <InputNumber
-                        size="small"
-                        min={0}
-                        max={100}
-                        value={pct}
-                        formatter={(v) => `${v}%`}
-                        parser={(v) => v.replace("%", "")}
-                        onChange={(next) => setPct(next ?? 0)}
-                        onBlur={commitPct}
-                        onPressEnter={commitPct}
-                    />
-                    <Progress
-                        percent={indicator.progress_pct}
-                        size="small"
-                        style={{ width: 140 }}
-                        strokeColor={progressTone(indicator.progress_status, indicator.progress_pct)}
-                        status={indicator.progress_status === "deferred" ? "exception" : undefined}
-                    />
-                </Space>
-            )}
+            <div style={{ marginBottom: 12, maxWidth: 280 }}>
+                <ProgressCell
+                    status={indicator.progress_status}
+                    pct={indicator.progress_pct}
+                    computed
+                    computedHint={
+                        indicator.children?.length
+                            ? "Rolled up from the commitments written against this line."
+                            : "100% once the actual accomplishment is written and a file is attached. A narrative alone stays at 0%."
+                    }
+                />
+            </div>
 
             <Typography.Text strong style={{ display: "block", marginBottom: 4 }}>
                 Actual accomplishment

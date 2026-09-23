@@ -4,7 +4,9 @@ namespace Tests\Feature;
 
 use App\Models\PcrIndicator;
 use App\Models\PcrOutput;
+use App\Models\RatingPeriod;
 use App\Models\User;
+use Illuminate\Http\UploadedFile;
 use Tests\PmsTestCase;
 
 /**
@@ -169,7 +171,7 @@ class OpcrSheetTest extends PmsTestCase
 
     public function test_the_sheet_is_told_how_far_each_line_has_got(): void
     {
-        ['president' => $president, 'opcr' => $opcr] = $this->college();
+        ['president' => $president, 'opcr' => $opcr, 'year' => $year] = $this->college();
 
         $output = PcrOutput::create(['form_id' => $opcr->id, 'section' => 'support', 'title' => 'MANCOM meetings']);
         $line   = PcrIndicator::create([
@@ -177,24 +179,30 @@ class OpcrSheetTest extends PmsTestCase
             'description' => '<p>Attended all Management Committee meetings.</p>',
         ]);
 
+        $period = RatingPeriod::where('school_year_id', $year->id)->first();
+
         $this->actingAsUser($president);
 
         $this->getJson("/api/pcr-forms/{$opcr->id}")
             ->assertSuccessful()
-            ->assertJsonPath('outputs.0.child_outputs_count', 0)
+            ->assertJsonPath('outputs.0.nested_outputs_count', 0)
             ->assertJsonPath('outputs.0.indicators.0.progress_status', 'not_started')
             ->assertJsonPath('outputs.0.indicators.0.progress_pct', 0);
 
-        $this->postJson("/api/pcr-indicators/{$line->id}/progress", [
-            'progress_status' => 'ongoing',
-            'progress_pct'    => 60,
+        $this->postJson('/api/pcr-accomplishments', [
+            'indicator_id'          => $line->id,
+            'rating_period_id'      => $period->id,
+            'actual_accomplishment' => '<p>Attended every meeting.</p>',
         ])->assertSuccessful();
 
-        $this->assertSame(60, (int) $line->fresh()->progress_pct);
+        $this->assertSame(0, (int) $line->fresh()->progress_pct);
+        $this->assertSame('ongoing', $line->fresh()->progress_status);
 
-        $this->postJson("/api/pcr-indicators/{$line->id}/progress", [
-            'progress_status' => 'completed',
-        ])->assertSuccessful();
+        $this->post('/api/pcr-attachments', [
+            'indicator_id'     => $line->id,
+            'rating_period_id' => $period->id,
+            'file'             => UploadedFile::fake()->image('minutes.jpg'),
+        ], ['Accept' => 'application/json'])->assertStatus(201);
 
         $this->getJson("/api/pcr-forms/{$opcr->id}")
             ->assertJsonPath('outputs.0.indicators.0.progress_status', 'completed')

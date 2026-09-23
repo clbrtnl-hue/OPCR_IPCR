@@ -62,12 +62,19 @@ class WorkflowSettingsTest extends PmsTestCase
         $form = $this->makeForm([
             'org_unit_id' => $office->id, 'school_year_id' => $year->id, 'user_id' => $faculty->id,
         ]);
-        $this->makeIndicator($form, 'support');
+        $line = $this->makeIndicator($form, 'support');
 
         $this->actingAsUser($faculty);
         $this->postJson("/api/pcr-forms/{$form->id}/status", ['status' => 'head_review'])->assertSuccessful();
 
+        $period = $this->makePeriod($year);
+
         $this->actingAsUser($head);
+        $this->postJson('/api/pcr-ratings', [
+            'form_id'          => $form->id,
+            'rating_period_id' => $period->id,
+            'ratings'          => [['indicator_id' => $line->id, 'q' => 4, 'e' => 4, 't' => 4]],
+        ])->assertOk();
         $this->postJson("/api/pcr-forms/{$form->id}/status", ['status' => 'vp_review'])->assertSuccessful();
 
         // The VP stage is no longer in the chain, so endorsing lands on QA.

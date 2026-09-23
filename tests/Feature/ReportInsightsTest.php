@@ -232,4 +232,104 @@ class ReportInsightsTest extends PmsTestCase
         $this->get("/api/reports/summary/export?school_year_id={$year->id}&table=heads")
             ->assertSuccessful();
     }
+
+    public function test_progress_climbs_from_a_unit_to_its_parents(): void
+    {
+        ['president' => $president, 'year' => $year, 'period' => $period] = $this->college();
+
+        $office = $this->makeUnit(['name' => 'Office of the College President', 'code' => 'OCP', 'type' => 'college']);
+        $aas    = $this->makeUnit(['name' => 'Academic Affairs and Services', 'code' => 'AAS', 'type' => 'office', 'parent_id' => $office->id]);
+        $cit    = $this->makeUnit(['name' => 'College of Information Technology', 'code' => 'CIT', 'type' => 'program', 'parent_id' => $aas->id]);
+        $cba    = $this->makeUnit(['name' => 'College of Business Ad', 'code' => 'CBA', 'type' => 'program', 'parent_id' => $aas->id]);
+        $idle   = $this->makeUnit(['name' => 'Department of Physical Education', 'code' => 'DPE', 'type' => 'program', 'parent_id' => $aas->id]);
+
+        $secretary = User::factory()->create(['role' => 'employee', 'org_unit_id' => $aas->id]);
+
+        $this->lineOn($aas, $secretary, $year, $period, 100);
+        $this->lineOn($cit, User::factory()->create(['role' => 'employee', 'org_unit_id' => $cit->id]), $year, $period, 80);
+        $this->lineOn($cba, User::factory()->create(['role' => 'employee', 'org_unit_id' => $cba->id]), $year, $period, 40);
+
+        $this->actingAsUser($president);
+
+        $rows = collect($this->getJson("/api/reports/summary?school_year_id={$year->id}")->json('units'))->keyBy('id');
+
+        $this->assertSame(80, $rows[$cit->id]['progress_pct']);
+        $this->assertSame(40, $rows[$cba->id]['progress_pct']);
+        $this->assertNull($rows[$idle->id]['progress_pct']);
+        // Secretary 100, CIT 80, Business 40. The empty department is not a zero.
+        $this->assertSame(73, $rows[$aas->id]['progress_pct']);
+        $this->assertSame(73, $rows[$office->id]['progress_pct']);
+    }
+
+    public function test_a_person_is_listed_under_the_office_on_their_account(): void
+    {
+        ['president' => $viewer, 'year' => $year, 'period' => $period, 'unit' => $cit] = $this->college();
+
+        $office = $this->makeUnit(['name' => 'Office of the College President', 'code' => 'OCP']);
+        $dean = User::factory()->create([
+            'role' => 'program_head', 'position_title' => 'Dean', 'org_unit_id' => $office->id,
+        ]);
+
+        $this->lineOn($cit, $dean, $year, $period, 0);
+
+        $this->actingAsUser($viewer);
+
+        $row = collect($this->getJson("/api/reports/summary?school_year_id={$year->id}")->assertOk()->json('people'))
+            ->firstWhere('id', $dean->id);
+
+        $this->assertSame('Office of the College President', $row['unit']);
+        $this->assertSame('OCP', $row['unit_code']);
+    }
+
+    public function test_the_opcr_is_the_presidents_and_reads_the_whole_college(): void
+    {
+        ['president' => $president, 'year' => $year, 'period' => $period, 'unit' => $root] = $this->college();
+
+        $office = $this->makeUnit([
+            'name' => 'Office of the College President', 'code' => 'OCP', 'parent_id' => $root->id,
+        ]);
+        $president->update(['org_unit_id' => $office->id, 'name' => 'Neilson D. Bation, DM']);
+
+        $opcr = $this->makeForm([
+            'type' => 'opcr', 'org_unit_id' => $root->id, 'user_id' => null,
+            'school_year_id' => $year->id, 'status' => 'published',
+        ]);
+        $output = PcrOutput::create(['form_id' => $opcr->id, 'section' => 'core', 'title' => 'College']);
+        PcrIndicator::create([
+            'output_id' => $output->id, 'description' => '<p>Still open.</p>',
+            'progress_status' => 'not_started', 'progress_pct' => 0,
+        ]);
+
+        $cit = $this->makeUnit(['name' => 'College of Information Technology', 'code' => 'CIT', 'parent_id' => $root->id]);
+        $this->lineOn($cit, User::factory()->create(['role' => 'employee', 'org_unit_id' => $cit->id]), $year, $period, 100);
+        $this->lineOn($cit, $president, $year, $period, 0);
+
+        $this->actingAsUser($president);
+
+        $data = $this->getJson("/api/reports/summary?school_year_id={$year->id}")->assertOk()->json();
+        $row  = collect($data['forms'])->firstWhere('id', $opcr->id);
+        $college = collect($data['units'])->firstWhere('id', $root->id);
+
+        $this->assertSame('Neilson D. Bation, DM', $row['owner']);
+        $this->assertSame('Office of the College President', $row['unit']);
+        $this->assertSame($college['progress_pct'], $row['progress_pct']);
+        $this->assertNotSame(0, $row['progress_pct']);
+        $this->assertNull(collect($data['people'])->firstWhere('id', $president->id));
+    }
+
+    private function lineOn($unit, User $owner, $year, $period, int $pct): void
+    {
+        $form = $this->makeForm([
+            'type' => 'ipcr', 'org_unit_id' => $unit->id, 'user_id' => $owner->id,
+            'school_year_id' => $year->id, 'rating_period_id' => $period->id, 'status' => 'draft',
+        ]);
+        $output = PcrOutput::create(['form_id' => $form->id, 'section' => 'core', 'title' => 'Work']);
+
+        PcrIndicator::create([
+            'output_id' => $output->id,
+            'description' => '<p>Delivered.</p>',
+            'progress_status' => $pct >= 100 ? 'completed' : 'ongoing',
+            'progress_pct' => $pct,
+        ]);
+    }
 }

@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\PcrIndicator;
 use App\Models\PcrOutput;
+use App\Models\PcrTargetAssignment;
 use App\Support\Html;
 use App\Models\RatingPeriod;
 use App\Services\IndicatorProgressService;
@@ -165,27 +166,9 @@ class PcrIndicatorController extends Controller
             ], 409);
         }
 
-        $pct = $data['progress_pct'] ?? $indicator->progress_pct;
-
-        if ($data['progress_status'] === 'completed') {
-            $pct = 100;
-        } elseif ($data['progress_status'] === 'not_started') {
-            $pct = 0;
-        }
-
-        $indicator->update([
-            'progress_status' => $data['progress_status'],
-            'progress_pct'    => $pct,
-            // Remember when it was actually delivered, so a task finished late
-            // keeps saying so instead of drifting further behind every day.
-            'completed_on'    => $data['progress_status'] === 'completed'
-                ? ($indicator->completed_on ?? now()->toDateString())
-                : null,
-        ]);
-
-        app(IndicatorProgressService::class)->recalculateFrom($indicator);
-
-        return response()->json(['data' => 'updated', 'indicator' => $indicator->fresh()]);
+        return response()->json([
+            'message' => 'Progress follows the accomplishment. A line reaches 100% when the actual accomplishment is written and a file is attached.',
+        ], 409);
     }
 
     public function destroy(Request $request, $id)
@@ -233,8 +216,12 @@ class PcrIndicatorController extends Controller
             return 'Pick a target from the same review period as this line.';
         }
 
-        // The college has a single OPCR, so any of its published targets is fair
-        // game for anyone's IPCR; only the school year has to match.
+        if ($parentForm->type === 'opcr' && $form->picksAssignedTargetsOnly()) {
+            return 'Pick a target that was assigned to you.';
+        }
+
+        // A head or VP may answer a published college target. Faculty and staff
+        // only answer the line a head or VP assigned to them.
         if ($parentForm->type === 'opcr') {
             if (! PcrWorkflow::opcrIsVisible($parentForm)) {
                 return 'The college OPCR has not been published yet, so its targets cannot be committed to.';
@@ -255,11 +242,16 @@ class PcrIndicatorController extends Controller
             return null;
         }
 
-        // A line under another person's IPCR line exists only because that
-        // person delegated it, and delegation creates the child itself. Nobody
-        // may reach up and attach themselves to a colleague's commitment.
         if ($selfId && $this->wouldCycle((int) $selfId, $parentId)) {
             return 'A line cannot be delivered by one of its own sub-tasks.';
+        }
+
+        $handedToMe = $form->user_id && PcrTargetAssignment::where('indicator_id', $parentId)
+            ->where('user_id', $form->user_id)
+            ->exists();
+
+        if ($handedToMe) {
+            return null;
         }
 
         return 'Pick a target from the college OPCR — sub-tasks under someone else’s line are created by assigning them.';
