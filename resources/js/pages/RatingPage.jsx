@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
     Alert,
     Button,
@@ -57,6 +57,7 @@ export default function RatingPage() {
     const [periodId, setPeriodId] = useState(null);
     const [scores, setScores] = useState({});
     const [openLineId, setOpenLineId] = useState(null);
+    const dirtyScores = useRef(new Set());
 
     const { data: queue = [], isLoading } = useQuery({
         queryKey: ["qa-queue"],
@@ -97,21 +98,33 @@ export default function RatingPage() {
     );
 
     useEffect(() => {
+        dirtyScores.current = new Set();
+    }, [form?.id, activePeriodId]);
+
+    useEffect(() => {
         if (!form || !activePeriodId) return;
 
-        const next = {};
+        setScores((prev) => {
+            const next = {};
 
-        indicators.forEach((indicator) => {
-            const existing = indicator.ratings?.find((r) => r.rating_period_id === activePeriodId);
-            next[indicator.id] = {
-                q: existing?.q ?? null,
-                e: existing?.e ?? null,
-                t: existing?.t ?? null,
-                remarks: existing?.remarks ?? "",
-            };
+            indicators.forEach((indicator) => {
+                if (dirtyScores.current.has(indicator.id) && prev[indicator.id]) {
+                    next[indicator.id] = prev[indicator.id];
+
+                    return;
+                }
+
+                const existing = indicator.ratings?.find((r) => r.rating_period_id === activePeriodId);
+                next[indicator.id] = {
+                    q: existing?.q ?? null,
+                    e: existing?.e ?? null,
+                    t: existing?.t ?? null,
+                    remarks: existing?.remarks ?? "",
+                };
+            });
+
+            return next;
         });
-
-        setScores(next);
     }, [form, activePeriodId, indicators]);
 
     const save = useMutation({
@@ -126,6 +139,7 @@ export default function RatingPage() {
             }),
         onSuccess: () => {
             message.success("Ratings saved.");
+            dirtyScores.current = new Set();
             queryClient.invalidateQueries({ queryKey: ["pcr-form", String(selectedId)] });
         },
     });
@@ -156,11 +170,14 @@ export default function RatingPage() {
         },
     });
 
-    const update = (indicatorId, field, value) =>
+    const update = (indicatorId, field, value) => {
+        dirtyScores.current.add(Number(indicatorId));
+
         setScores((prev) => ({
             ...prev,
             [indicatorId]: { ...prev[indicatorId], [field]: value },
         }));
+    };
 
     const averageOf = (row) => {
         const given = [row?.q, row?.e, row?.t].filter((v) => v != null);

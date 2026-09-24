@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import {
     Alert,
     Button,
@@ -48,7 +48,7 @@ import {
     UndoOutlined,
 } from "@ant-design/icons";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useParams } from "react-router-dom";
+import { useParams, useSearchParams } from "react-router-dom";
 import dayjs from "dayjs";
 import relativeTime from "dayjs/plugin/relativeTime";
 import api from "~/utils/api";
@@ -97,6 +97,9 @@ const OPCR_CHAIN = ["draft", "qa_approval", "approved", "published", "qa_rating"
 
 export default function FormEditorPage({ formId = null }) {
     const { id: routeId } = useParams();
+    const [searchParams] = useSearchParams();
+    const focusLineId = Number(searchParams.get("line")) || null;
+    const focusRemarks = searchParams.get("remarks") === "1";
     // Normalised: children invalidate ["pcr-form", String(...)], and a numeric
     // id from the prop would silently miss that cache key.
     const id = String(formId ?? routeId);
@@ -127,6 +130,12 @@ export default function FormEditorPage({ formId = null }) {
         queryKey: ["pcr-form", id],
         queryFn: () => api.get(`pcr-forms/${id}`).then((r) => r.data),
     });
+
+    useEffect(() => {
+        if (focusRemarks && form && !focusLineId) {
+            setPanelOpen(true);
+        }
+    }, [focusRemarks, focusLineId, form?.id]);
 
     const periods = form?.school_year?.periods ?? [];
     // A period-pinned IPCR covers exactly one review period; the OPCR (and
@@ -582,6 +591,7 @@ export default function FormEditorPage({ formId = null }) {
                                 canAssign={canAssignHeadings || canAssign}
                                 canRecordProgress={canRecordProgress}
                                 summary={summary}
+                                focusLineId={focusLineId}
                             />
                         ) : form.outputs.length === 0 ? (
                             <Empty description="No commitments yet. Add an MFO/PPA and write your own success indicators, then link each one to an assigned office target." />
@@ -596,6 +606,7 @@ export default function FormEditorPage({ formId = null }) {
                                 canScore={canScore}
                                 opcrTargets={opcrTargets}
                                 summary={summary}
+                                focusLineId={focusLineId}
                                 onAddOutput={(section) => {
                                     outputForm.setFieldsValue({ section });
                                     setOutputModal(true);

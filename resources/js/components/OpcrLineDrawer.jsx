@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { Button, Divider, Space, Tag, Tooltip, Typography, Upload, message } from "antd";
 import {
     ClockCircleOutlined,
@@ -33,11 +33,14 @@ export default function OpcrLineDrawer({
     const rating = (line.ratings ?? []).find((r) => r.rating_period_id === periodId);
     const accomplishment = (line.accomplishments ?? []).find((a) => a.rating_period_id === periodId);
     const hasDelegatedHeading = Number(output?.child_outputs_count ?? 0) > 0;
-    const [text, setText] = useState(accomplishment?.actual_accomplishment ?? "");
+    const serverText = accomplishment?.actual_accomplishment ?? "";
+    const [text, setText] = useState(serverText);
+    const seenServer = useRef(serverText);
 
     useEffect(() => {
-        setText(accomplishment?.actual_accomplishment ?? "");
-    }, [accomplishment?.actual_accomplishment, line.id, periodId]);
+        setText((current) => (current === seenServer.current ? serverText : current));
+        seenServer.current = serverText;
+    }, [serverText, line.id, periodId]);
 
     const refresh = () => queryClient.invalidateQueries({ queryKey: ["pcr-form", String(form.id)] });
 

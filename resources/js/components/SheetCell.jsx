@@ -30,9 +30,15 @@ export default function SheetCell({
     const container = useRef(null);
 
     useEffect(() => {
+        // A live refresh must not replace the sentence still being typed.
+        // Once the cell is closed, a newer server value can take its place.
+        if (editing) return;
+
+        if (pending && (value ?? "") !== (draft ?? "")) return;
+
         setDraft(value ?? "");
         setPending(false);
-    }, [value]);
+    }, [value, editing, pending, draft]);
 
     useEffect(() => {
         if (!pending) return;

@@ -10,7 +10,14 @@ import "../css/app.css";
 
 const queryClient = new QueryClient({
     defaultOptions: {
-        queries: { refetchOnWindowFocus: false, retry: 1 },
+        queries: {
+            refetchOnWindowFocus: true,
+            retry: 1,
+            // Every open screen asks again, including a window left beside
+            // another browser, so progress and comments arrive with the bell.
+            refetchInterval: 4000,
+            refetchIntervalInBackground: true,
+        },
     },
 });
 

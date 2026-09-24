@@ -133,30 +133,43 @@ class PcrCommentController extends Controller
     {
         $subject = $form->owner?->name ?? $form->orgUnit?->name;
         $excerpt = mb_substr($comment->body, 0, 160);
+        $link    = $comment->indicator_id
+            ? "/forms/{$form->id}?line={$comment->indicator_id}"
+            : "/forms/{$form->id}?remarks=1";
 
         Notification::sendMany(
             $mentions,
             'mention',
             "{$author->name} mentioned you",
             $excerpt,
-            $form->id
+            $form->id,
+            $link
         );
 
-        $watchers = array_diff(
-            array_filter([
-                $form->user_id,
-                $form->orgUnit?->head_user_id,
-                $form->orgUnit?->vp_user_id,
-            ]),
-            $mentions
-        );
+        $watchers = [
+            $form->user_id,
+            $form->orgUnit?->head_user_id,
+            $form->orgUnit?->vp_user_id,
+        ];
+
+        // An OPCR has no owner. The president still needs every remark on it,
+        // whether or not the writer tagged them.
+        if ($form->type === 'opcr') {
+            $watchers = array_merge(
+                $watchers,
+                User::where('role', 'president')->where('status', 'active')->pluck('id')->all()
+            );
+        }
+
+        $watchers = array_diff(array_filter($watchers), $mentions, [$author->id]);
 
         Notification::sendMany(
             $watchers,
             'comment',
             "New remark on {$subject}'s " . strtoupper($form->type),
             $excerpt,
-            $form->id
+            $form->id,
+            $link
         );
     }
 }

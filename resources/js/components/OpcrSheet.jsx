@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
     Badge,
     Button,
@@ -53,13 +53,14 @@ function siblingsOf(outputs, output) {
  * rather than opening a dialog for every line — the paper form is the mental
  * model, so the screen should not fight it.
  */
-export default function OpcrSheet({ form, periodId, canEdit, canAssign, canRecordProgress, summary }) {
+export default function OpcrSheet({ form, periodId, canEdit, canAssign, canRecordProgress, summary, focusLineId = null }) {
     const queryClient = useQueryClient();
     const [assigning, setAssigning] = useState(null);   // an output, or an indicator
     const [picked, setPicked] = useState([]);
     const [justAdded, setJustAdded] = useState(null);   // { kind, id }
     const [openLineId, setOpenLineId] = useState(null);
     const [commentLineId, setCommentLineId] = useState(null);
+    const focusedLine = useRef(null);
     const { openPerson } = usePerson();
 
     const { data: comments = [] } = useQuery({
@@ -208,6 +209,29 @@ export default function OpcrSheet({ form, periodId, canEdit, canAssign, canRecor
             refresh();
         },
     });
+
+    useEffect(() => {
+        if (!focusLineId || focusedLine.current === focusLineId) return;
+
+        const exists = (form.outputs ?? []).some((output) =>
+            (output.indicators ?? []).some((line) => line.id === focusLineId)
+        );
+
+        if (!exists) return;
+
+        focusedLine.current = focusLineId;
+        setCommentLineId(focusLineId);
+
+        const row = document.querySelector(`[data-row="indicator-${focusLineId}"]`);
+
+        if (!row) return;
+
+        row.scrollIntoView({ behavior: "smooth", block: "center" });
+        row.classList.add("is-new");
+        const timer = setTimeout(() => row.classList.remove("is-new"), 2200);
+
+        return () => clearTimeout(timer);
+    }, [focusLineId, form.outputs]);
 
     useEffect(() => {
         if (!justAdded) return;

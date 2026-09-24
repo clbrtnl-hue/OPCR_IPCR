@@ -40,6 +40,10 @@ api.interceptors.response.use(
     (error) => {
         const status = error?.response?.status;
 
+        if (axios.isCancel(error) || error?.code === "ERR_CANCELED") {
+            return Promise.reject(error);
+        }
+
         if (isSignIn(error)) {
             return Promise.reject(error);
         }

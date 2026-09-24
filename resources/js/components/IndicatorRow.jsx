@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import {
     Alert,
     Button,
@@ -43,6 +43,7 @@ export default function IndicatorRow({
     canRecordProgress,
     canAssign,
     isOpcr,
+    remarksOpen = false,
 }) {
     const queryClient = useQueryClient();
     const accomplishment = indicator.accomplishments?.find(
@@ -50,8 +51,15 @@ export default function IndicatorRow({
     );
     const rating = indicator.ratings?.find((r) => r.rating_period_id === periodId);
 
-    const [text, setText] = useState(accomplishment?.actual_accomplishment ?? "");
-    const [showRemarks, setShowRemarks] = useState(false);
+    const serverText = accomplishment?.actual_accomplishment ?? "";
+    const [text, setText] = useState(serverText);
+    const seenServer = useRef(serverText);
+
+    useEffect(() => {
+        setText((current) => (current === seenServer.current ? serverText : current));
+        seenServer.current = serverText;
+    }, [serverText, indicator.id, periodId]);
+    const [showRemarks, setShowRemarks] = useState(remarksOpen);
     const [assignOpen, setAssignOpen] = useState(false);
     const [picked, setPicked] = useState([]);
     const [uploading, setUploading] = useState({});

@@ -28,6 +28,7 @@ class Notification extends Model
         string $title,
         ?string $body = null,
         ?int $formId = null,
+        ?string $link = null,
     ): void {
         if (! $userId || $userId === Auth::id()) {
             return;
@@ -39,7 +40,7 @@ class Notification extends Model
                 'type'       => $type,
                 'title'      => $title,
                 'body'       => $body ? mb_substr(Html::toText($body), 0, 500) : null,
-                'link'       => $formId ? "/forms/{$formId}" : null,
+                'link'       => $link ?? ($formId ? "/forms/{$formId}" : null),
                 'form_id'    => $formId,
                 'actor_id'   => Auth::id(),
                 'actor_name' => Auth::user()->name ?? null,
@@ -49,10 +50,10 @@ class Notification extends Model
         }
     }
 
-    public static function sendMany(array $userIds, string $type, string $title, ?string $body = null, ?int $formId = null): void
+    public static function sendMany(array $userIds, string $type, string $title, ?string $body = null, ?int $formId = null, ?string $link = null): void
     {
         foreach (array_unique(array_filter($userIds)) as $userId) {
-            static::send($userId, $type, $title, $body, $formId);
+            static::send($userId, $type, $title, $body, $formId, $link);
         }
     }
 }

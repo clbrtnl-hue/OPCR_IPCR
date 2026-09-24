@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
     Badge,
     Button,
@@ -63,15 +63,18 @@ export default function IpcrSheet({
     opcrTargets = [],
     summary,
     onAddOutput,
+    focusLineId = null,
 }) {
     const queryClient = useQueryClient();
     const [openLineId, setOpenLineId] = useState(null);
+    const focusedLine = useRef(null);
     const [justAdded, setJustAdded] = useState(null);
     const [pickingLineId, setPickingLineId] = useState(null);
     const [assigning, setAssigning] = useState(null);
     const [picked, setPicked] = useState([]);
     const { openPerson } = usePerson();
     const [draftScores, setDraftScores] = useState({});
+    const savingScores = useRef(new Set());
 
     const refresh = () => queryClient.invalidateQueries({ queryKey: ["pcr-form", String(form.id)] });
 
@@ -80,6 +83,8 @@ export default function IpcrSheet({
 
         form.outputs?.forEach((output) => {
             output.indicators?.forEach((line) => {
+                if (savingScores.current.has(line.id)) return;
+
                 const rating = (line.ratings ?? []).find((row) => row.rating_period_id === periodId);
                 next[line.id] = {
                     q: rating?.q ?? null,
@@ -90,16 +95,27 @@ export default function IpcrSheet({
             });
         });
 
-        setDraftScores(next);
+        setDraftScores((prev) => {
+            savingScores.current.forEach((lineId) => {
+                if (prev[lineId]) next[lineId] = prev[lineId];
+            });
+
+            return next;
+        });
     }, [form, periodId]);
 
     const saveScore = (lineId, dimension, value) => {
         const current = draftScores[lineId] ?? { q: null, e: null, t: null, remarks: "" };
         const next = { ...current, [dimension]: value ?? null };
 
+        savingScores.current.add(lineId);
         setDraftScores((prev) => ({ ...prev, [lineId]: next }));
 
-        if (!canScore || !periodId) return;
+        if (!canScore || !periodId) {
+            savingScores.current.delete(lineId);
+
+            return;
+        }
 
         api.post("pcr-ratings", {
             form_id: form.id,
@@ -117,7 +133,8 @@ export default function IpcrSheet({
             .then(() => refresh())
             .catch((error) => {
                 message.error(error.response?.data?.message ?? "The score could not be saved.");
-            });
+            })
+            .finally(() => savingScores.current.delete(lineId));
     };
 
     const { data: people = [] } = useQuery({
@@ -220,6 +237,29 @@ export default function IpcrSheet({
             refresh();
         },
     });
+
+    useEffect(() => {
+        if (!focusLineId || focusedLine.current === focusLineId) return;
+
+        const exists = (form.outputs ?? []).some((output) =>
+            (output.indicators ?? []).some((line) => line.id === focusLineId)
+        );
+
+        if (!exists) return;
+
+        focusedLine.current = focusLineId;
+        setOpenLineId(focusLineId);
+
+        const row = document.querySelector(`[data-row="indicator-${focusLineId}"]`);
+
+        if (!row) return;
+
+        row.scrollIntoView({ behavior: "smooth", block: "center" });
+        row.classList.add("is-new");
+        const timer = setTimeout(() => row.classList.remove("is-new"), 2200);
+
+        return () => clearTimeout(timer);
+    }, [focusLineId, form.outputs]);
 
     useEffect(() => {
         if (!justAdded) return;
@@ -776,6 +816,7 @@ export default function IpcrSheet({
                         canRecordProgress={canRecordProgress}
                         canAssign={canAssign}
                         isOpcr={false}
+                        remarksOpen={openLine.id === focusLineId}
                     />
                 )}
             </Drawer>

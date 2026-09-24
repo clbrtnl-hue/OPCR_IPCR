@@ -80,7 +80,6 @@ export default function AppLayout({ children }) {
     const { data: notifications } = useQuery({
         queryKey: ["notifications", "bell"],
         queryFn: () => api.get("notifications?limit=6").then((r) => r.data),
-        refetchInterval: 30000,
         enabled: Boolean(user),
     });
 
