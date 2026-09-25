@@ -75,7 +75,7 @@ class WholeIpcrProgressTest extends PmsTestCase
         $this->getJson("/api/pcr-forms/{$ipcr->id}")->assertSuccessful();
     }
 
-    public function test_an_extra_line_does_not_change_the_assigned_target(): void
+    public function test_an_extra_line_counts_toward_every_target_assigned_to_that_person(): void
     {
         $this->makeOrganization();
 
@@ -106,7 +106,11 @@ class WholeIpcrProgressTest extends PmsTestCase
             'description'      => 'My own target, not from the head.',
         ]);
 
-        $this->assertSame(100, (int) $headLine->fresh()->progress_pct);
+        app(\App\Services\IndicatorProgressService::class)
+            ->shareAcrossAssignedTargets($form);
+
+        // Two commitments, one finished: the assigned target reads 50%, same as the person.
+        $this->assertSame(50, (int) $headLine->fresh()->progress_pct);
         $this->assertSame(0, (int) $own->fresh()->progress_pct);
 
         $president = User::factory()->create(['role' => 'president', 'org_unit_id' => $unit->id]);
@@ -118,5 +122,47 @@ class WholeIpcrProgressTest extends PmsTestCase
             ->firstWhere('id', $faculty->id);
 
         $this->assertSame(50, $person['progress_pct']);
+    }
+
+    public function test_three_assigned_targets_share_the_commitments_the_person_wrote(): void
+    {
+        $this->makeOrganization();
+
+        $unit   = $this->makeUnit();
+        $year   = $this->makeSchoolYear();
+        $period = $this->makePeriod($year, 1);
+        $head   = User::factory()->create(['role' => 'program_head', 'org_unit_id' => $unit->id]);
+
+        $opcr = $this->makeForm([
+            'type' => 'opcr', 'org_unit_id' => $unit->id,
+            'school_year_id' => $year->id, 'status' => 'published',
+        ]);
+        $targets = collect(range(1, 3))->map(fn ($n) => $this->makeIndicator($opcr, 'core', [
+            'rating_period_id' => $period->id,
+            'description'      => "Office target {$n}",
+        ]));
+
+        $admin = $this->actingAsRole('admin');
+        $service = app(\App\Services\PcrAssignmentService::class);
+
+        foreach ($targets as $target) {
+            $service->assignIndicator($target, $head, $admin);
+            $this->assertSame(0, (int) $target->fresh()->progress_pct);
+        }
+
+        $lines = $targets->take(2)->map(fn ($target) => $this->commitAgainst($target, $head));
+        $this->documentLine($lines->first());
+
+        foreach ($targets as $target) {
+            $this->assertSame(50, (int) $target->fresh()->progress_pct);
+            $this->assertSame('ongoing', $target->fresh()->progress_status);
+        }
+
+        $this->documentLine($lines->last());
+
+        foreach ($targets as $target) {
+            $this->assertSame(100, (int) $target->fresh()->progress_pct);
+            $this->assertSame('completed', $target->fresh()->progress_status);
+        }
     }
 }

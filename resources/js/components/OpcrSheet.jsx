@@ -31,6 +31,7 @@ import { usePerson } from "~/hooks/usePerson";
 import UserAvatar from "~/components/UserAvatar";
 import ProgressCell from "~/components/ProgressCell";
 import OpcrLineDrawer from "~/components/OpcrLineDrawer";
+import LineCards from "~/components/LineCards";
 import CommentThread from "~/components/CommentThread";
 import { ADJECTIVAL_COLORS, DELAY_META, NARRATIVE_MAX, SECTION_LABELS } from "~/utils/constants";
 
@@ -811,6 +812,8 @@ export default function OpcrSheet({ form, periodId, canEdit, canAssign, canRecor
 
     return (
         <>
+            <LineCards form={form} periodId={periodId} onOpen={setOpenLineId} />
+
             <div className="pms-sheet-wrap">
                 <table className="pms-sheet">
                     <thead>
@@ -839,7 +842,7 @@ export default function OpcrSheet({ form, periodId, canEdit, canAssign, canRecor
             </div>
 
             {canEdit && (
-                <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                <Typography.Text className="pms-sheet-hint" type="secondary" style={{ fontSize: 12 }}>
                     Click any cell to edit it. Enter saves, Shift+Enter starts a new line, Escape
                     undoes.
                 </Typography.Text>

@@ -35,7 +35,7 @@ class PcrAssignmentService
             $form   = $this->formFor($assignee, $parent->form, $periodId ?? $this->defaultPeriodFor($parent->form));
             $output = $this->outputFor($form, $parent, $actor);
 
-            $this->announce($assignee, $actor, $form, $parent->title);
+            $this->announce($assignee, $actor, $form, $parent->title, "output={$output->id}");
 
             ActivityLog::record(
                 'PcrOutput',
@@ -85,7 +85,7 @@ class PcrAssignmentService
             );
 
             if ($form && $announce && $assignment->wasRecentlyCreated) {
-                $this->announce($assignee, $actor, $form, $parent->description);
+                $this->announce($assignee, $actor, $form, $parent->description, "target={$parent->id}");
             }
 
             if ($assignment->wasRecentlyCreated) {
@@ -97,18 +97,21 @@ class PcrAssignmentService
                 );
             }
 
+            app(IndicatorProgressService::class)->shareAcrossAssignedTargets($form);
+
             return $assignment;
         });
     }
 
-    private function announce(User $assignee, User $actor, PcrForm $form, string $what): void
+    private function announce(User $assignee, User $actor, PcrForm $form, string $what, ?string $anchor = null): void
     {
         Notification::send(
             $assignee->id,
             'assignment',
             "{$actor->name} assigned you a commitment",
             mb_substr(Html::toText($what), 0, 200) . ' — write your own commitments against it in your IPCR.',
-            $form->id
+            $form->id,
+            $anchor ? "/forms/{$form->id}?{$anchor}" : null
         );
     }
 
@@ -147,7 +150,22 @@ class PcrAssignmentService
             return false;
         }
 
+        $indicator = $assignment->indicator;
         $assignment->delete();
+
+        $progress = app(IndicatorProgressService::class);
+        $next     = $indicator->assignments()->first();
+
+        if ($next) {
+            $form = PcrForm::where('type', 'ipcr')
+                ->where('user_id', $next->user_id)
+                ->where('school_year_id', $indicator->output->form->school_year_id)
+                ->when($next->rating_period_id, fn ($query) => $query->where('rating_period_id', $next->rating_period_id))
+                ->first();
+            $progress->shareAcrossAssignedTargets($form);
+        } elseif (! $indicator->children()->exists()) {
+            $indicator->forceFill(['progress_pct' => 0, 'progress_status' => 'not_started'])->save();
+        }
 
         return true;
     }

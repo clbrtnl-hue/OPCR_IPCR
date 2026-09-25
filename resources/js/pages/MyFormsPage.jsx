@@ -6,6 +6,7 @@ import { useNavigate } from "react-router-dom";
 import api from "~/utils/api";
 import { STATUS_META } from "~/utils/constants";
 import PageHeader from "~/components/PageHeader";
+import FormCards from "~/components/FormCards";
 import { useAuth } from "~/hooks/useAuth";
 // import BulkIpcrModal from "~/components/BulkIpcrModal";
 
@@ -131,14 +132,21 @@ export default function MyFormsPage() {
                 {forms.length === 0 && !isLoading ? (
                     <Empty description="You have no forms yet. Create one for the active school year to get started." />
                 ) : (
-                    <Table
-                        rowKey="id"
-                        loading={isLoading}
-                        dataSource={forms}
-                        columns={columns}
-                        pagination={{ pageSize: 10 }}
-                        scroll={{ x: 900 }}
-                    />
+                    <>
+                        <div className="pms-mobile-only">
+                            <FormCards forms={forms} onOpen={(record) => navigate(`/forms/${record.id}`)} />
+                        </div>
+                        <div className="pms-desktop-only">
+                            <Table
+                                rowKey="id"
+                                loading={isLoading}
+                                dataSource={forms}
+                                columns={columns}
+                                pagination={{ pageSize: 10 }}
+                                scroll={{ x: 900 }}
+                            />
+                        </div>
+                    </>
                 )}
             </Card>
 

@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
     Alert,
     Button,
@@ -99,7 +99,10 @@ export default function FormEditorPage({ formId = null }) {
     const { id: routeId } = useParams();
     const [searchParams] = useSearchParams();
     const focusLineId = Number(searchParams.get("line")) || null;
+    const focusTargetId = Number(searchParams.get("target")) || null;
+    const focusOutputId = Number(searchParams.get("output")) || null;
     const focusRemarks = searchParams.get("remarks") === "1";
+    const focusedTarget = useRef(null);
     // Normalised: children invalidate ["pcr-form", String(...)], and a numeric
     // id from the prop would silently miss that cache key.
     const id = String(formId ?? routeId);
@@ -136,6 +139,21 @@ export default function FormEditorPage({ formId = null }) {
             setPanelOpen(true);
         }
     }, [focusRemarks, focusLineId, form?.id]);
+
+    useEffect(() => {
+        if (!focusTargetId || !form || focusedTarget.current === focusTargetId) return;
+
+        const item = document.querySelector(`[data-assigned-target="${focusTargetId}"]`);
+
+        if (!item) return;
+
+        focusedTarget.current = focusTargetId;
+        item.scrollIntoView({ behavior: "smooth", block: "center" });
+        item.classList.add("is-new");
+        const timer = setTimeout(() => item.classList.remove("is-new"), 2200);
+
+        return () => clearTimeout(timer);
+    }, [focusTargetId, form]);
 
     const periods = form?.school_year?.periods ?? [];
     // A period-pinned IPCR covers exactly one review period; the OPCR (and
@@ -572,7 +590,7 @@ export default function FormEditorPage({ formId = null }) {
                                 description={
                                     <ul className="pms-assigned-targets">
                                         {(form.assigned_targets ?? []).map((target) => (
-                                            <li key={target.id}>
+                                            <li key={target.id} data-assigned-target={target.id}>
                                                 <strong>{target.output_title}</strong>
                                                 {" — "}
                                                 {toPlainText(target.description)}
@@ -607,6 +625,7 @@ export default function FormEditorPage({ formId = null }) {
                                 opcrTargets={opcrTargets}
                                 summary={summary}
                                 focusLineId={focusLineId}
+                                focusOutputId={focusOutputId}
                                 onAddOutput={(section) => {
                                     outputForm.setFieldsValue({ section });
                                     setOutputModal(true);

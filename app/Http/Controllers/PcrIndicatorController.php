@@ -128,6 +128,8 @@ class PcrIndicatorController extends Controller
             $progress->recalculateFrom($indicator);
         }
 
+        $progress->shareAcrossAssignedTargets($output->form);
+
         return response()->json(['data' => 'created', 'indicator' => $indicator], 201);
     }
 
@@ -182,11 +184,16 @@ class PcrIndicatorController extends Controller
         }
 
         $parent = $indicator->parent;
+        $form   = $indicator->output->form;
         $indicator->delete();
 
+        $progress = app(IndicatorProgressService::class);
+
         if ($parent) {
-            app(IndicatorProgressService::class)->releaseParent($parent);
+            $progress->releaseParent($parent);
         }
+
+        $progress->shareAcrossAssignedTargets($form);
 
         return response()->json(['data' => 'deleted']);
     }

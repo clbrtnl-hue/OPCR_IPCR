@@ -58,6 +58,14 @@ api.interceptors.response.use(
             return Promise.reject(error);
         }
 
+        // A timed refresh has no response when the single request slot is busy.
+        // Saving still reports the failure; the screen retries the read itself.
+        const method = (error?.config?.method ?? "get").toLowerCase();
+
+        if (!error?.response && method === "get") {
+            return Promise.reject(error);
+        }
+
         message.error(errorText(error));
 
         return Promise.reject(error);

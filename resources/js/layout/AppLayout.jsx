@@ -1,5 +1,5 @@
-import React, { useMemo, useState } from "react";
-import { Badge, Layout, Menu, Dropdown, Space, Tag, Tooltip, Typography } from "antd";
+import React, { useEffect, useMemo, useState } from "react";
+import { Badge, Button, Drawer, Layout, Menu, Dropdown, Space, Tag, Tooltip, Typography } from "antd";
 import {
     ApartmentOutlined,
     AuditOutlined,
@@ -10,6 +10,7 @@ import {
     FileTextOutlined,
     BellOutlined,
     LogoutOutlined,
+    MenuOutlined,
     PieChartOutlined,
     SolutionOutlined,
     StarOutlined,
@@ -76,6 +77,7 @@ export default function AppLayout({ children }) {
     const navigate = useNavigate();
     const location = useLocation();
     const [collapsed, setCollapsed] = useState(false);
+    const [navOpen, setNavOpen] = useState(false);
 
     const { data: notifications } = useQuery({
         queryKey: ["notifications", "bell"],
@@ -128,108 +130,161 @@ export default function AppLayout({ children }) {
         return match?.key ?? "/";
     }, [location.pathname, items, user?.role]);
 
-    return (
-        <PersonProvider>
-        <Layout className="pms-shell">
-            <Sider collapsible collapsed={collapsed} onCollapse={setCollapsed} theme="dark" width={230}>
-                <div className="pms-sider">
+    useEffect(() => {
+        setNavOpen(false);
+    }, [location.pathname]);
+
+    const tabs = [
+        { key: "/", icon: <DashboardOutlined />, label: "Home" },
+        user?.role === "president"
+            ? { key: "/college-opcr", icon: <BankOutlined />, label: "OPCR" }
+            : { key: "/my-forms", icon: <FileTextOutlined />, label: "Forms" },
+        ["admin", "qa", "vp", "program_head"].includes(user?.role) && {
+            key: "/review-queue",
+            icon: <CheckSquareOutlined />,
+            label: "Review",
+        },
+        { key: "/notifications", icon: <BellOutlined />, label: "Alerts", badge: unread },
+    ].filter(Boolean);
+
+    const go = (key) => {
+        setNavOpen(false);
+        navigate(key);
+    };
+
+    const rail = (isCollapsed) => (
+        <div className="pms-sider">
+            <div
+                className={isCollapsed ? "pms-brand is-collapsed" : "pms-brand"}
+                role="button"
+                tabIndex={0}
+                onClick={() => go("/")}
+                onKeyDown={(event) => event.key === "Enter" && go("/")}
+            >
+                <img
+                    src="/images/occ-logo.webp"
+                    alt={organization.name ?? "Opol Community College"}
+                    className="pms-brand-logo"
+                />
+                {!isCollapsed && (
+                    <span className="pms-brand-words">
+                        <span className="pms-brand-name">
+                            {organization.short_name ?? "OCC"} PMS
+                        </span>
+                        <span className="pms-brand-sub">
+                            {organization.name ?? "Opol Community College"}
+                        </span>
+                    </span>
+                )}
+            </div>
+
+            <div className="pms-sider-nav">
+                <Menu
+                    theme="dark"
+                    mode="inline"
+                    selectedKeys={[selectedKey]}
+                    defaultOpenKeys={["setup"]}
+                    items={items}
+                    onClick={({ key }) => go(key)}
+                />
+            </div>
+
+            <div className="pms-sider-foot">
+                {!isCollapsed && activeYear && (
+                    <div className="pms-sider-cycle">
+                        <span>Active cycle</span>
+                        <strong>
+                            {activeYear.label}
+                            {activePeriod ? ` · ${activePeriod.label}` : ""}
+                        </strong>
+                    </div>
+                )}
+
+                <Tooltip
+                    title={
+                        isCollapsed
+                            ? `${user?.name} · ${ROLE_LABELS[user?.role] ?? user?.role}`
+                            : null
+                    }
+                    placement="right"
+                >
                     <div
-                        className={collapsed ? "pms-brand is-collapsed" : "pms-brand"}
+                        className={isCollapsed ? "pms-sider-user is-collapsed" : "pms-sider-user"}
                         role="button"
                         tabIndex={0}
-                        onClick={() => navigate("/")}
-                        onKeyDown={(event) => event.key === "Enter" && navigate("/")}
+                        onClick={() => go("/profile")}
+                        onKeyDown={(event) => event.key === "Enter" && go("/profile")}
                     >
-                        <img
-                            src="/images/occ-logo.webp"
-                            alt={organization.name ?? "Opol Community College"}
-                            className="pms-brand-logo"
-                        />
-                        {!collapsed && (
-                            <span className="pms-brand-words">
-                                <span className="pms-brand-name">
-                                    {organization.short_name ?? "OCC"} PMS
-                                </span>
-                                <span className="pms-brand-sub">
-                                    {organization.name ?? "Opol Community College"}
+                        <UserAvatar user={user} showTooltip={false} size={isCollapsed ? 32 : 34} />
+                        {!isCollapsed && (
+                            <span className="pms-sider-who">
+                                <span className="pms-sider-name">{user?.name}</span>
+                                <span className="pms-sider-role">
+                                    {ROLE_LABELS[user?.role] ?? user?.role}
                                 </span>
                             </span>
                         )}
                     </div>
+                </Tooltip>
 
-                    <div className="pms-sider-nav">
-                        <Menu
-                            theme="dark"
-                            mode="inline"
-                            selectedKeys={[selectedKey]}
-                            defaultOpenKeys={["setup"]}
-                            items={items}
-                            onClick={({ key }) => navigate(key)}
-                        />
-                    </div>
+                <Menu
+                    theme="dark"
+                    mode="inline"
+                    selectable={false}
+                    items={[
+                        { key: "/profile", icon: <UserOutlined />, label: "My profile" },
+                        { key: "logout", icon: <LogoutOutlined />, label: "Sign out", danger: true },
+                    ]}
+                    onClick={async ({ key }) => {
+                        if (key === "logout") {
+                            setNavOpen(false);
+                            await logout();
+                            navigate("/login");
 
-                    <div className="pms-sider-foot">
-                        {!collapsed && activeYear && (
-                            <div className="pms-sider-cycle">
-                                <span>Active cycle</span>
-                                <strong>
-                                    {activeYear.label}
-                                    {activePeriod ? ` · ${activePeriod.label}` : ""}
-                                </strong>
-                            </div>
-                        )}
+                            return;
+                        }
 
-                        <Tooltip
-                            title={
-                                collapsed
-                                    ? `${user?.name} · ${ROLE_LABELS[user?.role] ?? user?.role}`
-                                    : null
-                            }
-                            placement="right"
-                        >
-                            <div
-                                className={collapsed ? "pms-sider-user is-collapsed" : "pms-sider-user"}
-                                role="button"
-                                tabIndex={0}
-                                onClick={() => navigate("/profile")}
-                                onKeyDown={(event) => event.key === "Enter" && navigate("/profile")}
-                            >
-                                <UserAvatar user={user} showTooltip={false} size={collapsed ? 32 : 34} />
-                                {!collapsed && (
-                                    <span className="pms-sider-who">
-                                        <span className="pms-sider-name">{user?.name}</span>
-                                        <span className="pms-sider-role">
-                                            {ROLE_LABELS[user?.role] ?? user?.role}
-                                        </span>
-                                    </span>
-                                )}
-                            </div>
-                        </Tooltip>
+                        go(key);
+                    }}
+                />
+            </div>
+        </div>
+    );
 
-                        <Menu
-                            theme="dark"
-                            mode="inline"
-                            selectable={false}
-                            items={[
-                                { key: "/profile", icon: <UserOutlined />, label: "My profile" },
-                                { key: "logout", icon: <LogoutOutlined />, label: "Sign out", danger: true },
-                            ]}
-                            onClick={async ({ key }) => {
-                                if (key === "logout") {
-                                    await logout();
-                                    navigate("/login");
-
-                                    return;
-                                }
-
-                                navigate(key);
-                            }}
-                        />
-                    </div>
-                </div>
+    return (
+        <PersonProvider>
+        <Layout className="pms-shell">
+            <Sider
+                className="pms-sider-desktop"
+                collapsible
+                collapsed={collapsed}
+                onCollapse={setCollapsed}
+                theme="dark"
+                width={230}
+            >
+                {rail(collapsed)}
             </Sider>
+            <Drawer
+                className="pms-nav-drawer"
+                rootClassName="pms-nav-drawer"
+                placement="left"
+                open={navOpen}
+                onClose={() => setNavOpen(false)}
+                width={280}
+                closable={false}
+                styles={{ body: { padding: 0, background: "#001529" } }}
+            >
+                {rail(false)}
+            </Drawer>
             <Layout>
                 <Header className="pms-header">
+                    <Button
+                        className="pms-nav-toggle"
+                        type="text"
+                        icon={<MenuOutlined />}
+                        aria-label="Open menu"
+                        onClick={() => setNavOpen(true)}
+                    />
                     <div className="pms-header-title">
                         <span className="pms-header-org">
                             {organization.name ?? "Opol Community College"}
@@ -280,6 +335,28 @@ export default function AppLayout({ children }) {
                     </Space>
                 </Header>
                 <Content className="pms-content">{children}</Content>
+                <nav className="pms-tabbar" aria-label="Primary">
+                    {tabs.map((tab) => {
+                        const active =
+                            tab.key === "/"
+                                ? location.pathname === "/"
+                                : location.pathname === tab.key || location.pathname.startsWith(`${tab.key}/`);
+
+                        return (
+                            <button
+                                key={tab.key}
+                                type="button"
+                                className={active ? "is-active" : undefined}
+                                onClick={() => go(tab.key)}
+                            >
+                                <Badge count={tab.badge || 0} size="small" offset={[4, 0]}>
+                                    {tab.icon}
+                                </Badge>
+                                <span>{tab.label}</span>
+                            </button>
+                        );
+                    })}
+                </nav>
             </Layout>
         </Layout>
         </PersonProvider>

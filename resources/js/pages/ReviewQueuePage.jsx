@@ -6,6 +6,7 @@ import dayjs from "dayjs";
 import api from "~/utils/api";
 import { STATUS_META } from "~/utils/constants";
 import PageHeader from "~/components/PageHeader";
+import FormCards from "~/components/FormCards";
 import { useAuth } from "~/hooks/useAuth";
 
 export default function ReviewQueuePage() {
@@ -75,14 +76,32 @@ export default function ReviewQueuePage() {
                 {queue.length === 0 && !isLoading ? (
                     <Empty description="Nothing is waiting for you right now." />
                 ) : (
-                    <Table
-                        rowKey="id"
-                        loading={isLoading}
-                        dataSource={queue}
-                        columns={columns}
-                        pagination={{ pageSize: 15 }}
-                        scroll={{ x: 900 }}
-                    />
+                    <>
+                        <div className="pms-mobile-only">
+                            <FormCards
+                                forms={queue}
+                                showSubmitted
+                                actionLabel={(record) =>
+                                    record.status === "qa_approval"
+                                        ? "Approve"
+                                        : ["qa_rating", "head_review", "vp_review"].includes(record.status)
+                                          ? "Rate"
+                                          : "Review"
+                                }
+                                onOpen={(record) => navigate(`/forms/${record.id}`)}
+                            />
+                        </div>
+                        <div className="pms-desktop-only">
+                            <Table
+                                rowKey="id"
+                                loading={isLoading}
+                                dataSource={queue}
+                                columns={columns}
+                                pagination={{ pageSize: 15 }}
+                                scroll={{ x: 900 }}
+                            />
+                        </div>
+                    </>
                 )}
             </Card>
         </>

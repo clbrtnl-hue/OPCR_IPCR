@@ -31,6 +31,7 @@ import SheetCell from "~/components/SheetCell";
 import OpcrTargetCell, { isPickedTarget } from "~/components/OpcrTargetCell";
 import { AccomplishmentCell } from "~/components/AccomplishmentView";
 import IndicatorRow from "~/components/IndicatorRow";
+import LineCards from "~/components/LineCards";
 import UserAvatar from "~/components/UserAvatar";
 import { usePerson } from "~/hooks/usePerson";
 import { toPlainText } from "~/components/RichTextView";
@@ -64,10 +65,12 @@ export default function IpcrSheet({
     summary,
     onAddOutput,
     focusLineId = null,
+    focusOutputId = null,
 }) {
     const queryClient = useQueryClient();
     const [openLineId, setOpenLineId] = useState(null);
     const focusedLine = useRef(null);
+    const focusedOutput = useRef(null);
     const [justAdded, setJustAdded] = useState(null);
     const [pickingLineId, setPickingLineId] = useState(null);
     const [assigning, setAssigning] = useState(null);
@@ -260,6 +263,23 @@ export default function IpcrSheet({
 
         return () => clearTimeout(timer);
     }, [focusLineId, form.outputs]);
+
+    useEffect(() => {
+        if (!focusOutputId || focusedOutput.current === focusOutputId) return;
+
+        const nodes = [...document.querySelectorAll(`[data-output-id="${focusOutputId}"]`)];
+        const cell = nodes.find((node) => node.offsetParent !== null) ?? nodes[0];
+
+        if (!cell) return;
+
+        focusedOutput.current = focusOutputId;
+        const row = cell.closest("tr") ?? cell;
+        row.scrollIntoView({ behavior: "smooth", block: "center" });
+        row.classList.add("is-new");
+        const timer = setTimeout(() => row.classList.remove("is-new"), 2200);
+
+        return () => clearTimeout(timer);
+    }, [focusOutputId, form.outputs]);
 
     useEffect(() => {
         if (!justAdded) return;
@@ -769,6 +789,8 @@ export default function IpcrSheet({
 
     return (
         <>
+            <LineCards form={form} periodId={periodId} onOpen={setOpenLineId} />
+
             <div className="pms-sheet-wrap">
                 <table className="pms-sheet">
                     <thead>
@@ -793,7 +815,7 @@ export default function IpcrSheet({
             </div>
 
             {canEdit && (
-                <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                <Typography.Text className="pms-sheet-hint" type="secondary" style={{ fontSize: 12 }}>
                     Click any cell to edit it. Enter saves, Shift+Enter starts a new line, Escape
                     undoes.
                 </Typography.Text>

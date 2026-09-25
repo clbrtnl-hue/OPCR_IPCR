@@ -32,7 +32,7 @@ export default function OpcrLineDrawer({
     const queryClient = useQueryClient();
     const rating = (line.ratings ?? []).find((r) => r.rating_period_id === periodId);
     const accomplishment = (line.accomplishments ?? []).find((a) => a.rating_period_id === periodId);
-    const hasDelegatedHeading = Number(output?.child_outputs_count ?? 0) > 0;
+    const hasDelegatedHeading = Number(output?.delegated_outputs_count ?? 0) > 0;
     const serverText = accomplishment?.actual_accomplishment ?? "";
     const [text, setText] = useState(serverText);
     const seenServer = useRef(serverText);

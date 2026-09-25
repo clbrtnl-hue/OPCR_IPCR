@@ -57,7 +57,11 @@ class PcrCascadeTest extends PmsTestCase
         $this->assertSame($target->id, (int) $assignment->indicator_id);
         $this->assertSame(0, PcrIndicator::where('parent_indicator_id', $target->id)->count());
 
-        $this->assertDatabaseHas('notifications', ['user_id' => $head->id, 'type' => 'assignment']);
+        $this->assertDatabaseHas('notifications', [
+            'user_id' => $head->id,
+            'type'    => 'assignment',
+            'link'    => "/forms/{$form->id}?target={$target->id}",
+        ]);
     }
 
     public function test_it_cascades_three_deep(): void

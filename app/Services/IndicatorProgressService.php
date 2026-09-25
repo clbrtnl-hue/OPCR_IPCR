@@ -2,8 +2,10 @@
 
 namespace App\Services;
 
+use App\Models\PcrForm;
 use App\Models\PcrIndicator;
 use App\Models\PcrOutput;
+use App\Models\PcrTargetAssignment;
 use App\Support\Html;
 
 /**
@@ -33,6 +35,8 @@ class IndicatorProgressService
                 $this->recalculateFrom($child);
             }
 
+            $this->shareAcrossAssignedTargets($line->output?->form);
+
             return;
         }
 
@@ -57,6 +61,7 @@ class IndicatorProgressService
         ])->save();
 
         $this->recalculateFrom($line);
+        $this->shareAcrossAssignedTargets($line->output?->form);
     }
 
     public function recalculateFrom(PcrIndicator $line): void
@@ -86,6 +91,7 @@ class IndicatorProgressService
         }
 
         $this->climbHeadings($line);
+        $this->shareAcrossAssignedTargets($line->output?->form);
     }
 
     public function releaseParent(PcrIndicator $parent): void
@@ -148,8 +154,8 @@ class IndicatorProgressService
         $status  = $this->statusFor($beneath);
 
         foreach ($office->indicators()->get() as $target) {
-            if ($target->children()->exists()) {
-                continue;   // measured by its own sub-tasks instead
+            if ($target->children()->exists() || $target->assignments()->exists()) {
+                continue;   // measured by its own sub-tasks, or by the assignee's commitments
             }
 
             $target->forceFill([
@@ -157,6 +163,93 @@ class IndicatorProgressService
                 'progress_status' => $status,
             ])->save();
         }
+    }
+
+    /**
+     * Every target assigned to a person shows that person's commitments as one
+     * figure. Three finished lines answer all seven targets at 100%. Several
+     * people on one target are averaged. Writing nothing leaves the targets at 0.
+     */
+    public function shareAcrossAssignedTargets(?PcrForm $form, array &$seen = []): void
+    {
+        if (! $form || $form->type !== 'ipcr' || ! $form->user_id) {
+            return;
+        }
+
+        $assignments = PcrTargetAssignment::with('indicator.output.form')
+            ->where('user_id', $form->user_id)
+            ->when($form->rating_period_id, function ($query) use ($form) {
+                $query->where(function ($inner) use ($form) {
+                    $inner->whereNull('rating_period_id')
+                        ->orWhere('rating_period_id', $form->rating_period_id);
+                });
+            })
+            ->get();
+
+        foreach ($assignments as $assignment) {
+            $this->paintTarget($assignment->indicator, $seen);
+        }
+    }
+
+    private function paintTarget(?PcrIndicator $target, array &$seen): void
+    {
+        if (! $target || isset($seen[$target->id])) {
+            return;
+        }
+
+        $seen[$target->id] = true;
+        $target->loadMissing('output.form');
+
+        $assignments = $target->assignments()->get();
+
+        if ($assignments->isEmpty()) {
+            return;
+        }
+
+        $yearId = $target->output?->form?->school_year_id;
+        $parts  = $assignments->map(fn ($assignment) => $this->basket(
+            (int) $assignment->user_id,
+            $yearId,
+            $assignment->rating_period_id
+        ));
+
+        $target->forceFill([
+            'progress_pct'    => (int) round($parts->avg('progress_pct')),
+            'progress_status' => $this->statusFor($parts),
+        ])->save();
+
+        $ownerForm = $target->output?->form;
+
+        if ($ownerForm?->type === 'ipcr') {
+            $this->shareAcrossAssignedTargets($ownerForm, $seen);
+        }
+    }
+
+    private function basket(int $userId, ?int $yearId, ?int $periodId): object
+    {
+        $form = PcrForm::query()
+            ->where('type', 'ipcr')
+            ->where('user_id', $userId)
+            ->when($yearId, fn ($query) => $query->where('school_year_id', $yearId))
+            ->when($periodId, fn ($query) => $query->where('rating_period_id', $periodId))
+            ->first();
+
+        $lines = $form
+            ? PcrIndicator::whereIn('output_id', $form->outputs()->pluck('id'))
+                ->when($periodId, fn ($query) => $query->where(
+                    fn ($inner) => $inner->whereNull('rating_period_id')->orWhere('rating_period_id', $periodId)
+                ))
+                ->get(['progress_pct', 'progress_status'])
+            : collect();
+
+        if ($lines->isEmpty()) {
+            return (object) ['progress_pct' => 0, 'progress_status' => 'not_started'];
+        }
+
+        return (object) [
+            'progress_pct'    => (int) round($lines->avg('progress_pct')),
+            'progress_status' => $this->statusFor($lines),
+        ];
     }
 
     private function statusFor($children): string
