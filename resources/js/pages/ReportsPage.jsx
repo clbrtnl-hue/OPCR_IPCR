@@ -36,6 +36,25 @@ const TABS = [
 
 const score = (value) => (value == null ? "—" : Number(value).toFixed(2));
 
+function ReportFilters({ search, onSearch, tab, lateOnly, onLateOnly }) {
+    return (
+        <>
+            <Input.Search
+                allowClear
+                placeholder="Search"
+                value={search}
+                onChange={(e) => onSearch(e.target.value)}
+            />
+            {tab === "commitments" && (
+                <label className="pms-late-only">
+                    <Switch size="small" checked={lateOnly} onChange={onLateOnly} />
+                    Late only
+                </label>
+            )}
+        </>
+    );
+}
+
 function ReportCards({ tab, rows, onOpen }) {
     if (rows.length === 0) {
         return <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="Nothing matches." />;
@@ -589,60 +608,56 @@ export default function ReportsPage() {
                     <Empty description="Pick a school year to see its report." />
                 </Card>
             ) : (
-                <Card>
-                    <Typography.Paragraph type="secondary" style={{ marginTop: 0 }}>
-                        {year?.label} · {period?.label ?? "whole year"} — {totals.forms} forms, {totals.submitted}{" "}
-                        submitted, {totals.rated} rated · {totals.commitments} commitments at{" "}
-                        {totals.progress_pct ?? 0}% · {totals.overdue} overdue
-                    </Typography.Paragraph>
-
-                    <div className="pms-report-actions">
-                        <Dropdown.Button
-                            icon={<DownOutlined />}
-                            loading={busy}
-                            onClick={() => download("xlsx")}
-                            menu={{
-                                items: [{ key: "csv", label: "Download as CSV" }],
-                                onClick: () => download("csv"),
-                            }}
-                        >
-                            <FileExcelOutlined /> Excel
-                        </Dropdown.Button>
-                        <Button icon={<FilePdfOutlined />} loading={busy} onClick={() => download("pdf")}>
-                            PDF
-                        </Button>
-                    </div>
-
-                    <div className="pms-report-tabs">
-                        <Segmented
-                            value={tab}
-                            onChange={(value) => {
-                                setTab(value);
-                                setSearch("");
-                            }}
-                            options={TABS}
-                        />
-                    </div>
-
-                    <div className="pms-report-tools">
-                        <Input.Search
-                            allowClear
-                            placeholder="Search"
-                            value={search}
-                            onChange={(e) => setSearch(e.target.value)}
-                        />
-                        {tab === "commitments" && (
-                            <label className="pms-late-only">
-                                <Switch size="small" checked={lateOnly} onChange={setLateOnly} />
-                                Late only
-                            </label>
-                        )}
-                    </div>
-
-                    <div className="pms-mobile-only">
-                        <ReportCards tab={tab} rows={rows} onOpen={(id) => navigate(`/forms/${id}`)} />
-                    </div>
+                <>
                     <div className="pms-desktop-only">
+                    <Card
+                        title={
+                            <Segmented
+                                value={tab}
+                                onChange={(value) => {
+                                    setTab(value);
+                                    setSearch("");
+                                }}
+                                options={TABS}
+                            />
+                        }
+                        extra={
+                            <Space wrap>
+                                <Input.Search
+                                    allowClear
+                                    placeholder="Search this table"
+                                    value={search}
+                                    onChange={(e) => setSearch(e.target.value)}
+                                    style={{ width: 220 }}
+                                />
+                                {tab === "commitments" && (
+                                    <Space size={6}>
+                                        <Switch size="small" checked={lateOnly} onChange={setLateOnly} />
+                                        <Typography.Text type="secondary">Late only</Typography.Text>
+                                    </Space>
+                                )}
+                                <Dropdown.Button
+                                    icon={<DownOutlined />}
+                                    loading={busy}
+                                    onClick={() => download("xlsx")}
+                                    menu={{
+                                        items: [{ key: "csv", label: "Download as CSV" }],
+                                        onClick: () => download("csv"),
+                                    }}
+                                >
+                                    <FileExcelOutlined /> Excel
+                                </Dropdown.Button>
+                                <Button icon={<FilePdfOutlined />} loading={busy} onClick={() => download("pdf")}>
+                                    PDF
+                                </Button>
+                            </Space>
+                        }
+                    >
+                        <Typography.Paragraph type="secondary" style={{ marginTop: -4 }}>
+                            {year?.label} · {period?.label ?? "whole year"} — {totals.forms} forms, {totals.submitted}{" "}
+                            submitted, {totals.rated} rated · {totals.commitments} commitments at{" "}
+                            {totals.progress_pct ?? 0}% · {totals.overdue} overdue
+                        </Typography.Paragraph>
                         <Table
                             rowKey={table.rowKey}
                             dataSource={rows}
@@ -657,8 +672,59 @@ export default function ReportsPage() {
                                     : {}
                             }
                         />
+                    </Card>
                     </div>
-                </Card>
+
+                    <div className="pms-mobile-only">
+                    <Card>
+                        <Typography.Paragraph type="secondary" style={{ marginTop: 0 }}>
+                            {year?.label} · {period?.label ?? "whole year"} — {totals.forms} forms, {totals.submitted}{" "}
+                            submitted, {totals.rated} rated · {totals.commitments} commitments at{" "}
+                            {totals.progress_pct ?? 0}% · {totals.overdue} overdue
+                        </Typography.Paragraph>
+
+                        <div className="pms-report-actions">
+                            <Dropdown.Button
+                                icon={<DownOutlined />}
+                                loading={busy}
+                                onClick={() => download("xlsx")}
+                                menu={{
+                                    items: [{ key: "csv", label: "Download as CSV" }],
+                                    onClick: () => download("csv"),
+                                }}
+                            >
+                                <FileExcelOutlined /> Excel
+                            </Dropdown.Button>
+                            <Button icon={<FilePdfOutlined />} loading={busy} onClick={() => download("pdf")}>
+                                PDF
+                            </Button>
+                        </div>
+
+                        <div className="pms-report-tabs">
+                            <Segmented
+                                value={tab}
+                                onChange={(value) => {
+                                    setTab(value);
+                                    setSearch("");
+                                }}
+                                options={TABS}
+                            />
+                        </div>
+
+                        <div className="pms-report-tools">
+                            <ReportFilters
+                                search={search}
+                                onSearch={setSearch}
+                                tab={tab}
+                                lateOnly={lateOnly}
+                                onLateOnly={setLateOnly}
+                            />
+                        </div>
+
+                        <ReportCards tab={tab} rows={rows} onOpen={(id) => navigate(`/forms/${id}`)} />
+                    </Card>
+                    </div>
+                </>
             )}
         </>
     );

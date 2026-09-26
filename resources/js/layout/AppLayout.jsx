@@ -28,6 +28,7 @@ import { useAuth } from "~/hooks/useAuth";
 import { useOrganization } from "~/hooks/useOrganization";
 import { ROLE_LABELS } from "~/utils/constants";
 import UserAvatar from "~/components/UserAvatar";
+import NotificationBell from "~/components/NotificationBell";
 import { PersonProvider } from "~/hooks/usePerson";
 
 const { Sider, Header, Content } = Layout;
@@ -46,7 +47,7 @@ const ITEMS = {
     schoolYears: { key: "/admin/school-years", icon: <CalendarOutlined />, label: "School Years" },
     workflow: { key: "/admin/workflow", icon: <ApartmentOutlined />, label: "Workflow" },
     audit: { key: "/admin/audit", icon: <AuditOutlined />, label: "Audit Trail" },
-    notifications: { key: "/notifications", icon: <BellOutlined />, label: "Alerts" },
+    notifications: { key: "/notifications", icon: <BellOutlined />, label: "Notifications" },
 };
 
 const withPersonal = (menu) => [...menu, ITEMS.notifications];
@@ -108,7 +109,7 @@ export default function AppLayout({ children }) {
                       className: unread > 0 ? "pms-has-unread" : undefined,
                       label: (
                           <Space size={8}>
-                              <span>Alerts</span>
+                              <span>Notifications</span>
                               {unread > 0 && <Badge count={unread} size="small" overflowCount={99} />}
                           </Space>
                       ),
@@ -156,7 +157,7 @@ export default function AppLayout({ children }) {
         navigate(key);
     };
 
-    const rail = (isCollapsed) => (
+    const rail = (isCollapsed, menuItems = items) => (
         <div className="pms-sider">
             <div
                 className={isCollapsed ? "pms-brand is-collapsed" : "pms-brand"}
@@ -188,7 +189,7 @@ export default function AppLayout({ children }) {
                     mode="inline"
                     selectedKeys={[selectedKey]}
                     defaultOpenKeys={["setup"]}
-                    items={items}
+                    items={menuItems}
                     onClick={({ key }) => go(key)}
                 />
             </div>
@@ -278,7 +279,24 @@ export default function AppLayout({ children }) {
                 closable={false}
                 styles={{ body: { padding: 0, background: "#001529" } }}
             >
-                {rail(false)}
+                {rail(
+                    false,
+                    items.map((item) =>
+                        item.key === "/notifications"
+                            ? {
+                                  ...item,
+                                  label: (
+                                      <Space size={8}>
+                                          <span>Alerts</span>
+                                          {unread > 0 && (
+                                              <Badge count={unread} size="small" overflowCount={99} />
+                                          )}
+                                      </Space>
+                                  ),
+                              }
+                            : item
+                    )
+                )}
             </Drawer>
             <Layout>
                 <Header className="pms-header">
@@ -302,6 +320,9 @@ export default function AppLayout({ children }) {
                                 {activePeriod ? ` · ${activePeriod.label}` : ""}
                             </Tag>
                         )}
+                        <span className="pms-desktop-only">
+                            <NotificationBell />
+                        </span>
                         <Dropdown
                             menu={{
                                 items: [
