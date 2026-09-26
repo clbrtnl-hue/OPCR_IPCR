@@ -197,7 +197,7 @@ export default function OpcrSheet({ form, periodId, canEdit, canAssign, canRecor
                 assigning.kind === "output"
                     ? `pcr-outputs/${assigning.id}/assign`
                     : `pcr-indicators/${assigning.id}/assign`,
-                { user_ids: ids }
+                { user_ids: ids, rating_period_id: periodId }
             ),
         onSuccess: ({ data }) => {
             message.success(

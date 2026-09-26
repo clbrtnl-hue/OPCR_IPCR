@@ -128,6 +128,23 @@ class MyTeamTest extends PmsTestCase
             ->assertJsonPath('members.0.form.adjectival', 'Outstanding');
     }
 
+    public function test_qa_sees_the_staff_of_the_office_they_head(): void
+    {
+        ['year' => $year, 'bsit' => $bsit, 'novelyn' => $novelyn, 'outsider' => $outsider] = $this->college();
+
+        $qa = User::factory()->create(['role' => 'qa', 'org_unit_id' => $bsit->id]);
+        $bsit->update(['head_user_id' => $qa->id]);
+
+        $this->actingAsUser($qa);
+
+        $response = $this->getJson("/api/my-team?school_year_id={$year->id}")->assertOk();
+        $ids = array_column($response->json('members'), 'id');
+
+        $this->assertContains($novelyn->id, $ids);
+        $this->assertNotContains($outsider->id, $ids);
+        $this->assertNotContains($qa->id, $ids);
+    }
+
     public function test_an_employee_may_not_read_the_roster(): void
     {
         ['novelyn' => $novelyn] = $this->college();

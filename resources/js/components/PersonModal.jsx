@@ -34,6 +34,16 @@ const date = (value) => (value ? dayjs(value).format("MMM D, YYYY") : "—");
 const span = (from, to, current) =>
     `${date(from)} — ${current ? "present" : to ? date(to) : "—"}`;
 
+function cellText(column, row) {
+    const value = column.dataIndex ? row[column.dataIndex] : undefined;
+
+    if (column.render) {
+        return column.render(value, row);
+    }
+
+    return value == null || value === "" ? "—" : value;
+}
+
 function Section({ title, rows, columns }) {
     if (!rows?.length) return null;
 
@@ -42,14 +52,28 @@ function Section({ title, rows, columns }) {
             <Divider orientation="left" plain style={{ marginTop: 20 }}>
                 {title}
             </Divider>
-            <Table
-                rowKey="id"
-                size="small"
-                pagination={false}
-                dataSource={rows}
-                columns={columns}
-                scroll={{ x: true }}
-            />
+            <div className="pms-mobile-only pms-pds-cards">
+                {rows.map((row) => (
+                    <article key={row.id} className="pms-pds-card">
+                        {columns.map((column) => (
+                            <div key={column.title} className="pms-pds-line">
+                                <span>{column.title}</span>
+                                <strong>{cellText(column, row)}</strong>
+                            </div>
+                        ))}
+                    </article>
+                ))}
+            </div>
+            <div className="pms-desktop-only">
+                <Table
+                    rowKey="id"
+                    size="small"
+                    pagination={false}
+                    dataSource={rows}
+                    columns={columns}
+                    scroll={{ x: true }}
+                />
+            </div>
         </>
     );
 }
@@ -79,11 +103,12 @@ export default function PersonModal({ personId, open, onClose }) {
     return (
         <>
         <Modal
+            className="pms-person-modal"
             open={open}
             onCancel={onClose}
             footer={null}
             width={820}
-            title={null}
+            title="Profile"
         >
             {isLoading || !card ? (
                 <div style={{ display: "grid", placeItems: "center", padding: 40 }}>
@@ -91,7 +116,7 @@ export default function PersonModal({ personId, open, onClose }) {
                 </div>
             ) : (
                 <>
-                    <Space align="start" size={16}>
+                    <div className="pms-person-head">
                         <Avatar
                             size={72}
                             src={card.image ? `/uploads/profile/${card.image}` : undefined}
@@ -110,7 +135,7 @@ export default function PersonModal({ personId, open, onClose }) {
                                     {card.org_unit?.name && <Tag>{card.org_unit.name}</Tag>}
                                 </Space>
                             </div>
-                            <Typography.Text copyable style={{ fontSize: 12 }}>
+                            <Typography.Text className="pms-person-email" copyable style={{ fontSize: 12 }}>
                                 {card.email}
                             </Typography.Text>
                             {data.may_view_sheet && canDownload && (
@@ -125,7 +150,7 @@ export default function PersonModal({ personId, open, onClose }) {
                                 </div>
                             )}
                         </div>
-                    </Space>
+                    </div>
 
                     {!data.may_view_sheet ? (
                         <Empty
@@ -140,7 +165,11 @@ export default function PersonModal({ personId, open, onClose }) {
                                     <Divider orientation="left" plain style={{ marginTop: 20 }}>
                                         Personal information
                                     </Divider>
-                                    <Descriptions size="small" column={2} bordered>
+                                    <Descriptions
+                                        size="small"
+                                        bordered
+                                        column={{ xs: 1, sm: 1, md: 2 }}
+                                    >
                                         <Descriptions.Item label="Date of birth">{date(profile.date_of_birth)}</Descriptions.Item>
                                         <Descriptions.Item label="Place of birth">{profile.place_of_birth || "—"}</Descriptions.Item>
                                         <Descriptions.Item label="Sex">{profile.sex || "—"}</Descriptions.Item>
@@ -159,7 +188,11 @@ export default function PersonModal({ personId, open, onClose }) {
                                             <Divider orientation="left" plain style={{ marginTop: 20 }}>
                                                 Government identifiers
                                             </Divider>
-                                            <Descriptions size="small" column={3} bordered>
+                                            <Descriptions
+                                                size="small"
+                                                bordered
+                                                column={{ xs: 1, sm: 1, md: 3 }}
+                                            >
                                                 {IDENTIFIERS.filter(([key]) => profile[key]).map(([key, label]) => (
                                                     <Descriptions.Item key={key} label={label}>
                                                         {profile[key]}

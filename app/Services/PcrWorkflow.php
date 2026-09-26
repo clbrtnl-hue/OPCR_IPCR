@@ -4,15 +4,16 @@ namespace App\Services;
 
 use App\Models\OrgUnit;
 use App\Models\PcrForm;
+use App\Models\RatingPeriod;
 use App\Models\User;
 
 class PcrWorkflow
 {
     /**
      * An IPCR is written then reviewed up the hierarchy. An OPCR is planned
-     * first: admin drafts it, QA approves it, admin publishes it — only then is
-     * it something other people's IPCRs can be tied to — and it is rated later,
-     * at each period's end, on the same document.
+     * first: the president drafts it, QA approves it, the president publishes
+     * it — only then is it something other people's IPCRs can be tied to — and
+     * it is rated once, in December, with the last period, on the same document.
      */
     public const TRANSITIONS = [
         'ipcr' => [
@@ -227,6 +228,64 @@ class PcrWorkflow
         }
 
         return in_array($user->role, self::ACTOR_ROLES[$type][$to] ?? [], true);
+    }
+
+    /**
+     * The college OPCR stays published until December of its school year,
+     * when the last period (July to December) is rated.
+     */
+    public static function opcrRatingMonthOpen(PcrForm $form): bool
+    {
+        $form->loadMissing('schoolYear');
+        $year = $form->schoolYear;
+
+        if (! $year?->start_date || ! $year?->end_date) {
+            return false;
+        }
+
+        $today = now()->startOfDay();
+
+        return $today->month === 12
+            && $today->greaterThanOrEqualTo($year->start_date->copy()->startOfDay())
+            && $today->lessThanOrEqualTo($year->end_date->copy()->endOfDay());
+    }
+
+    /**
+     * The period a write belongs to. An IPCR names its own; a year-wide OPCR
+     * falls back to the active period of its school year.
+     */
+    public static function periodForWrite(PcrForm $form, ?int $explicit = null): ?int
+    {
+        if ($explicit) {
+            return (int) $explicit;
+        }
+
+        if ($form->rating_period_id) {
+            return (int) $form->rating_period_id;
+        }
+
+        $id = RatingPeriod::where('school_year_id', $form->school_year_id)
+            ->orderByDesc('is_active')
+            ->orderBy('seq')
+            ->value('id');
+
+        return $id ? (int) $id : null;
+    }
+
+    /** Null when the write may proceed. A locked period is finished. */
+    public static function lockMessage(User $user, ?int $periodId): ?string
+    {
+        if (! $periodId) {
+            return null;
+        }
+
+        $period = RatingPeriod::find($periodId);
+
+        if (! $period || ! $period->isLockedFor($user)) {
+            return null;
+        }
+
+        return "{$period->label} is locked. It is view-only now — ask an administrator to unlock it.";
     }
 
     /** Only a published OPCR is something other people's IPCRs may point at. */

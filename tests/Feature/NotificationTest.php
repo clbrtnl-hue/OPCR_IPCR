@@ -28,7 +28,7 @@ class NotificationTest extends PmsTestCase
             'user_id'        => $employee->id,
         ]);
 
-        $this->makeIndicator($form);
+        $this->documentLine($this->makeIndicator($form));
 
         return compact('head', 'vp', 'qa', 'employee', 'form');
     }

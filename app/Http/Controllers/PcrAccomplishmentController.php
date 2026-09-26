@@ -113,6 +113,13 @@ class PcrAccomplishmentController extends Controller
             return response()->json(['message' => 'This form has been rated and can no longer be changed.'], 409);
         }
 
+        if ($message = PcrWorkflow::lockMessage(
+            $user,
+            PcrWorkflow::periodForWrite($form, $attachment->accomplishment->rating_period_id)
+        )) {
+            return response()->json(['message' => $message], 409);
+        }
+
         $path = public_path('uploads/pcr/' . $attachment->file_path);
 
         if (is_file($path)) {

@@ -45,7 +45,7 @@ return [
      */
     'delegation' => [
         'assign_outputs'    => ['president'],
-        'assign_indicators' => ['president', 'vp', 'program_head'],
+        'assign_indicators' => ['president', 'vp', 'program_head', 'qa'],
         'terminal_roles'    => ['employee'],
         'assignable_excludes_roles' => ['admin'],
     ],

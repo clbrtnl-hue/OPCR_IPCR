@@ -34,6 +34,10 @@ class PcrOutputController extends Controller
             ], 409);
         }
 
+        if ($message = PcrWorkflow::lockMessage($request->user(), PcrWorkflow::periodForWrite($form))) {
+            return response()->json(['message' => $message], 409);
+        }
+
         if ($form->type === 'ipcr' && $data['section'] === 'strategic' && ! $id) {
             return response()->json([
                 'message' => 'Strategic priorities belong to the office OPCR, not an individual IPCR.',
@@ -119,6 +123,10 @@ class PcrOutputController extends Controller
             return response()->json([
                 'message' => 'Commitments can only be changed while the form is a draft or has been returned to you.',
             ], 409);
+        }
+
+        if ($message = PcrWorkflow::lockMessage($request->user(), PcrWorkflow::periodForWrite($output->form))) {
+            return response()->json(['message' => $message], 409);
         }
 
         // A heading handed down from the OPCR still belongs on this IPCR only

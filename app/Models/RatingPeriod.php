@@ -28,8 +28,9 @@ class RatingPeriod extends Model
     }
 
     /**
-     * A locked period is view-only for everyone but an administrator: no
-     * accomplishments, no evidence, no progress, no rating.
+     * A locked period is finished. It is view-only for everyone but an
+     * administrator: no edits, no assignments, no accomplishments, no
+     * evidence, no progress, no rating.
      */
     public function isLockedFor(?User $user): bool
     {

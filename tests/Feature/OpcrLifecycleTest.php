@@ -7,6 +7,7 @@ use App\Models\PcrForm;
 use App\Models\PcrIndicator;
 use App\Models\User;
 use App\Services\PcrAssignmentService;
+use Illuminate\Support\Carbon;
 use Tests\PmsTestCase;
 
 /**
@@ -208,7 +209,53 @@ class OpcrLifecycleTest extends PmsTestCase
 
         $this->actingAsRole('admin', ['org_unit_id' => $unit->id]);
 
-        $this->postJson("/api/pcr-forms/{$opcr->id}/status", ['status' => 'qa_rating'])->assertStatus(200);
+        Carbon::setTestNow('2026-12-15');
+
+        try {
+            $this->postJson("/api/pcr-forms/{$opcr->id}/status", ['status' => 'qa_rating'])->assertStatus(200);
+        } finally {
+            Carbon::setTestNow();
+        }
+
+        $this->assertSame('qa_rating', $opcr->fresh()->status);
+    }
+
+    public function test_the_president_sends_a_published_opcr_for_rating_in_december(): void
+    {
+        [$unit, $year] = $this->setUpOffice();
+        $year->update(['start_date' => '2026-01-01', 'end_date' => '2026-12-31']);
+
+        $opcr = $this->makeForm([
+            'type' => 'opcr', 'org_unit_id' => $unit->id,
+            'school_year_id' => $year->id, 'status' => 'published',
+        ]);
+
+        $this->actingAsRole('president', ['org_unit_id' => $unit->id]);
+
+        Carbon::setTestNow('2026-06-15');
+
+        try {
+            $this->postJson("/api/pcr-forms/{$opcr->id}/status", ['status' => 'qa_rating'])
+                ->assertStatus(409)
+                ->assertJsonPath('message', 'The college OPCR is sent for rating in December, with the last period.');
+        } finally {
+            Carbon::setTestNow();
+        }
+
+        $this->assertSame('published', $opcr->fresh()->status);
+
+        Carbon::setTestNow('2026-12-01');
+
+        try {
+            $this->getJson("/api/pcr-forms/{$opcr->id}")
+                ->assertOk()
+                ->assertJsonPath('rating_window_open', true);
+
+            $this->postJson("/api/pcr-forms/{$opcr->id}/status", ['status' => 'qa_rating'])->assertStatus(200);
+        } finally {
+            Carbon::setTestNow();
+        }
+
         $this->assertSame('qa_rating', $opcr->fresh()->status);
     }
 

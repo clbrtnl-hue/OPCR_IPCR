@@ -29,7 +29,7 @@ class PcrWorkflowTest extends PmsTestCase
             'user_id'        => $employee->id,
         ]);
 
-        $this->makeIndicator($form);
+        $this->documentLine($this->makeIndicator($form));
 
         return compact('year', 'period', 'unit', 'head', 'vp', 'qa', 'employee', 'form');
     }
@@ -93,6 +93,40 @@ class PcrWorkflowTest extends PmsTestCase
         $this->move($employee, $form, 'head_review')->assertOk();
 
         $this->move($vp, $form, 'vp_review')->assertStatus(403);
+    }
+
+    public function test_submitting_without_a_narrative_and_a_file_is_rejected(): void
+    {
+        ['form' => $form, 'employee' => $employee] = $this->scenario();
+
+        $line = $form->indicators()->first();
+        $line->accomplishments()->each(function ($record) {
+            $record->attachments()->delete();
+            $record->delete();
+        });
+
+        $this->move($employee, $form, 'head_review')
+            ->assertStatus(422)
+            ->assertJsonPath('message', fn ($message) => str_contains($message, 'Finish the write-up before submitting.'));
+
+        $this->assertSame('draft', $form->fresh()->status);
+
+        $this->documentLine($line->fresh(), false);
+        $this->move($employee, $form, 'head_review')
+            ->assertStatus(422)
+            ->assertJsonPath('message', fn ($message) => str_contains($message, 'still needs a file.'));
+
+        $line->accomplishments()->each(function ($record) {
+            $record->update(['actual_accomplishment' => null]);
+        });
+        $this->documentLine($line->fresh(), true, '');
+        $this->move($employee, $form, 'head_review')
+            ->assertStatus(422)
+            ->assertJsonPath('message', fn ($message) => str_contains($message, 'still needs a narrative.'));
+
+        $this->documentLine($line->fresh());
+        $this->move($employee, $form, 'head_review')->assertOk();
+        $this->assertSame('head_review', $form->fresh()->status);
     }
 
     public function test_submitting_without_any_indicator_is_rejected(): void

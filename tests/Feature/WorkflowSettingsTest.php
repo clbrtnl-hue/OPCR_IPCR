@@ -62,12 +62,11 @@ class WorkflowSettingsTest extends PmsTestCase
         $form = $this->makeForm([
             'org_unit_id' => $office->id, 'school_year_id' => $year->id, 'user_id' => $faculty->id,
         ]);
-        $line = $this->makeIndicator($form, 'support');
+        $period = $this->makePeriod($year);
+        $line = $this->documentLine($this->makeIndicator($form, 'support'));
 
         $this->actingAsUser($faculty);
         $this->postJson("/api/pcr-forms/{$form->id}/status", ['status' => 'head_review'])->assertSuccessful();
-
-        $period = $this->makePeriod($year);
 
         $this->actingAsUser($head);
         $this->postJson('/api/pcr-ratings', [

@@ -7,8 +7,9 @@ use Illuminate\Http\UploadedFile;
 use Tests\PmsTestCase;
 
 /**
- * The cut-off. A locked rating period is view-only for everyone but an
- * administrator: no accomplishments, no evidence, no progress, no rating.
+ * The cut-off. A locked rating period is finished. It is view-only for everyone
+ * but an administrator: no edits, no assignments, no accomplishments, no
+ * evidence, no progress, no rating.
  */
 class PeriodLockTest extends PmsTestCase
 {
@@ -96,6 +97,67 @@ class PeriodLockTest extends PmsTestCase
         ])->assertStatus(409);
     }
 
+    public function test_a_locked_period_refuses_edits_and_assignments(): void
+    {
+        ['period' => $period, 'unit' => $unit, 'year' => $year, 'employee' => $employee] = $this->lockedScenario();
+
+        $head = User::factory()->create(['role' => 'program_head', 'org_unit_id' => $unit->id]);
+        $form = $this->makeForm([
+            'org_unit_id'      => $unit->id,
+            'school_year_id'   => $year->id,
+            'user_id'          => $head->id,
+            'rating_period_id' => $period->id,
+        ]);
+        $indicator = $this->makeIndicator($form, 'core');
+
+        $period->update(['is_locked' => true]);
+
+        $this->actingAsUser($head);
+
+        $this->postJson('/api/pcr-indicators', [
+            'id'          => $indicator->id,
+            'output_id'   => $indicator->output_id,
+            'description' => 'Changed after the cut-off.',
+        ])->assertStatus(409)
+            ->assertJsonPath('message', 'Mid-year Review is locked. It is view-only now — ask an administrator to unlock it.');
+
+        $this->postJson("/api/pcr-indicators/{$indicator->id}/assign", [
+            'user_ids' => [$employee->id],
+        ])->assertStatus(409)
+            ->assertJsonPath('message', 'Mid-year Review is locked. It is view-only now — ask an administrator to unlock it.');
+
+        $this->assertDatabaseMissing('pcr_target_assignments', [
+            'indicator_id' => $indicator->id,
+            'user_id'      => $employee->id,
+        ]);
+    }
+
+    public function test_locking_one_period_leaves_the_other_writable(): void
+    {
+        ['period' => $first, 'unit' => $unit, 'year' => $year] = $this->lockedScenario();
+
+        $second = $this->makePeriod($year, 2);
+        $first->update(['is_locked' => true, 'is_active' => false]);
+        $second->update(['is_active' => true, 'is_locked' => false]);
+
+        $head = User::factory()->create(['role' => 'program_head', 'org_unit_id' => $unit->id]);
+        $form = $this->makeForm([
+            'org_unit_id'      => $unit->id,
+            'school_year_id'   => $year->id,
+            'user_id'          => $head->id,
+            'rating_period_id' => $second->id,
+        ]);
+        $indicator = $this->makeIndicator($form, 'core');
+
+        $this->actingAsUser($head);
+
+        $this->postJson('/api/pcr-indicators', [
+            'id'          => $indicator->id,
+            'output_id'   => $indicator->output_id,
+            'description' => 'Still open in the second period.',
+        ])->assertSuccessful();
+    }
+
     public function test_an_admin_still_works_through_a_lock(): void
     {
         ['period' => $period, 'indicator' => $indicator] = $this->lockedScenario();
@@ -108,6 +170,12 @@ class PeriodLockTest extends PmsTestCase
             'indicator_id'          => $indicator->id,
             'rating_period_id'      => $period->id,
             'actual_accomplishment' => 'Corrected after the cut-off.',
+        ])->assertSuccessful();
+
+        $this->postJson('/api/pcr-indicators', [
+            'id'          => $indicator->id,
+            'output_id'   => $indicator->output_id,
+            'description' => 'Corrected after the cut-off.',
         ])->assertSuccessful();
     }
 }

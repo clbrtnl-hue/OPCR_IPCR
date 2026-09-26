@@ -343,6 +343,38 @@ class PcrCascadeTest extends PmsTestCase
         $this->assertNotContains($outsider->id, $ids);
     }
 
+    public function test_qa_can_assign_a_line_only_to_staff_in_the_office_they_head(): void
+    {
+        ['unit' => $unit, 'year' => $year, 'faculty' => $faculty] = $this->office();
+
+        $qa = User::factory()->create(['role' => 'qa', 'org_unit_id' => $unit->id]);
+        $unit->update(['head_user_id' => $qa->id]);
+
+        $elsewhere = $this->makeUnit(['name' => 'Registrar', 'code' => 'REG']);
+        $outsider  = User::factory()->create(['role' => 'employee', 'org_unit_id' => $elsewhere->id]);
+
+        $form = $this->makeForm([
+            'org_unit_id' => $unit->id, 'school_year_id' => $year->id, 'user_id' => $qa->id,
+        ]);
+        $line = $this->makeIndicator($form, 'core');
+
+        $this->actingAsUser($qa);
+
+        $this->assertTrue($qa->fresh()->capabilities['assign_indicators']);
+        $this->assertFalse($qa->fresh()->capabilities['assign_outputs']);
+
+        $this->postJson("/api/pcr-indicators/{$line->id}/assign", ['user_ids' => [$outsider->id]])
+            ->assertStatus(422);
+
+        $this->postJson("/api/pcr-indicators/{$line->id}/assign", ['user_ids' => [$faculty->id]])
+            ->assertStatus(201);
+
+        $ids = array_column($this->getJson('/api/assignable-users')->json(), 'id');
+
+        $this->assertContains($faculty->id, $ids);
+        $this->assertNotContains($outsider->id, $ids);
+    }
+
     public function test_a_pending_assignment_is_on_the_ipcr_before_anyone_writes(): void
     {
         ['unit' => $unit, 'year' => $year, 'head' => $head, 'faculty' => $faculty] = $this->office();

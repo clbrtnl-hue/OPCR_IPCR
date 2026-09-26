@@ -607,10 +607,15 @@ export default function ProfilePage() {
             <PageHeader
                 title="My Profile"
                 subtitle="Your account, and the personal data sheet your reviewers can see."
-                extra={<Button onClick={() => setPreviewOpen(true)}>Preview as others see it</Button>}
+                extra={
+                    <Button className="pms-profile-preview" onClick={() => setPreviewOpen(true)}>
+                        Preview as others see it
+                    </Button>
+                }
             />
 
             <Tabs
+                className="pms-profile-tabs"
                 items={[
                     { key: "account", label: "Account", children: account },
                     { key: "personal", label: "Personal information", children: personal },

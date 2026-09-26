@@ -153,85 +153,68 @@ export default function DashboardPage() {
                 My cycle{shownYear ? ` — ${shownYear.label}` : ""}
             </Typography.Title>
 
-            <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
-                <Col xs={12} lg={6}>
-                    <StatTile
-                        label="My forms"
-                        value={myForms?.total ?? mine.length}
-                        hint={
-                            myForms
-                                ? `${myForms.drafts} draft · ${myForms.returned} returned · ${myForms.rated} rated`
-                                : undefined
-                        }
-                    />
-                </Col>
-                <Col xs={12} lg={6}>
-                    <StatTile
-                        label="My commitments"
-                        value={myWork?.total ?? 0}
-                        hint={
-                            myWork
-                                ? `${myWork.completed} completed · ${myWork.in_flight} ongoing · ${myWork.not_started} not started`
-                                : undefined
-                        }
-                    />
-                </Col>
-                <Col xs={12} lg={6}>
-                    <StatTile
-                        label="My progress"
-                        value={myWork?.progress_pct != null ? `${myWork.progress_pct}%` : "—"}
-                        meter={{ pct: myWork?.progress_pct ?? 0 }}
-                        hint="Average across every line you own"
-                    />
-                </Col>
-                <Col xs={12} lg={6}>
-                    <StatTile
-                        label="Past their target date"
-                        value={myWork?.overdue ?? 0}
-                        tone={(myWork?.overdue ?? 0) > 0 ? VIZ.critical : VIZ.good}
-                        hint={`${myWork?.due_soon ?? 0} of mine fall due within seven days`}
-                    />
-                </Col>
+            <div className="pms-cycle-grid">
+                <StatTile
+                    label="My forms"
+                    value={myForms?.total ?? mine.length}
+                    hint={
+                        myForms
+                            ? `${myForms.drafts} draft · ${myForms.returned} returned · ${myForms.rated} rated`
+                            : undefined
+                    }
+                />
+                <StatTile
+                    label="My commitments"
+                    value={myWork?.total ?? 0}
+                    hint={
+                        myWork
+                            ? `${myWork.completed} completed · ${myWork.in_flight} ongoing · ${myWork.not_started} not started`
+                            : undefined
+                    }
+                />
+                <StatTile
+                    label="My progress"
+                    value={myWork?.progress_pct != null ? `${myWork.progress_pct}%` : "—"}
+                    meter={{ pct: myWork?.progress_pct ?? 0 }}
+                    hint="Average across every line you own"
+                />
+                <StatTile
+                    label="Past their target date"
+                    value={myWork?.overdue ?? 0}
+                    tone={(myWork?.overdue ?? 0) > 0 ? VIZ.critical : VIZ.good}
+                    hint={`${myWork?.due_soon ?? 0} of mine fall due within seven days`}
+                />
                 {reviews && (
-                    <Col xs={12} lg={6}>
-                        <StatTile
-                            label="Waiting for me to review"
-                            value={queue.length}
-                            tone={queue.length > 0 ? VIZ.warning : undefined}
-                            onClick={() => navigate(can("qa") ? "/rating" : "/review-queue")}
-                            hint="Forms sitting at your step of the chain"
-                        />
-                    </Col>
+                    <StatTile
+                        label="Waiting for me to review"
+                        value={queue.length}
+                        tone={queue.length > 0 ? VIZ.warning : undefined}
+                        onClick={() => navigate(can("qa") ? "/rating" : "/review-queue")}
+                        hint="Forms sitting at your step of the chain"
+                    />
                 )}
-                <Col xs={12} lg={6}>
-                    <StatTile
-                        label="In the review chain"
-                        value={myForms ? myForms.in_review + myForms.with_qa : 0}
-                        hint={
-                            myForms
-                                ? `${myForms.in_review} with a reviewer · ${myForms.with_qa} with QA`
-                                : undefined
-                        }
-                    />
-                </Col>
-                <Col xs={12} lg={6}>
-                    <StatTile
-                        label="My latest rating"
-                        value={mySummary?.latest ? Number(mySummary.latest.average).toFixed(2) : "—"}
-                        suffix={
-                            mySummary?.latest?.adjectival ? (
-                                <Tag
-                                    color={ADJECTIVAL_COLORS[mySummary.latest.adjectival]}
-                                    style={{ marginLeft: 8 }}
-                                >
-                                    {mySummary.latest.adjectival}
-                                </Tag>
-                            ) : null
-                        }
-                        hint={mySummary?.latest ? undefined : "Nothing of yours has been rated yet"}
-                    />
-                </Col>
-            </Row>
+                <StatTile
+                    label="In the review chain"
+                    value={myForms ? myForms.in_review + myForms.with_qa : 0}
+                    hint={
+                        myForms
+                            ? `${myForms.in_review} with a reviewer · ${myForms.with_qa} with QA`
+                            : undefined
+                    }
+                />
+                <StatTile
+                    label="My latest rating"
+                    value={mySummary?.latest ? Number(mySummary.latest.average).toFixed(2) : "—"}
+                    suffix={
+                        mySummary?.latest?.adjectival ? (
+                            <Tag color={ADJECTIVAL_COLORS[mySummary.latest.adjectival]}>
+                                {mySummary.latest.adjectival}
+                            </Tag>
+                        ) : null
+                    }
+                    hint={mySummary?.latest ? undefined : "Nothing of yours has been rated yet"}
+                />
+            </div>
 
             {(mySummary?.at_risk ?? []).length > 0 && (
                 <Card

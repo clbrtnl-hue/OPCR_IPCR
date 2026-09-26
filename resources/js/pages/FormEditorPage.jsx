@@ -91,6 +91,41 @@ const HISTORY_META = {
 
 const WHOLE_YEAR_LABEL = "January to December";
 
+/** A line the writer reports themselves is done only with a narrative and a file. */
+function writeUpGaps(form) {
+    if (form?.type !== "ipcr") return [];
+
+    const gaps = [];
+
+    for (const output of form.outputs ?? []) {
+        for (const line of output.indicators ?? []) {
+            if ((line.children ?? []).length || (line.assignments ?? []).length) continue;
+
+            const periodId = line.rating_period_id;
+            const records = (line.accomplishments ?? []).filter(
+                (row) => !periodId || row.rating_period_id === periodId
+            );
+            const narrative = (row) => toPlainText(row.actual_accomplishment);
+            const done = records.some(
+                (row) => narrative(row) && (row.attachments ?? []).length > 0
+            );
+
+            if (done) continue;
+
+            const text = toPlainText(line.description);
+            const name = text ? (text.length > 60 ? `${text.slice(0, 59)}…` : text) : "A line";
+            const hasNarrative = records.some((row) => narrative(row));
+            const hasFile = records.some((row) => (row.attachments ?? []).length > 0);
+
+            if (hasNarrative && !hasFile) gaps.push(`${name} still needs a file.`);
+            else if (hasFile && !hasNarrative) gaps.push(`${name} still needs a narrative.`);
+            else gaps.push(`${name} still needs a narrative and a file.`);
+        }
+    }
+
+    return gaps;
+}
+
 const IPCR_CHAIN = ["draft", "head_review", "vp_review", "qa_rating", "rated", "final"];
 // An OPCR is planned and published first; it is rated later on the same document.
 const OPCR_CHAIN = ["draft", "qa_approval", "approved", "published", "qa_rating", "rated", "final"];
@@ -118,6 +153,7 @@ export default function FormEditorPage({ formId = null }) {
     const [sheetFull, setSheetFull] = useState(false);
     const [checking, setChecking] = useState(false);
     const [issues, setIssues] = useState(null);
+    const [writeUpIssues, setWriteUpIssues] = useState(null);
     const [copyOpen, setCopyOpen] = useState(false);
     const [cascadeOpen, setCascadeOpen] = useState(false);
     const [templateOpen, setTemplateOpen] = useState(false);
@@ -230,16 +266,18 @@ export default function FormEditorPage({ formId = null }) {
         );
     }
 
-    const canEditCommitment = isOwner && ["draft", "returned"].includes(form.status);
-    const canRecordProgress = isOwner && !["rated", "final"].includes(form.status);
+    const viewedPeriod = periods.find((p) => p.id === activePeriodId);
+    const periodLocked = user.role !== "admin" && Boolean(viewedPeriod?.is_locked);
+    const canEditCommitment = isOwner && ["draft", "returned"].includes(form.status) && !periodLocked;
+    const canRecordProgress = isOwner && !["rated", "final"].includes(form.status) && !periodLocked;
     // Handing part of a commitment to someone else is not editing its wording,
     // so it stays available once the form is published and in flight.
     // Offer only what the server would accept: the organization decides which
     // roles hand work out, and terminal roles deliver their own commitments.
     const canAssignHeadings =
-        isOwner && !["rated", "final"].includes(form.status) && Boolean(user.capabilities?.assign_outputs);
+        isOwner && !["rated", "final"].includes(form.status) && Boolean(user.capabilities?.assign_outputs) && !periodLocked;
     const canAssign =
-        isOwner && !["rated", "final"].includes(form.status) && Boolean(user.capabilities?.assign_indicators);
+        isOwner && !["rated", "final"].includes(form.status) && Boolean(user.capabilities?.assign_indicators) && !periodLocked;
     const isOpcr = form.type === "opcr";
 
     const isAdmin = user.role === "admin";
@@ -257,6 +295,7 @@ export default function FormEditorPage({ formId = null }) {
         user.role === "qa" && form.status === "head_review" && samePerson(form.head_reviewer_id, user.id);
 
     const canScore =
+        !periodLocked &&
         !isOpcr &&
         ((form.status === "head_review" && samePerson(form.head_reviewer_id, user.id)) ||
             (form.status === "vp_review" && samePerson(form.vp_reviewer_id, user.id)) ||
@@ -337,67 +376,90 @@ export default function FormEditorPage({ formId = null }) {
                     .filter(Boolean)
                     .join(" · ")}
                 extra={
-                    <Space wrap>
+                    <div className="pms-form-head">
                         <Tag color={STATUS_META[form.status].color}>{STATUS_META[form.status].label}</Tag>
-                        <Badge count={(form.comments_count ?? 0) || 0} size="small" offset={[-4, 4]}>
+                        <Space wrap={false} className="pms-form-tools" size={8}>
+                            <Badge count={(form.comments_count ?? 0) || 0} size="small" offset={[-4, 4]}>
+                                <Button
+                                    icon={<MessageOutlined />}
+                                    onClick={() => setPanelOpen(true)}
+                                >
+                                    Remarks &amp; history
+                                </Button>
+                            </Badge>
                             <Button
-                                icon={<MessageOutlined />}
-                                onClick={() => setPanelOpen(true)}
+                                icon={<PrinterOutlined />}
+                                aria-label="Print"
+                                onClick={() => setPdfOpen(true)}
                             >
-                                Remarks &amp; history
+                                <span className="pms-btn-text">Print</span>
                             </Button>
-                        </Badge>
-                        <Button icon={<PrinterOutlined />} onClick={() => setPdfOpen(true)}>
-                            Print
-                        </Button>
-                        <Button icon={<FileExcelOutlined />} loading={excelBusy} onClick={exportExcel}>
-                            Excel
-                        </Button>
-                        {canEditCommitment && !isOpcr && (
                             <Button
-                                type="primary"
-                                loading={move.isPending}
-                                onClick={() => move.mutate({ status: "head_review" })}
+                                icon={<FileExcelOutlined />}
+                                aria-label="Excel"
+                                loading={excelBusy}
+                                onClick={exportExcel}
                             >
-                                Submit for review
+                                <span className="pms-btn-text">Excel</span>
                             </Button>
-                        )}
+                            {canEditCommitment && !isOpcr && (
+                                <Button
+                                    type="primary"
+                                    loading={move.isPending}
+                                    onClick={() => {
+                                        const gaps = writeUpGaps(form);
+
+                                        if (gaps.length) {
+                                            setWriteUpIssues(gaps);
+
+                                            return;
+                                        }
+
+                                        move.mutate({ status: "head_review" });
+                                    }}
+                                >
+                                    {user.role === "qa" ? "Start rating" : "Submit for review"}
+                                </Button>
+                            )}
+                            {opcrAction && (
+                                <Button
+                                    type="primary"
+                                    loading={move.isPending || checking}
+                                    onClick={async () => {
+                                        if (opcrAction.status !== "qa_approval") {
+                                            move.mutate({ status: opcrAction.status });
+
+                                            return;
+                                        }
+
+                                        setChecking(true);
+
+                                        try {
+                                            const { data } = await api.get(
+                                                `pcr-forms/${form.id}/readiness`
+                                            );
+
+                                            if (data.ready) {
+                                                move.mutate({ status: opcrAction.status });
+                                            } else {
+                                                setIssues(data.issues);
+                                            }
+                                        } finally {
+                                            setChecking(false);
+                                        }
+                                    }}
+                                >
+                                    <span className="pms-btn-long">{opcrAction.label}</span>
+                                    <span className="pms-btn-short">
+                                        {opcrAction.status === "qa_approval" ? "Send to QA" : opcrAction.label}
+                                    </span>
+                                </Button>
+                            )}
+                        </Space>
+                        <Space wrap={false} className="pms-form-actions" size={8}>
                         {canReturnOpcr && (
                             <Button danger onClick={() => setReturnModal(true)}>
                                 Return
-                            </Button>
-                        )}
-                        {opcrAction && (
-                            <Button
-                                type="primary"
-                                loading={move.isPending || checking}
-                                onClick={async () => {
-                                    // Only the hand-over to QA is worth checking;
-                                    // approving and publishing come after.
-                                    if (opcrAction.status !== "qa_approval") {
-                                        move.mutate({ status: opcrAction.status });
-
-                                        return;
-                                    }
-
-                                    setChecking(true);
-
-                                    try {
-                                        const { data } = await api.get(
-                                            `pcr-forms/${form.id}/readiness`
-                                        );
-
-                                        if (data.ready) {
-                                            move.mutate({ status: opcrAction.status });
-                                        } else {
-                                            setIssues(data.issues);
-                                        }
-                                    } finally {
-                                        setChecking(false);
-                                    }
-                                }}
-                            >
-                                {opcrAction.label}
                             </Button>
                         )}
                         {canUnpublish && (
@@ -408,6 +470,16 @@ export default function FormEditorPage({ formId = null }) {
                             >
                                 <Button>Unpublish</Button>
                             </Popconfirm>
+                        )}
+                                {canUnpublish && (
+                            <Button
+                                type="primary"
+                                loading={move.isPending}
+                                onClick={() => move.mutate({ status: "qa_rating" })}
+                            >
+                                <span className="pms-btn-long">Send for rating</span>
+                                <span className="pms-btn-short">For rating</span>
+                            </Button>
                         )}
                         {canClose && (
                             <Popconfirm
@@ -445,12 +517,18 @@ export default function FormEditorPage({ formId = null }) {
                                         loading={move.isPending}
                                         onClick={() => move.mutate({ status: nextStatus })}
                                     >
-                                        {form.status === "head_review" ? "Send to the VP" : "Send to QA"}
+                                        <span className="pms-btn-long">
+                                            {form.status === "head_review" ? "Send to the VP" : "Send to QA"}
+                                        </span>
+                                        <span className="pms-btn-short">
+                                            {form.status === "head_review" ? "To the VP" : "To QA"}
+                                        </span>
                                     </Button>
                                 )}
                             </>
                         )}
-                    </Space>
+                        </Space>
+                    </div>
                 }
             />
 
@@ -461,6 +539,16 @@ export default function FormEditorPage({ formId = null }) {
                     style={{ marginBottom: 16 }}
                     message="Enter the rating on each line"
                     description="Set Quality, Efficiency and Timeliness in the Q, E and T columns. Send the form on once every line has a score."
+                />
+            )}
+
+            {periodLocked && (
+                <Alert
+                    type="warning"
+                    showIcon
+                    style={{ marginBottom: 16 }}
+                    message={`${viewedPeriod.label} is locked`}
+                    description="This period is finished. It is view-only now — ask an administrator to unlock it."
                 />
             )}
 
@@ -488,7 +576,27 @@ export default function FormEditorPage({ formId = null }) {
                         const here = index === stepIndex;
 
                         return {
-                            title: STATUS_META[status].label,
+                            title: (
+                                <>
+                                    <span className="pms-chain-long">{STATUS_META[status].label}</span>
+                                    <span className="pms-chain-short">
+                                        {
+                                            {
+                                                draft: "Draft",
+                                                head_review: "Head",
+                                                vp_review: "VP",
+                                                qa_approval: "QA",
+                                                approved: "Approved",
+                                                published: "Live",
+                                                qa_rating: "Rating",
+                                                rated: "Rated",
+                                                final: "Final",
+                                                returned: "Returned",
+                                            }[status] ?? STATUS_META[status].label
+                                        }
+                                    </span>
+                                </>
+                            ),
                             // Naming the person beats "waiting for the program
                             // head" when the form already knows who that is.
                             description: skipped
@@ -514,11 +622,9 @@ export default function FormEditorPage({ formId = null }) {
 
             <Row gutter={16}>
                 <Col xs={24} lg={24}>
-                    <Card
-                        title="Commitments"
-                        style={{ marginBottom: 16 }}
-                        extra={
-                            <Space>
+                    <Card title="Commitments" style={{ marginBottom: 16 }}>
+                        <div className="pms-commit-bar">
+                            <div className="pms-commit-period">
                                 {isOpcr ? (
                                     <Tag color="blue">{WHOLE_YEAR_LABEL}</Tag>
                                 ) : formPeriodId ? (
@@ -528,6 +634,7 @@ export default function FormEditorPage({ formId = null }) {
                                     </Tag>
                                 ) : (
                                     <Segmented
+                                        block
                                         value={activePeriodId}
                                         onChange={setPeriodId}
                                         options={periods.map((p) => ({
@@ -536,8 +643,11 @@ export default function FormEditorPage({ formId = null }) {
                                         }))}
                                     />
                                 )}
+                            </div>
+                            <div className="pms-commit-actions">
                                 {canEditCommitment && !isOpcr && (
                                     <Button
+                                        className="pms-commit-text"
                                         type="primary"
                                         size="small"
                                         icon={<PlusOutlined />}
@@ -547,12 +657,19 @@ export default function FormEditorPage({ formId = null }) {
                                     </Button>
                                 )}
                                 {isOpcr && canEditCommitment && form.outputs.length === 0 && (
-                                    <Button size="small" onClick={() => setCopyOpen(true)}>
-                                        Start from another year
+                                    <Button
+                                        className="pms-commit-text"
+                                        size="small"
+                                        aria-label="Start from another year"
+                                        onClick={() => setCopyOpen(true)}
+                                    >
+                                        <span className="pms-btn-long">Start from another year</span>
+                                        <span className="pms-btn-short">Copy year</span>
                                     </Button>
                                 )}
                                 {canEditCommitment && (
                                     <Button
+                                        className="pms-commit-text"
                                         size="small"
                                         icon={<ProfileOutlined />}
                                         onClick={() => setTemplateOpen(true)}
@@ -562,11 +679,14 @@ export default function FormEditorPage({ formId = null }) {
                                 )}
                                 {canAssign && form.outputs.length > 0 && (
                                     <Button
+                                        className="pms-commit-text"
                                         size="small"
                                         icon={<ShareAltOutlined />}
+                                        aria-label="Cascade to people"
                                         onClick={() => setCascadeOpen(true)}
                                     >
-                                        Cascade to people
+                                        <span className="pms-btn-long">Cascade to people</span>
+                                        <span className="pms-btn-short">Cascade</span>
                                     </Button>
                                 )}
                                 {(isOpcr || form.outputs.length > 0) && (
@@ -578,9 +698,8 @@ export default function FormEditorPage({ formId = null }) {
                                         />
                                     </Tooltip>
                                 )}
-                            </Space>
-                        }
-                    >
+                            </div>
+                        </div>
                         {!isOpcr && (form.assigned_targets ?? []).length > 0 && (
                             <Alert
                                 type="info"
@@ -661,33 +780,43 @@ export default function FormEditorPage({ formId = null }) {
                     </Space>
                 }
                 extra={
-                    <Space>
-                        {isOpcr ? (
-                            <Tag color="blue">{WHOLE_YEAR_LABEL}</Tag>
-                        ) : formPeriodId ? (
-                            <Tag color="blue">
-                                {periods.find((p) => p.id === formPeriodId)?.label ??
-                                    form.rating_period?.label}
-                            </Tag>
-                        ) : (
-                            <Segmented
-                                size="small"
-                                value={activePeriodId}
-                                onChange={setPeriodId}
-                                options={periods.map((p) => ({
-                                    value: p.id,
-                                    label: p.is_active ? `${p.label} ★` : p.label,
-                                }))}
-                            />
-                        )}
-                        <Button icon={<PrinterOutlined />} onClick={() => setPdfOpen(true)}>
-                            Print
-                        </Button>
-                        <Button icon={<FileExcelOutlined />} loading={excelBusy} onClick={exportExcel}>
-                            Excel
-                        </Button>
-                        <Button onClick={() => setSheetFull(false)}>Close</Button>
-                    </Space>
+                    <div className="pms-sheet-drawer-tools">
+                        <div className="pms-sheet-drawer-period">
+                            {isOpcr ? (
+                                <Tag color="blue">{WHOLE_YEAR_LABEL}</Tag>
+                            ) : formPeriodId ? (
+                                <Tag color="blue">
+                                    {periods.find((p) => p.id === formPeriodId)?.label ??
+                                        form.rating_period?.label}
+                                </Tag>
+                            ) : (
+                                <Segmented
+                                    block
+                                    size="small"
+                                    value={activePeriodId}
+                                    onChange={setPeriodId}
+                                    options={periods.map((p) => ({
+                                        value: p.id,
+                                        label: p.is_active ? `${p.label} ★` : p.label,
+                                    }))}
+                                />
+                            )}
+                        </div>
+                        <div className="pms-sheet-drawer-actions">
+                            <Button icon={<PrinterOutlined />} aria-label="Print" onClick={() => setPdfOpen(true)}>
+                                <span className="pms-btn-text">Print</span>
+                            </Button>
+                            <Button
+                                icon={<FileExcelOutlined />}
+                                aria-label="Excel"
+                                loading={excelBusy}
+                                onClick={exportExcel}
+                            >
+                                <span className="pms-btn-text">Excel</span>
+                            </Button>
+                            <Button onClick={() => setSheetFull(false)}>Close</Button>
+                        </div>
+                    </div>
                 }
             >
                 {isOpcr ? (
@@ -717,6 +846,27 @@ export default function FormEditorPage({ formId = null }) {
                     />
                 )}
             </Drawer>
+
+            <Modal
+                open={Boolean(writeUpIssues)}
+                onCancel={() => setWriteUpIssues(null)}
+                title="Finish the write-up first"
+                okText="Go back and finish"
+                onOk={() => setWriteUpIssues(null)}
+                cancelButtonProps={{ style: { display: "none" } }}
+            >
+                <Typography.Paragraph type="secondary">
+                    This form stays with you until every line has a narrative and a file. It is
+                    not sent for review yet.
+                </Typography.Paragraph>
+                <ul style={{ paddingLeft: 18, margin: 0 }}>
+                    {(writeUpIssues ?? []).map((issue, index) => (
+                        <li key={`${index}-${issue}`} style={{ marginBottom: 4 }}>
+                            {issue}
+                        </li>
+                    ))}
+                </ul>
+            </Modal>
 
             <Modal
                 open={Boolean(issues)}

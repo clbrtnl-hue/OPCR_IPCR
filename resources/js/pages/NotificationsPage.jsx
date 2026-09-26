@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from "react";
-import { Button, Card, Empty, Segmented, Skeleton, Space, Tag, Typography, message } from "antd";
+import { Button, Card, Empty, Segmented, Skeleton, Tag, Typography, message } from "antd";
 import { CheckOutlined } from "@ant-design/icons";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
@@ -78,51 +78,51 @@ export default function NotificationsPage() {
     let lastDay = null;
 
     return (
-        <>
+        <div className="pms-alerts">
             <PageHeader
-                title="Notifications"
+                title="Alerts"
                 subtitle={
                     unread > 0
-                        ? `${unread} unread — everything the system has told you, newest first.`
+                        ? `${unread} unread, newest first.`
                         : "Everything the system has told you, newest first."
-                }
-                extra={
-                    <Space wrap>
-                        <Segmented
-                            value={scope}
-                            onChange={(value) => {
-                                setScope(value);
-                                setLimit(PAGE);
-                            }}
-                            options={[
-                                { value: "all", label: "All" },
-                                { value: "unread", label: `Unread ${unread}` },
-                            ]}
-                        />
-                        <Button
-                            icon={<CheckOutlined />}
-                            disabled={unread === 0}
-                            loading={markAll.isPending}
-                            onClick={() => markAll.mutate()}
-                        >
-                            Mark all read
-                        </Button>
-                    </Space>
                 }
             />
 
-            <Card>
+            <div className="pms-alerts-bar">
+                <Segmented
+                    value={scope}
+                    onChange={(value) => {
+                        setScope(value);
+                        setLimit(PAGE);
+                    }}
+                    options={[
+                        { value: "all", label: "All" },
+                        { value: "unread", label: `Unread ${unread}` },
+                    ]}
+                />
+                <Button
+                    icon={<CheckOutlined />}
+                    disabled={unread === 0}
+                    loading={markAll.isPending}
+                    onClick={() => markAll.mutate()}
+                >
+                    Mark all read
+                </Button>
+            </div>
+
+            <Card className="pms-alerts-card">
                 {kinds.length > 2 && (
-                    <Segmented
-                        size="small"
-                        value={kind}
-                        onChange={(value) => {
-                            setKind(value);
-                            setLimit(PAGE);
-                        }}
-                        options={kinds}
-                        style={{ marginBottom: 14 }}
-                    />
+                    <div className="pms-alerts-kinds">
+                        <Segmented
+                            size="small"
+                            value={kind}
+                            onChange={(value) => {
+                                setKind(value);
+                                setLimit(PAGE);
+                            }}
+                            options={kinds}
+                        />
+                    </div>
                 )}
 
                 {isLoading ? (
@@ -160,10 +160,8 @@ export default function NotificationsPage() {
 
                                         <span className="pms-note-body">
                                             <span className="pms-note-title">
-                                                {item.title}
-                                                <Tag color="default" style={{ marginInlineStart: 8 }}>
-                                                    {meta.label}
-                                                </Tag>
+                                                <span>{item.title}</span>
+                                                <Tag>{meta.label}</Tag>
                                             </span>
                                             {item.body && <span className="pms-note-text">{item.body}</span>}
                                             <span className="pms-note-meta">
@@ -190,6 +188,6 @@ export default function NotificationsPage() {
                     </div>
                 )}
             </Card>
-        </>
+        </div>
     );
 }

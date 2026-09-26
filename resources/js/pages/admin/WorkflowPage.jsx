@@ -111,17 +111,63 @@ export default function WorkflowPage() {
                 description="A head's VP comes from Setup → Hierarchy, where each unit names its head and the VP it reports to. This page decides the stages and who fills them; that page decides the people."
             />
 
-            <Card
-                title="Review chain"
-                extra={<ResetButton target="review_stages" />}
-                style={{ marginBottom: 16 }}
-            >
+            <Card title="Review chain" style={{ marginBottom: 16 }}>
+                <div className="pms-pds-bar">
+                    <ResetButton target="review_stages" />
+                </div>
                 <Typography.Paragraph type="secondary">
                     An IPCR walks these stages in order. A skippable stage nobody fills is
                     passed over — which is how a head's own form skips the head stage,
                     and a VP's goes straight to QA. The last stage can never be skipped.
                 </Typography.Paragraph>
 
+                <div className="pms-mobile-only pms-pds-cards">
+                    {stages.map((stage, i) => (
+                        <article key={stage.status} className="pms-pds-card">
+                            <div className="pms-pds-line">
+                                <span>Stage</span>
+                                <strong>
+                                    {i + 1}. {stage.label}
+                                </strong>
+                            </div>
+                            {stage.source === "role" ? (
+                                <Select
+                                    size="small"
+                                    style={{ width: "100%" }}
+                                    value={stage.role}
+                                    options={roleOptions}
+                                    onChange={(role) => setStage(i, { role })}
+                                />
+                            ) : (
+                                <Tag>
+                                    {stage.slot === "head_user_id" ? "The unit's head" : "The unit's VP"}
+                                </Tag>
+                            )}
+                            <div className="pms-pds-actions">
+                                <span className="pms-late-only">
+                                    <Switch
+                                        size="small"
+                                        checked={stage.skippable ?? true}
+                                        disabled={i === stages.length - 1}
+                                        onChange={(skippable) => setStage(i, { skippable })}
+                                    />
+                                    Skippable
+                                </span>
+                                <Button size="small" disabled={i === 0} onClick={() => moveStage(i, -1)}>
+                                    Up
+                                </Button>
+                                <Button
+                                    size="small"
+                                    disabled={i === stages.length - 1}
+                                    onClick={() => moveStage(i, 1)}
+                                >
+                                    Down
+                                </Button>
+                            </div>
+                        </article>
+                    ))}
+                </div>
+                <div className="pms-desktop-only">
                 <Table
                     rowKey="status"
                     dataSource={stages}
@@ -185,13 +231,13 @@ export default function WorkflowPage() {
                         },
                     ]}
                 />
+                </div>
             </Card>
 
-            <Card
-                title="Who may hand work out"
-                extra={<ResetButton target="delegation" />}
-                style={{ marginBottom: 16 }}
-            >
+            <Card title="Who may hand work out" style={{ marginBottom: 16 }}>
+                <div className="pms-pds-bar">
+                    <ResetButton target="delegation" />
+                </div>
                 <Row gutter={16}>
                     <Col xs={24} md={8}>
                         <Typography.Text strong>Assigns an MFO/PPA</Typography.Text>
@@ -235,7 +281,10 @@ export default function WorkflowPage() {
                 </Row>
             </Card>
 
-            <Card title="The college OPCR" extra={<ResetButton target="opcr" />} style={{ marginBottom: 16 }}>
+            <Card title="The college OPCR" style={{ marginBottom: 16 }}>
+                <div className="pms-pds-bar">
+                    <ResetButton target="opcr" />
+                </div>
                 <Row gutter={16}>
                     {[
                         ["creator_roles", "Opens it"],
@@ -262,10 +311,10 @@ export default function WorkflowPage() {
 
                 <Divider />
 
-                <Space>
+                <Space wrap>
                     <Typography.Text strong>How many?</Typography.Text>
                     <Select
-                        style={{ width: 280 }}
+                        className="pms-workflow-count"
                         value={opcr.one_per ?? "organization"}
                         onChange={(v) => put("opcr", { ...opcr, one_per: v })}
                         options={[
@@ -276,7 +325,10 @@ export default function WorkflowPage() {
                 </Space>
             </Card>
 
-            <Card title="Rating scale" extra={<ResetButton target="rating" />}>
+            <Card title="Rating scale">
+                <div className="pms-pds-bar">
+                    <ResetButton target="rating" />
+                </div>
                 <Space wrap size={16} style={{ marginBottom: 16 }}>
                     <span>
                         <Typography.Text strong>Score range</Typography.Text>{" "}
@@ -310,6 +362,36 @@ export default function WorkflowPage() {
                     </span>
                 </Space>
 
+                <div className="pms-mobile-only pms-pds-cards">
+                    {(rating.bands ?? []).map((band, i) => (
+                        <article key={band.label} className="pms-pds-card">
+                            <div className="pms-pds-line">
+                                <span>Rating</span>
+                                <strong>{band.label}</strong>
+                            </div>
+                            <div className="pms-pds-line">
+                                <span>Equivalent</span>
+                                <strong>{band.value}</strong>
+                            </div>
+                            <div className="pms-pds-actions">
+                                <span>Average at least</span>
+                                <InputNumber
+                                    size="small"
+                                    step={0.1}
+                                    min={0}
+                                    value={band.min}
+                                    onChange={(min) =>
+                                        put("rating", {
+                                            ...rating,
+                                            bands: rating.bands.map((b, j) => (j === i ? { ...b, min } : b)),
+                                        })
+                                    }
+                                />
+                            </div>
+                        </article>
+                    ))}
+                </div>
+                <div className="pms-desktop-only">
                 <Table
                     rowKey="label"
                     dataSource={rating.bands ?? []}
@@ -340,6 +422,7 @@ export default function WorkflowPage() {
                         { title: "Equivalent", dataIndex: "value", width: 120 },
                     ]}
                 />
+                </div>
             </Card>
         </>
     );

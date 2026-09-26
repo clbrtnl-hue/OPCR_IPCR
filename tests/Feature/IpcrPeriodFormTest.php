@@ -209,7 +209,7 @@ class IpcrPeriodFormTest extends PmsTestCase
             'rating_period_id' => $period2->id,
         ]);
 
-        $this->makeIndicator($first, 'support', ['rating_period_id' => $period1->id]);
+        $this->documentLine($this->makeIndicator($first, 'support', ['rating_period_id' => $period1->id]));
         $this->makeIndicator($second, 'support', ['rating_period_id' => $period2->id]);
 
         $this->postJson("/api/pcr-forms/{$first->id}/status", ['status' => 'head_review'])

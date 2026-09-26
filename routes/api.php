@@ -25,7 +25,6 @@ Route::get('organization', [OrganizationController::class, 'show']);
 
 Route::middleware('auth:api')->group(function () {
     $PMS_ADMIN     = 'role:admin';
-    $PMS_REVIEWERS = 'role:program_head,vp';
     $PMS_QA        = 'role:qa';
     $PMS_REPORTS   = 'role:president,qa';
 
@@ -68,7 +67,7 @@ Route::middleware('auth:api')->group(function () {
     Route::get('pcr-forms/{id}/pdf', [ReportController::class, 'formPdf']);
     Route::get('pcr-forms/{id}/xlsx', [ReportController::class, 'formExcel']);
     Route::get('assignable-users', [PcrAssignmentController::class, 'assignableUsers']);
-    Route::get('my-team', [TeamController::class, 'index'])->middleware($PMS_REVIEWERS);
+    Route::get('my-team', [TeamController::class, 'index'])->middleware('role:program_head,vp,qa');
     Route::get('people/{id}', [UserProfileController::class, 'show']);
     Route::get('people/{id}/pdf', [UserProfileController::class, 'pdf']);
     Route::post('my-profile', [UserProfileController::class, 'updateProfile']);

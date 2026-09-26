@@ -4,6 +4,7 @@ import {
     Button,
     Card,
     Drawer,
+    Empty,
     Form,
     Input,
     Popconfirm,
@@ -67,6 +68,13 @@ function collectIds(nodes) {
     return nodes.flatMap((node) => [node.id, ...(node.children ? collectIds(node.children) : [])]);
 }
 
+function flattenNodes(nodes, depth = 0, parentName = null) {
+    return nodes.flatMap((node) => [
+        { ...node, depth, parentName },
+        ...(node.children ? flattenNodes(node.children, depth + 1, node.name) : []),
+    ]);
+}
+
 function flattenUnits(nodes, depth = 0) {
     return nodes.flatMap((node) => [
         { id: node.id, name: node.name, depth },
@@ -104,7 +112,7 @@ export default function OrgUnitsPage() {
         queryFn: () => api.get("users/options").then((r) => r.data),
     });
 
-    const heads = people.filter((p) => ["program_head", "admin", "vp"].includes(p.role));
+    const heads = people.filter((p) => ["program_head", "admin", "vp", "qa"].includes(p.role));
     const vps = people.filter((p) => ["vp", "admin"].includes(p.role));
     const tree = useMemo(() => nestUnits(units), [units]);
 
@@ -205,19 +213,61 @@ export default function OrgUnitsPage() {
             />
 
             <Card>
-                <Table
-                    rowKey="id"
-                    loading={isLoading}
-                    dataSource={tree}
-                    columns={columns}
-                    pagination={false}
-                    scroll={{ x: 900 }}
-                    indentSize={24}
-                    expandable={{
-                        expandedRowKeys,
-                        onExpandedRowsChange: setExpandedRowKeys,
-                    }}
-                />
+                <div className="pms-mobile-only pms-pds-cards">
+                    {flattenNodes(tree).length === 0 && !isLoading ? (
+                        <Empty description="No units yet." />
+                    ) : (
+                        flattenNodes(tree).map((record) => (
+                            <article key={record.id} className="pms-pds-card pms-unit-card">
+                                <div className="pms-pds-line">
+                                    <span>Unit</span>
+                                    <strong>{record.name}</strong>
+                                </div>
+                                <div className="pms-pds-line">
+                                    <span>Under</span>
+                                    <strong>{record.parentName || "Top"}</strong>
+                                </div>
+                                <div className="pms-pds-line">
+                                    <span>Type</span>
+                                    <Tag>{TYPE_LABELS[record.type]}</Tag>
+                                </div>
+                                <div className="pms-pds-line">
+                                    <span>Head</span>
+                                    <strong>{record.head?.name || "Not set"}</strong>
+                                </div>
+                                <div className="pms-pds-line">
+                                    <span>VP</span>
+                                    <strong>{record.vp?.name || "Not set"}</strong>
+                                </div>
+                                <div className="pms-pds-actions">
+                                    <Button size="small" onClick={() => openDrawer(record)}>
+                                        Edit
+                                    </Button>
+                                    <Popconfirm title="Delete this unit?" onConfirm={() => remove.mutate(record.id)}>
+                                        <Button size="small" danger>
+                                            Delete
+                                        </Button>
+                                    </Popconfirm>
+                                </div>
+                            </article>
+                        ))
+                    )}
+                </div>
+                <div className="pms-desktop-only">
+                    <Table
+                        rowKey="id"
+                        loading={isLoading}
+                        dataSource={tree}
+                        columns={columns}
+                        pagination={false}
+                        scroll={{ x: 900 }}
+                        indentSize={24}
+                        expandable={{
+                            expandedRowKeys,
+                            onExpandedRowsChange: setExpandedRowKeys,
+                        }}
+                    />
+                </div>
             </Card>
 
             <Drawer

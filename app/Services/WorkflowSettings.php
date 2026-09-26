@@ -33,12 +33,13 @@ class WorkflowSettings
 
         $value = $stored ?: $default;
 
-        // The VP names the heads accountable on their own IPCR. A saved rule
-        // from before that was allowed must not keep the control hidden.
+        // The VP names the heads accountable on their own IPCR, and QA names
+        // the staff in the office they head. A saved rule from before that
+        // was allowed must not keep the control hidden.
         if ($key === 'delegation') {
             $value['assign_indicators'] = array_values(array_unique(array_merge(
                 $value['assign_indicators'] ?? [],
-                ['vp']
+                ['vp', 'qa']
             )));
         }
 

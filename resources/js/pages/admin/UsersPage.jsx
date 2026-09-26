@@ -135,14 +135,54 @@ export default function UsersPage() {
             />
 
             <Card>
-                <Table
-                    rowKey="id"
-                    loading={isLoading}
-                    dataSource={users}
-                    columns={columns}
-                    pagination={{ pageSize: 15 }}
-                    scroll={{ x: 900 }}
-                />
+                <div className="pms-mobile-only pms-pds-cards">
+                    {users.map((record) => (
+                        <article key={record.id} className="pms-pds-card">
+                            <div className="pms-pds-line">
+                                <span>Name</span>
+                                <strong>{record.name}</strong>
+                            </div>
+                            <div className="pms-pds-line">
+                                <span>Email</span>
+                                <strong>{record.email}</strong>
+                            </div>
+                            <div className="pms-pds-line">
+                                <span>Role</span>
+                                <Tag>{ROLE_LABELS[record.role]}</Tag>
+                            </div>
+                            <div className="pms-pds-line">
+                                <span>Unit</span>
+                                <strong>{record.org_unit?.name || "—"}</strong>
+                            </div>
+                            <div className="pms-pds-actions">
+                                <Button size="small" onClick={() => openDrawer(record)}>
+                                    Edit
+                                </Button>
+                                {record.status === "active" && (
+                                    <Popconfirm
+                                        title="Deactivate this account?"
+                                        description="They will no longer be able to sign in."
+                                        onConfirm={() => deactivate.mutate(record.id)}
+                                    >
+                                        <Button size="small" danger>
+                                            Deactivate
+                                        </Button>
+                                    </Popconfirm>
+                                )}
+                            </div>
+                        </article>
+                    ))}
+                </div>
+                <div className="pms-desktop-only">
+                    <Table
+                        rowKey="id"
+                        loading={isLoading}
+                        dataSource={users}
+                        columns={columns}
+                        pagination={{ pageSize: 15 }}
+                        scroll={{ x: 900 }}
+                    />
+                </div>
             </Card>
 
             <Drawer

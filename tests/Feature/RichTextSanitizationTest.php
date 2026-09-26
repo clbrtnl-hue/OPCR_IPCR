@@ -97,6 +97,8 @@ class RichTextSanitizationTest extends PmsTestCase
         $head = User::factory()->create(['role' => 'program_head', 'org_unit_id' => $unit->id]);
         $unit->update(['head_user_id' => $head->id]);
 
+        $this->documentLine($form->indicators()->first());
+
         $this->actingAsUser($employee);
         $this->postJson("/api/pcr-forms/{$form->id}/status", ['status' => 'head_review'])->assertSuccessful();
 

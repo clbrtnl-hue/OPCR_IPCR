@@ -71,6 +71,13 @@ class PcrIndicatorController extends Controller
             }
         }
 
+        if ($message = PcrWorkflow::lockMessage(
+            $request->user(),
+            PcrWorkflow::periodForWrite($output->form, $periodId)
+        )) {
+            return response()->json(['message' => $message], 409);
+        }
+
         if ($parentId) {
             if ($error = $this->parentProblem($parentId, $output, $periodId, $id)) {
                 return response()->json(['message' => $error], 422);
@@ -152,14 +159,11 @@ class PcrIndicatorController extends Controller
             return response()->json(['message' => 'This form has been rated and can no longer be changed.'], 409);
         }
 
-        $active = \App\Models\RatingPeriod::where('school_year_id', $form->school_year_id)
-            ->where('is_active', true)
-            ->first();
-
-        if ($active && $active->isLockedFor($user)) {
-            return response()->json([
-                'message' => "{$active->label} is locked. It is view-only now — ask an administrator to unlock it.",
-            ], 409);
+        if ($message = PcrWorkflow::lockMessage(
+            $user,
+            PcrWorkflow::periodForWrite($form, $indicator->rating_period_id)
+        )) {
+            return response()->json(['message' => $message], 409);
         }
 
         if ($indicator->children()->exists() || $indicator->assignments()->exists()) {
@@ -181,6 +185,13 @@ class PcrIndicatorController extends Controller
             return response()->json([
                 'message' => 'Commitments can only be changed while the form is a draft or has been returned to you.',
             ], 409);
+        }
+
+        if ($message = PcrWorkflow::lockMessage(
+            $request->user(),
+            PcrWorkflow::periodForWrite($indicator->output->form, $indicator->rating_period_id)
+        )) {
+            return response()->json(['message' => $message], 409);
         }
 
         $parent = $indicator->parent;

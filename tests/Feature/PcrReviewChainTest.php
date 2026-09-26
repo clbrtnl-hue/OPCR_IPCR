@@ -37,21 +37,22 @@ class PcrReviewChainTest extends PmsTestCase
         $head->update(['org_unit_id' => $office->id]);
 
         $faculty = User::factory()->create(['role' => 'employee', 'org_unit_id' => $office->id]);
+        $period  = $this->makePeriod($year);
 
-        return compact('college', 'office', 'year', 'president', 'vp', 'head', 'faculty');
+        return compact('college', 'office', 'year', 'period', 'president', 'vp', 'head', 'faculty');
     }
 
     private function submit(User $ratee, $form)
     {
         $this->actingAsUser($ratee);
-        $this->makeIndicator($form, 'support');
+        $this->documentLine($this->makeIndicator($form, 'support'));
 
         return $this->postJson("/api/pcr-forms/{$form->id}/status", ['status' => 'head_review']);
     }
 
     public function test_faculty_go_to_their_head_then_the_vp(): void
     {
-        ['office' => $office, 'year' => $year, 'faculty' => $faculty, 'head' => $head, 'vp' => $vp] = $this->college();
+        ['office' => $office, 'year' => $year, 'period' => $period, 'faculty' => $faculty, 'head' => $head, 'vp' => $vp] = $this->college();
 
         $form = $this->makeForm([
             'org_unit_id' => $office->id, 'school_year_id' => $year->id, 'user_id' => $faculty->id,
@@ -61,7 +62,6 @@ class PcrReviewChainTest extends PmsTestCase
         $this->assertSame('head_review', $form->fresh()->status);
 
         $indicator = $form->indicators()->first();
-        $period    = $this->makePeriod($year);
 
         $this->actingAsUser($head);
         $this->postJson("/api/pcr-forms/{$form->id}/status", ['status' => 'vp_review'])
@@ -202,7 +202,7 @@ class PcrReviewChainTest extends PmsTestCase
 
     public function test_the_vp_may_replace_the_heads_score_before_qa_does(): void
     {
-        ['office' => $office, 'year' => $year, 'faculty' => $faculty, 'head' => $head, 'vp' => $vp] = $this->college();
+        ['office' => $office, 'year' => $year, 'period' => $period, 'faculty' => $faculty, 'head' => $head, 'vp' => $vp] = $this->college();
 
         $qa = User::factory()->create(['role' => 'qa']);
         $form = $this->makeForm([
@@ -211,7 +211,6 @@ class PcrReviewChainTest extends PmsTestCase
         $this->submit($faculty, $form);
 
         $indicator = $form->indicators()->first();
-        $period    = $this->makePeriod($year);
 
         $this->actingAsUser($vp);
         $this->postJson('/api/pcr-ratings', [
@@ -249,7 +248,7 @@ class PcrReviewChainTest extends PmsTestCase
 
     public function test_the_vp_rates_the_heads_own_ipcr(): void
     {
-        ['office' => $office, 'year' => $year, 'head' => $head, 'vp' => $vp] = $this->college();
+        ['office' => $office, 'year' => $year, 'period' => $period, 'head' => $head, 'vp' => $vp] = $this->college();
 
         $form = $this->makeForm([
             'org_unit_id' => $office->id, 'school_year_id' => $year->id, 'user_id' => $head->id,
@@ -258,7 +257,6 @@ class PcrReviewChainTest extends PmsTestCase
         $this->assertSame('vp_review', $form->fresh()->status);
 
         $indicator = $form->indicators()->first();
-        $period    = $this->makePeriod($year);
 
         $this->actingAsUser($head);
         $this->postJson('/api/pcr-ratings', [
@@ -283,7 +281,7 @@ class PcrReviewChainTest extends PmsTestCase
 
     public function test_qa_rates_their_own_ipcr_and_does_not_send_it_to_the_president(): void
     {
-        ['office' => $office, 'year' => $year, 'president' => $president] = $this->college();
+        ['office' => $office, 'year' => $year, 'period' => $period, 'president' => $president] = $this->college();
 
         $qa = User::factory()->create(['role' => 'qa', 'org_unit_id' => $office->id]);
         $office->update(['head_user_id' => $qa->id, 'vp_user_id' => $president->id]);
@@ -301,7 +299,7 @@ class PcrReviewChainTest extends PmsTestCase
         $this->actingAsUser($president);
         $this->postJson('/api/pcr-ratings', [
             'form_id' => $form->id,
-            'rating_period_id' => $this->makePeriod($year)->id,
+            'rating_period_id' => $period->id,
             'ratings' => [['indicator_id' => $form->indicators()->first()->id, 'q' => 5, 'e' => 5, 't' => 5]],
         ])->assertStatus(409);
         $this->assertSame([], $this->getJson('/api/pcr-forms?queue=1')->assertSuccessful()->json());
@@ -309,7 +307,7 @@ class PcrReviewChainTest extends PmsTestCase
 
     public function test_qa_rates_their_staff_and_finalizes_without_the_president(): void
     {
-        ['office' => $office, 'year' => $year, 'president' => $president] = $this->college();
+        ['office' => $office, 'year' => $year, 'period' => $period, 'president' => $president] = $this->college();
 
         $qa    = User::factory()->create(['role' => 'qa', 'org_unit_id' => $office->id]);
         $staff = User::factory()->create(['role' => 'employee', 'org_unit_id' => $office->id]);
@@ -323,7 +321,6 @@ class PcrReviewChainTest extends PmsTestCase
         $this->assertSame($qa->id, $form->fresh()->head_reviewer_id);
 
         $indicator = $form->indicators()->first();
-        $period    = $this->makePeriod($year);
 
         $this->actingAsUser($qa);
         $this->postJson("/api/pcr-forms/{$form->id}/status", ['status' => 'vp_review'])

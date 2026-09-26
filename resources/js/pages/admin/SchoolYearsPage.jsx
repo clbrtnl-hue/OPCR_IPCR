@@ -139,6 +139,90 @@ export default function SchoolYearsPage() {
             />
 
             <Card>
+                <div className="pms-mobile-only pms-pds-cards">
+                    {years.map((record) => (
+                        <article key={record.id} className="pms-pds-card">
+                            <div className="pms-pds-line">
+                                <span>Year</span>
+                                <strong>
+                                    {record.label}
+                                    {record.is_active ? " · Active" : ""}
+                                </strong>
+                            </div>
+                            <div className="pms-pds-line">
+                                <span>Covers</span>
+                                <strong>
+                                    {dayjs(record.start_date).format("MMM D, YYYY")} –{" "}
+                                    {dayjs(record.end_date).format("MMM D, YYYY")}
+                                </strong>
+                            </div>
+                            {!record.is_active && (
+                                <div className="pms-pds-actions">
+                                    <Button size="small" onClick={() => activateYear.mutate(record.id)}>
+                                        Set as active
+                                    </Button>
+                                </div>
+                            )}
+                            {(record.periods ?? []).map((period) => (
+                                <div key={period.id} className="pms-admin-period">
+                                    <div className="pms-pds-line">
+                                        <span>Review</span>
+                                        <strong>
+                                            {period.label}
+                                            {period.is_active ? " · Active" : ""}
+                                            {period.is_locked ? " · Locked" : ""}
+                                        </strong>
+                                    </div>
+                                    <div className="pms-pds-line">
+                                        <span>Window</span>
+                                        <strong>
+                                            {period.opens_at
+                                                ? `${dayjs(period.opens_at).format("MMM D")} – ${dayjs(period.closes_at).format("MMM D, YYYY")}`
+                                                : "Not scheduled"}
+                                        </strong>
+                                    </div>
+                                    <Segmented
+                                        block
+                                        size="small"
+                                        value={period.status}
+                                        options={PERIOD_STATUS}
+                                        onChange={(status) => setPeriodStatus.mutate({ id: period.id, status })}
+                                    />
+                                    <div className="pms-pds-actions">
+                                        <Popconfirm
+                                            title={period.is_locked ? "Unlock this period?" : "Lock this period?"}
+                                            description={
+                                                period.is_locked
+                                                    ? "People will be able to edit and upload again."
+                                                    : "Everyone but an administrator will be view-only."
+                                            }
+                                            onConfirm={() =>
+                                                setPeriodLock.mutate({
+                                                    id: period.id,
+                                                    locked: !period.is_locked,
+                                                })
+                                            }
+                                        >
+                                            <Button
+                                                size="small"
+                                                danger={!period.is_locked}
+                                                icon={period.is_locked ? <UnlockOutlined /> : <LockOutlined />}
+                                            >
+                                                {period.is_locked ? "Unlock" : "Lock"}
+                                            </Button>
+                                        </Popconfirm>
+                                        {!period.is_active && (
+                                            <Button size="small" onClick={() => activatePeriod.mutate(period.id)}>
+                                                Set as active
+                                            </Button>
+                                        )}
+                                    </div>
+                                </div>
+                            ))}
+                        </article>
+                    ))}
+                </div>
+                <div className="pms-desktop-only">
                 <Table
                     rowKey="id"
                     loading={isLoading}
@@ -241,6 +325,7 @@ export default function SchoolYearsPage() {
                         ),
                     }}
                 />
+                </div>
             </Card>
 
             <Drawer

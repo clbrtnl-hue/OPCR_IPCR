@@ -36,6 +36,73 @@ const TABS = [
 
 const score = (value) => (value == null ? "—" : Number(value).toFixed(2));
 
+function ReportCards({ tab, rows, onOpen }) {
+    if (rows.length === 0) {
+        return <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="Nothing matches." />;
+    }
+
+    return (
+        <div className="pms-report-cards">
+            {rows.map((row) => {
+                const openable = tab === "forms" || tab === "ratings";
+                const title =
+                    tab === "units"
+                        ? row.name
+                        : tab === "heads"
+                          ? row.head || "No head"
+                          : tab === "commitments"
+                            ? row.description || "Untitled"
+                            : row.name || row.owner || "—";
+                const meta =
+                    tab === "units"
+                        ? [row.code, row.type].filter(Boolean).join(" · ")
+                        : tab === "heads"
+                          ? [row.position, row.unit].filter(Boolean).join(" · ")
+                          : [row.position, row.unit, row.owner].filter(Boolean).join(" · ");
+                const pct = row.progress_pct;
+                const rating = row.adjectival;
+
+                return (
+                    <button
+                        key={row.id}
+                        type="button"
+                        className="pms-report-card"
+                        disabled={!openable}
+                        onClick={() => openable && onOpen(row.id)}
+                    >
+                        <span className="pms-report-card-top">
+                            {row.type && <Tag>{row.type}</Tag>}
+                            {rating ? (
+                                <Tag color={ADJECTIVAL_COLORS[rating]}>{rating}</Tag>
+                            ) : tab !== "commitments" ? (
+                                <Tag>Not yet rated</Tag>
+                            ) : null}
+                            {row.status && STATUS_META[row.status] && (
+                                <Tag color={STATUS_META[row.status].color}>{STATUS_META[row.status].label}</Tag>
+                            )}
+                            {row.is_overdue && <Tag color="error">Late</Tag>}
+                        </span>
+                        <strong>{title}</strong>
+                        {meta && <span>{meta}</span>}
+                        {pct != null && (
+                            <Progress
+                                percent={pct}
+                                size="small"
+                                strokeColor={pct >= 100 ? VIZ.good : VIZ.series[0]}
+                            />
+                        )}
+                        <span className="pms-report-card-stats">
+                            {row.average != null && <em>{score(row.average)}</em>}
+                            {row.overdue > 0 && <Tag color="error">{row.overdue} overdue</Tag>}
+                            {row.total_forms != null && <span>{row.submitted ?? 0}/{row.total_forms} submitted</span>}
+                        </span>
+                    </button>
+                );
+            })}
+        </div>
+    );
+}
+
 export default function ReportsPage() {
     const navigate = useNavigate();
     const [yearId, setYearId] = useState(null);
@@ -59,7 +126,7 @@ export default function ReportsPage() {
     const year = years.find((y) => y.id === yearId);
     const period = year?.periods?.find((p) => p.id === periodId);
 
-    const { data, isLoading, isFetching } = useQuery({
+    const { data, isLoading, isPlaceholderData } = useQuery({
         queryKey: ["report-summary", yearId, periodId],
         queryFn: () =>
             api
@@ -490,9 +557,9 @@ export default function ReportsPage() {
                 title="Reports"
                 subtitle="Every form, unit and commitment in the cycle — filter it, then take it away as Excel or PDF."
                 extra={
-                    <Space wrap>
+                    <Space wrap className="pms-page-extra">
                         <Select
-                            style={{ minWidth: 180 }}
+                            className="pms-year-select"
                             value={yearId}
                             onChange={(value) => {
                                 setYearId(value);
@@ -522,8 +589,31 @@ export default function ReportsPage() {
                     <Empty description="Pick a school year to see its report." />
                 </Card>
             ) : (
-                <Card
-                    title={
+                <Card>
+                    <Typography.Paragraph type="secondary" style={{ marginTop: 0 }}>
+                        {year?.label} · {period?.label ?? "whole year"} — {totals.forms} forms, {totals.submitted}{" "}
+                        submitted, {totals.rated} rated · {totals.commitments} commitments at{" "}
+                        {totals.progress_pct ?? 0}% · {totals.overdue} overdue
+                    </Typography.Paragraph>
+
+                    <div className="pms-report-actions">
+                        <Dropdown.Button
+                            icon={<DownOutlined />}
+                            loading={busy}
+                            onClick={() => download("xlsx")}
+                            menu={{
+                                items: [{ key: "csv", label: "Download as CSV" }],
+                                onClick: () => download("csv"),
+                            }}
+                        >
+                            <FileExcelOutlined /> Excel
+                        </Dropdown.Button>
+                        <Button icon={<FilePdfOutlined />} loading={busy} onClick={() => download("pdf")}>
+                            PDF
+                        </Button>
+                    </div>
+
+                    <div className="pms-report-tabs">
                         <Segmented
                             value={tab}
                             onChange={(value) => {
@@ -532,59 +622,42 @@ export default function ReportsPage() {
                             }}
                             options={TABS}
                         />
-                    }
-                    extra={
-                        <Space wrap>
-                            <Input.Search
-                                allowClear
-                                placeholder="Search this table"
-                                value={search}
-                                onChange={(e) => setSearch(e.target.value)}
-                                style={{ width: 220 }}
-                            />
-                            {tab === "commitments" && (
-                                <Space size={6}>
-                                    <Switch size="small" checked={lateOnly} onChange={setLateOnly} />
-                                    <Typography.Text type="secondary">Late only</Typography.Text>
-                                </Space>
-                            )}
-                            <Dropdown.Button
-                                icon={<DownOutlined />}
-                                loading={busy}
-                                onClick={() => download("xlsx")}
-                                menu={{
-                                    items: [{ key: "csv", label: "Download as CSV" }],
-                                    onClick: () => download("csv"),
-                                }}
-                            >
-                                <FileExcelOutlined /> Excel
-                            </Dropdown.Button>
-                            <Button icon={<FilePdfOutlined />} loading={busy} onClick={() => download("pdf")}>
-                                PDF
-                            </Button>
-                        </Space>
-                    }
-                >
-                    <Typography.Paragraph type="secondary" style={{ marginTop: -4 }}>
-                        {year?.label} · {period?.label ?? "whole year"} — {totals.forms} forms, {totals.submitted}{" "}
-                        submitted, {totals.rated} rated · {totals.commitments} commitments at{" "}
-                        {totals.progress_pct ?? 0}% · {totals.overdue} overdue
-                    </Typography.Paragraph>
+                    </div>
 
-                    <Table
-                        rowKey={table.rowKey}
-                        dataSource={rows}
-                        columns={table.columns}
-                        loading={isFetching}
-                        size="small"
-                        pagination={{ pageSize: 20, showSizeChanger: true, showTotal: (t) => `${t} rows` }}
-                        scroll={{ x: table.scroll }}
-                        onRow={(row) =>
-                            tab === "forms" || tab === "ratings"
-                                ? { style: { cursor: "pointer" }, onClick: () => navigate(`/forms/${row.id}`) }
-                                : {}
-                        }
-                    />
+                    <div className="pms-report-tools">
+                        <Input.Search
+                            allowClear
+                            placeholder="Search"
+                            value={search}
+                            onChange={(e) => setSearch(e.target.value)}
+                        />
+                        {tab === "commitments" && (
+                            <label className="pms-late-only">
+                                <Switch size="small" checked={lateOnly} onChange={setLateOnly} />
+                                Late only
+                            </label>
+                        )}
+                    </div>
+
+                    <div className="pms-mobile-only">
+                        <ReportCards tab={tab} rows={rows} onOpen={(id) => navigate(`/forms/${id}`)} />
+                    </div>
+                    <div className="pms-desktop-only">
+                        <Table
+                            rowKey={table.rowKey}
+                            dataSource={rows}
+                            columns={table.columns}
+                            loading={isLoading || isPlaceholderData}
+                            size="small"
+                            pagination={{ pageSize: 20, showSizeChanger: true, showTotal: (t) => `${t} rows` }}
+                            scroll={{ x: table.scroll }}
+                            onRow={(row) =>
+                                tab === "forms" || tab === "ratings"
+                                    ? { style: { cursor: "pointer" }, onClick: () => navigate(`/forms/${row.id}`) }
+                                    : {}
+                            }
+                        />
+                    </div>
                 </Card>
             )}
         </>

@@ -1,7 +1,10 @@
 import React from "react";
 import {
     BellOutlined,
+    CalendarOutlined,
     CheckCircleOutlined,
+    LockOutlined,
+    ClockCircleOutlined,
     MessageOutlined,
     NotificationOutlined,
     SafetyCertificateOutlined,
@@ -9,6 +12,7 @@ import {
     TrophyOutlined,
     UndoOutlined,
     UserAddOutlined,
+    WarningOutlined,
 } from "@ant-design/icons";
 
 export const NOTIFICATION_META = {
@@ -22,6 +26,11 @@ export const NOTIFICATION_META = {
     approved: { label: "Approved", color: "#389e0d", icon: <CheckCircleOutlined /> },
     published: { label: "Published", color: "#1e3a72", icon: <NotificationOutlined /> },
     returned: { label: "Returned", color: "#d4380d", icon: <UndoOutlined /> },
+    due_soon: { label: "Due soon", color: "#d48806", icon: <ClockCircleOutlined /> },
+    due_today: { label: "Due today", color: "#d46b08", icon: <ClockCircleOutlined /> },
+    overdue: { label: "Overdue", color: "#d4380d", icon: <WarningOutlined /> },
+    period: { label: "Period", color: "#1e3a72", icon: <CalendarOutlined /> },
+    unclosed: { label: "Needs closing", color: "#1e3a72", icon: <LockOutlined /> },
     default: { label: "Update", color: "#8c8c8c", icon: <BellOutlined /> },
 };
 

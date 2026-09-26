@@ -56,4 +56,50 @@ class Notification extends Model
             static::send($userId, $type, $title, $body, $formId, $link);
         }
     }
+
+    /**
+     * A system reminder. Sent once per person and link, even if that person
+     * happens to be the signed-in user when the job runs.
+     */
+    public static function remind(
+        ?int $userId,
+        string $type,
+        string $title,
+        ?string $body = null,
+        ?int $formId = null,
+        ?string $link = null,
+    ): bool {
+        if (! $userId) {
+            return false;
+        }
+
+        $link = $link ?? ($formId ? "/forms/{$formId}" : null);
+
+        $already = static::query()
+            ->where('user_id', $userId)
+            ->where('type', $type)
+            ->where('link', $link)
+            ->exists();
+
+        if ($already) {
+            return false;
+        }
+
+        try {
+            static::create([
+                'user_id' => $userId,
+                'type'    => $type,
+                'title'   => $title,
+                'body'    => $body ? mb_substr(Html::toText($body), 0, 500) : null,
+                'link'    => $link,
+                'form_id' => $formId,
+            ]);
+        } catch (\Throwable $e) {
+            Log::warning('Notification failed: ' . $e->getMessage());
+
+            return false;
+        }
+
+        return true;
+    }
 }

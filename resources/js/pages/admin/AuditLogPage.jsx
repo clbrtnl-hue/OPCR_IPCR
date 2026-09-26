@@ -94,10 +94,21 @@ export default function AuditLogPage() {
         return query.toString();
     }, [filters, term]);
 
-    const { data, isFetching, refetch } = useQuery({
+    const [refreshing, setRefreshing] = useState(false);
+    const { data, isLoading, refetch } = useQuery({
         queryKey: ["audit-logs", params],
         queryFn: () => api.get(`audit-logs?${params}`).then((r) => r.data),
     });
+
+    const refresh = async () => {
+        setRefreshing(true);
+
+        try {
+            await refetch();
+        } finally {
+            setRefreshing(false);
+        }
+    };
 
     const logs = data?.logs ?? [];
     const busiest = useMemo(() => {
@@ -200,7 +211,7 @@ export default function AuditLogPage() {
                 title="Audit Trail"
                 subtitle="Every account change, form movement and rating — who did it, and when."
                 extra={
-                    <Button icon={<ReloadOutlined />} loading={isFetching} onClick={() => refetch()}>
+                    <Button icon={<ReloadOutlined />} loading={refreshing} onClick={refresh}>
                         Refresh
                     </Button>
                 }
@@ -231,7 +242,7 @@ export default function AuditLogPage() {
                             }))}
                         />
                     </Col>
-                    <Col xs={12} sm={6} md={4}>
+                    <Col xs={24} sm={12} md={4}>
                         <Select
                             allowClear
                             style={{ width: "100%" }}
@@ -244,7 +255,7 @@ export default function AuditLogPage() {
                             }))}
                         />
                     </Col>
-                    <Col xs={12} sm={6} md={4}>
+                    <Col xs={24} sm={12} md={4}>
                         <Select
                             allowClear
                             showSearch
@@ -281,10 +292,53 @@ export default function AuditLogPage() {
             </Card>
 
             <Card>
+                <div className="pms-mobile-only pms-pds-cards">
+                    {logs.length === 0 ? (
+                        <Empty
+                            image={Empty.PRESENTED_IMAGE_SIMPLE}
+                            description={
+                                isLoading
+                                    ? "Loading the trail…"
+                                    : filtered
+                                      ? "Nothing matches those filters."
+                                      : "Nothing has happened yet."
+                            }
+                        />
+                    ) : (
+                        logs.map((row) => {
+                            const meta = ACTIONS[row.action] ?? { label: row.action, colour: "default" };
+
+                            return (
+                                <article key={row.id} className="pms-pds-card">
+                                    <div className="pms-pds-line">
+                                        <span>When</span>
+                                        <strong>{dayjs(row.created_at).format("MMM D, h:mm A")}</strong>
+                                    </div>
+                                    <div className="pms-pds-line">
+                                        <span>Who</span>
+                                        <strong>{row.user_name ?? "The system"}</strong>
+                                    </div>
+                                    <div className="pms-pds-line">
+                                        <span>Action</span>
+                                        <Tag color={meta.colour} icon={meta.icon}>
+                                            {meta.label}
+                                        </Tag>
+                                    </div>
+                                    <div className="pms-pds-line">
+                                        <span>Subject</span>
+                                        <strong>{SUBJECTS[row.subject_type] ?? row.subject_type}</strong>
+                                    </div>
+                                    <div className="pms-admin-note">{humanise(row.description)}</div>
+                                </article>
+                            );
+                        })
+                    )}
+                </div>
+                <div className="pms-desktop-only">
                 <Table
                     rowKey="id"
                     size="small"
-                    loading={isFetching}
+                    loading={isLoading}
                     dataSource={logs}
                     columns={columns}
                     scroll={{ x: 1000 }}
@@ -302,6 +356,7 @@ export default function AuditLogPage() {
                         ),
                     }}
                 />
+                </div>
             </Card>
         </>
     );

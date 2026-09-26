@@ -122,6 +122,10 @@ class PcrFormController extends Controller
             $payload['assigned_targets'] = $this->assignedTargetsFor($form);
         }
 
+        if ($form->type === 'opcr') {
+            $payload['rating_window_open'] = PcrWorkflow::opcrRatingMonthOpen($form);
+        }
+
         return response()->json($payload);
     }
 
@@ -147,6 +151,10 @@ class PcrFormController extends Controller
                 return response()->json([
                     'message' => 'This form can only be edited while it is a draft or has been returned to you.',
                 ], 409);
+            }
+
+            if ($message = PcrWorkflow::lockMessage($user, PcrWorkflow::periodForWrite($form))) {
+                return response()->json(['message' => $message], 409);
             }
 
             $form->update(['header_note' => $data['header_note'] ?? null]);
@@ -176,6 +184,10 @@ class PcrFormController extends Controller
                     ->orderBy('seq')
                     ->value('id');
             }
+        }
+
+        if ($message = PcrWorkflow::lockMessage($user, $periodId)) {
+            return response()->json(['message' => $message], 409);
         }
 
         if ($data['type'] === 'ipcr' && ! $user->isAdmin() && (int) $ownerId !== (int) $user->id) {
@@ -281,6 +293,10 @@ class PcrFormController extends Controller
             return response()->json([
                 'message' => 'That school year has no review period to file an IPCR against.',
             ], 422);
+        }
+
+        if ($message = PcrWorkflow::lockMessage($user, $periodId)) {
+            return response()->json(['message' => $message], 409);
         }
 
         $members = User::where('org_unit_id', $unit->id)
@@ -501,6 +517,14 @@ class PcrFormController extends Controller
             ], 403);
         }
 
+        if ($form->type === 'opcr' && $from === 'published' && $to === 'qa_rating'
+            && ! PcrWorkflow::opcrRatingMonthOpen($form)
+        ) {
+            return response()->json([
+                'message' => 'The college OPCR is sent for rating in December, with the last period.',
+            ], 409);
+        }
+
         $isSubmission = in_array($from, ['draft', 'returned'], true)
             && in_array($to, ['head_review', 'vp_review', 'qa_rating'], true);
 
@@ -513,6 +537,12 @@ class PcrFormController extends Controller
                 return response()->json([
                     'message' => 'Add at least one success indicator before submitting.',
                 ], 422);
+            }
+
+            // A reviewer should not be the one to discover a blank narrative or a
+            // missing file. The writer finishes both before the form leaves them.
+            if ($form->type === 'ipcr' && $message = $this->unfinishedWriteUp($form)) {
+                return response()->json(['message' => $message], 422);
             }
 
             $form->loadMissing('owner');
@@ -1024,6 +1054,10 @@ class PcrFormController extends Controller
             ], 409);
         }
 
+        if ($message = PcrWorkflow::lockMessage($user, PcrWorkflow::periodForWrite($target))) {
+            return response()->json(['message' => $message], 409);
+        }
+
         if ($target->outputs->isNotEmpty()) {
             return response()->json([
                 'message' => 'This form already has commitments. Clear them first to start from another year.',
@@ -1227,6 +1261,73 @@ class PcrFormController extends Controller
         }
 
         return implode(' — ', $titles);
+    }
+
+    /**
+     * Lines the writer reports themselves. Work handed on is finished by the
+     * people named under it, so it is not this writer's narrative to supply.
+     */
+    private function unfinishedWriteUp(PcrForm $form): ?string
+    {
+        $lines = $form->indicators()
+            ->withCount(['children', 'assignments'])
+            ->with(['accomplishments' => fn ($query) => $query->withCount('attachments')])
+            ->get();
+
+        $gaps = [];
+
+        foreach ($lines as $line) {
+            if ((int) $line->children_count > 0 || (int) $line->assignments_count > 0) {
+                continue;
+            }
+
+            $records = $line->accomplishments;
+
+            if ($line->rating_period_id) {
+                $records = $records->where('rating_period_id', (int) $line->rating_period_id);
+            }
+
+            $done = $records->contains(
+                fn ($record) => ! Html::isBlank($record->actual_accomplishment)
+                    && (int) $record->attachments_count > 0
+            );
+
+            if ($done) {
+                continue;
+            }
+
+            $hasNarrative = $records->contains(
+                fn ($record) => ! Html::isBlank($record->actual_accomplishment)
+            );
+            $hasFile = $records->contains(
+                fn ($record) => (int) $record->attachments_count > 0
+            );
+
+            $text = trim(Html::toText($line->description));
+            $name = $text === '' ? 'A line' : '“' . mb_strimwidth($text, 0, 60, '…') . '”';
+
+            if ($hasNarrative && ! $hasFile) {
+                $gaps[] = "{$name} still needs a file.";
+            } elseif ($hasFile && ! $hasNarrative) {
+                $gaps[] = "{$name} still needs a narrative.";
+            } else {
+                $gaps[] = "{$name} still needs a narrative and a file.";
+            }
+        }
+
+        if ($gaps === []) {
+            return null;
+        }
+
+        $shown = array_slice($gaps, 0, 3);
+        $rest  = count($gaps) - count($shown);
+        $message = 'Finish the write-up before submitting. ' . implode(' ', $shown);
+
+        if ($rest > 0) {
+            $message .= ' ' . $rest . ' more line' . ($rest === 1 ? ' is' : 's are') . ' still incomplete.';
+        }
+
+        return $message;
     }
 
     private function hasUnratedLines(PcrForm $form): bool

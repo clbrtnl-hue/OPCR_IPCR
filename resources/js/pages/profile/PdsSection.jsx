@@ -52,50 +52,68 @@ export default function PdsSection({
         form.setFieldsValue(row ? (toForm ? toForm(row) : row) : {});
     };
 
+    const textOf = (column, row) => {
+        const value = column.dataIndex ? row[column.dataIndex] : undefined;
+
+        if (column.render) {
+            return column.render(value, row);
+        }
+
+        return value == null || value === "" ? "—" : value;
+    };
+
+    const actions = (row) => (
+        <>
+            <Button size="small" type="text" icon={<EditOutlined />} onClick={() => open(row)} />
+            <Popconfirm title="Remove this entry?" onConfirm={() => remove.mutate(row.id)}>
+                <Button size="small" type="text" danger icon={<DeleteOutlined />} />
+            </Popconfirm>
+        </>
+    );
+
     return (
-        <Card
-            title={title}
-            extra={
+        <Card title={title} style={{ marginBottom: 16 }}>
+            <div className="pms-pds-bar">
                 <Button size="small" icon={<PlusOutlined />} onClick={() => open(null)}>
                     Add
                 </Button>
-            }
-            style={{ marginBottom: 16 }}
-        >
+            </div>
             {rows.length === 0 ? (
                 <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={hint} />
             ) : (
-                <Table
-                    rowKey="id"
-                    size="small"
-                    pagination={false}
-                    dataSource={rows}
-                    scroll={{ x: true }}
-                    columns={[
-                        ...columns,
-                        {
-                            title: "",
-                            key: "actions",
-                            width: 90,
-                            render: (_, row) => (
-                                <>
-                                    <Button
-                                        size="small"
-                                        type="text"
-                                        icon={<EditOutlined />}
-                                        onClick={() => open(row)}
-                                    />
-                                    <Popconfirm
-                                        title="Remove this entry?"
-                                        onConfirm={() => remove.mutate(row.id)}
-                                    >
-                                        <Button size="small" type="text" danger icon={<DeleteOutlined />} />
-                                    </Popconfirm>
-                                </>
-                            ),
-                        },
-                    ]}
-                />
+                <>
+                    <div className="pms-mobile-only pms-pds-cards">
+                        {rows.map((row) => (
+                            <article key={row.id} className="pms-pds-card">
+                                {columns.map((column) => (
+                                    <div key={column.title} className="pms-pds-line">
+                                        <span>{column.title}</span>
+                                        <strong>{textOf(column, row)}</strong>
+                                    </div>
+                                ))}
+                                <div className="pms-pds-actions">{actions(row)}</div>
+                            </article>
+                        ))}
+                    </div>
+                    <div className="pms-desktop-only">
+                        <Table
+                            rowKey="id"
+                            size="small"
+                            pagination={false}
+                            dataSource={rows}
+                            scroll={{ x: true }}
+                            columns={[
+                                ...columns,
+                                {
+                                    title: "",
+                                    key: "actions",
+                                    width: 90,
+                                    render: (_, row) => actions(row),
+                                },
+                            ]}
+                        />
+                    </div>
+                </>
             )}
 
             <Modal

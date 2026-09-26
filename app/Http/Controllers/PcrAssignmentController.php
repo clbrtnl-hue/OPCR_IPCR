@@ -21,7 +21,7 @@ class PcrAssignmentController extends Controller
     {
     }
 
-    /** People this account may name. A head or VP only sees their own team. */
+    /** People this account may name. A head, VP, or QA only sees their own team. */
     public function assignableUsers(Request $request)
     {
         $actor = $request->user();
@@ -63,10 +63,11 @@ class PcrAssignmentController extends Controller
                 ], 422);
             }
         } else {
-            $periodId = RatingPeriod::where('school_year_id', $parent->form->school_year_id)
-                ->orderByDesc('is_active')
-                ->orderBy('seq')
-                ->value('id');
+            $periodId = PcrWorkflow::periodForWrite($parent->form);
+        }
+
+        if ($message = PcrWorkflow::lockMessage($actor, $periodId ? (int) $periodId : null)) {
+            return response()->json(['message' => $message], 409);
         }
 
         $assignees = $this->assigneesFrom($data, $parent->form, $actor);
@@ -107,6 +108,20 @@ class PcrAssignmentController extends Controller
             return $problem;
         }
 
+        $periodId = $request->input('rating_period_id')
+            ?: $parent->rating_period_id
+            ?: PcrWorkflow::periodForWrite($form);
+
+        if ($request->filled('rating_period_id') && ! RatingPeriod::where('id', $periodId)->where('school_year_id', $form->school_year_id)->exists()) {
+            return response()->json([
+                'message' => 'That review period belongs to a different school year.',
+            ], 422);
+        }
+
+        if ($message = PcrWorkflow::lockMessage($actor, $periodId ? (int) $periodId : null)) {
+            return response()->json(['message' => $message], 409);
+        }
+
         $assignees = $this->assigneesFrom($data, $form, $actor);
 
         if ($assignees->isEmpty()) {
@@ -126,7 +141,7 @@ class PcrAssignmentController extends Controller
                 continue;
             }
 
-            $this->assignments->assignIndicator($parent, $assignee, $actor);
+            $this->assignments->assignIndicator($parent, $assignee, $actor, $periodId ? (int) $periodId : null);
             $created++;
         }
 
@@ -163,10 +178,11 @@ class PcrAssignmentController extends Controller
                 ], 422);
             }
         } else {
-            $periodId = $form->rating_period_id ?: RatingPeriod::where('school_year_id', $form->school_year_id)
-                ->orderByDesc('is_active')
-                ->orderBy('seq')
-                ->value('id');
+            $periodId = PcrWorkflow::periodForWrite($form);
+        }
+
+        if ($message = PcrWorkflow::lockMessage($actor, $periodId ? (int) $periodId : null)) {
+            return response()->json(['message' => $message], 409);
         }
 
         $lines = PcrIndicator::whereHas('output', fn ($q) => $q->where('form_id', $form->id))
@@ -317,12 +333,12 @@ class PcrAssignmentController extends Controller
     }
 
     /**
-     * Null means the whole organization. A head or VP is limited to the offices
-     * they lead and the one they sit in, including every unit under those.
+     * Null means the whole organization. A head, VP, or QA is limited to the
+     * offices they lead and the one they sit in, including every unit under those.
      */
     private function teamUnitIds(?User $actor): ?array
     {
-        if (! $actor || ! in_array($actor->role, ['program_head', 'vp'], true)) {
+        if (! $actor || ! in_array($actor->role, ['program_head', 'vp', 'qa'], true)) {
             return null;
         }
 
@@ -366,6 +382,13 @@ class PcrAssignmentController extends Controller
             ], 403);
         }
 
+        if ($message = PcrWorkflow::lockMessage(
+            $actor,
+            PcrWorkflow::periodForWrite($parent->output->form, $child->rating_period_id)
+        )) {
+            return response()->json(['message' => $message], 409);
+        }
+
         if (! $this->assignments->withdraw($child)) {
             return response()->json([
                 'message' => 'This has been worked on already. Ask the assignee to close it out instead of withdrawing it.',
@@ -387,6 +410,13 @@ class PcrAssignmentController extends Controller
             return response()->json([
                 'message' => 'Only the person who handed this out can take it back.',
             ], 403);
+        }
+
+        if ($message = PcrWorkflow::lockMessage(
+            $actor,
+            PcrWorkflow::periodForWrite($assignment->indicator->output->form, $assignment->rating_period_id)
+        )) {
+            return response()->json(['message' => $message], 409);
         }
 
         if (! $this->assignments->withdrawAssignment($assignment)) {

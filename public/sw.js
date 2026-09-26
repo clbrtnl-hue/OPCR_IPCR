@@ -1,4 +1,4 @@
-const CACHE = "occ-pms-v2";
+const CACHE = "occ-pms-v3";
 
 self.addEventListener("install", () => {
     self.skipWaiting();

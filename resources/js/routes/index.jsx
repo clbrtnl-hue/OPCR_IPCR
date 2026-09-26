@@ -75,7 +75,7 @@ export default function AppRoutes() {
                                 <Route
                                     path="/my-team"
                                     element={
-                                        <Protected roles={["program_head", "vp"]}>
+                                        <Protected roles={["program_head", "vp", "qa"]}>
                                             <MyTeamPage />
                                         </Protected>
                                     }

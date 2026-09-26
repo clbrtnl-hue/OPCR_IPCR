@@ -18,6 +18,8 @@ class PcrOpcrLinkTest extends PmsTestCase
         $unit = $this->makeUnit();
         $year = $this->makeSchoolYear();
 
+        $this->makePeriod($year);
+
         $opcr   = $this->makeForm([
             'type'           => 'opcr',
             'org_unit_id'    => $unit->id,
@@ -109,7 +111,7 @@ class PcrOpcrLinkTest extends PmsTestCase
 
         // The heading carries the link to the college OPCR (see PcrOutputLinkTest),
         // so an individual line need not name a specific office target as well.
-        $this->makeIndicator($ipcr, 'core');
+        $this->documentLine($this->makeIndicator($ipcr, 'core'));
         $this->actingAsUser($employee);
 
         $this->postJson("/api/pcr-forms/{$ipcr->id}/status", ['status' => 'head_review'])
@@ -122,13 +124,14 @@ class PcrOpcrLinkTest extends PmsTestCase
     {
         $unit = $this->makeUnit();
         $year = $this->makeSchoolYear();
+        $this->makePeriod($year);
 
         $employee = User::factory()->create(['role' => 'employee', 'org_unit_id' => $unit->id]);
         $ipcr     = $this->makeForm([
             'type' => 'ipcr', 'org_unit_id' => $unit->id,
             'school_year_id' => $year->id, 'user_id' => $employee->id,
         ]);
-        $this->makeIndicator($ipcr, 'core');
+        $this->documentLine($this->makeIndicator($ipcr, 'core'));
 
         $this->actingAsUser($employee);
 
@@ -146,7 +149,8 @@ class PcrOpcrLinkTest extends PmsTestCase
 
         $core = $this->makeIndicator($ipcr, 'core');
         $core->update(['parent_indicator_id' => $target->id]);
-        $this->makeIndicator($ipcr, 'support');
+        $this->documentLine($core->fresh());
+        $this->documentLine($this->makeIndicator($ipcr, 'support'));
 
         $this->actingAsUser($employee);
 

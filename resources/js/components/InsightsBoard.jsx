@@ -182,139 +182,111 @@ export default function InsightsBoard({ data }) {
     );
 
     const tiles = (
-        <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
-            <Col xs={12} lg={6}>
-                <StatTile
-                    label="College average"
-                    value={totals.college_average != null ? Number(totals.college_average).toFixed(2) : "—"}
-                    suffix={
-                        totals.college_rating ? (
-                            <Tag color={ADJECTIVAL_COLORS[totals.college_rating]} style={{ marginLeft: 8 }}>
-                                {totals.college_rating}
-                            </Tag>
-                        ) : null
-                    }
-                    hint={`${totals.rated} of ${totals.forms} forms rated so far`}
-                />
-            </Col>
-            <Col xs={12} lg={6}>
-                <StatTile
-                    label="Commitments completed"
-                    value={totals.progress_pct != null ? `${totals.progress_pct}%` : "—"}
-                    meter={{ pct: totals.progress_pct ?? 0 }}
-                    hint={`${totals.completed} of ${totals.commitments} committed lines are done`}
-                />
-            </Col>
-            <Col xs={12} lg={6}>
-                <StatTile
-                    label="Forms submitted"
-                    value={`${totals.submitted}/${totals.forms}`}
-                    meter={{ pct: totals.forms ? (totals.submitted / totals.forms) * 100 : 0 }}
-                    hint={
-                        coverage.expected
-                            ? `${coverage.filed} of ${coverage.expected} staff have opened an IPCR (${coverage.pct}%)`
-                            : undefined
-                    }
-                />
-            </Col>
-            <Col xs={12} lg={6}>
-                <StatTile
-                    label={
-                        <Space size={4}>
-                            <WarningOutlined /> Overdue commitments
-                        </Space>
-                    }
-                    value={totals.overdue}
-                    tone={overdueTone}
-                    hint={`${totals.due_soon} more fall due within seven days`}
-                />
-            </Col>
-
-            <Col xs={12} lg={6}>
-                <StatTile
-                    label="Waiting for QA"
-                    value={totals.awaiting_rating}
-                    hint={`${totals.in_review} still with a head or VP`}
-                />
-            </Col>
-            <Col xs={12} lg={6}>
-                <StatTile
-                    label="Returned for correction"
-                    value={totals.returned}
-                    tone={totals.returned > 0 ? VIZ.serious : undefined}
-                    hint="Sent back by a reviewer and not yet resubmitted"
-                />
-            </Col>
-            <Col xs={12} lg={6}>
-                <StatTile
-                    label="Due within seven days"
-                    value={totals.due_soon}
-                    tone={totals.due_soon > 0 ? VIZ.warning : undefined}
-                    hint={`${totals.not_started} lines have not been started at all`}
-                />
-            </Col>
-            <Col xs={12} lg={6}>
-                <StatTile
-                    label="Staff without an IPCR"
-                    value={coverage.missing ?? 0}
-                    tone={(coverage.missing ?? 0) > 0 ? VIZ.serious : VIZ.good}
-                    hint={`${totals.units_reporting} of ${totals.units_total} units have opened a form`}
-                />
-            </Col>
-
-            <Col xs={12} lg={6}>
-                <StatTile
-                    label="Submitted → rated"
-                    value={endToEnd?.median_days != null ? `${endToEnd.median_days}d` : "—"}
-                    hint={
-                        endToEnd?.forms
-                            ? `Median across ${endToEnd.forms} rated form${endToEnd.forms === 1 ? "" : "s"}`
-                            : "Nothing has gone all the way through yet"
-                    }
-                />
-            </Col>
-            <Col xs={12} lg={6}>
-                <StatTile
-                    label={weakest ? `Weakest: ${weakest.label}` : "Rating profile"}
-                    value={weakest ? Number(weakest.value).toFixed(2) : "—"}
-                    hint={
-                        data.dimensions?.rated_lines
-                            ? `Lowest of the ${data.dimensions.keys.length} rated dimensions, across ${data.dimensions.rated_lines} lines`
-                            : "Nothing has been rated yet"
-                    }
-                />
-            </Col>
-            <Col xs={12} lg={6}>
-                <StatTile
-                    label={
-                        <Space size={4}>
-                            <FileExclamationOutlined /> Accomplishment without a file
-                        </Space>
-                    }
-                    value={data.evidence?.awaiting_file ?? 0}
-                    tone={(data.evidence?.awaiting_file ?? 0) > 0 ? VIZ.serious : VIZ.good}
-                    hint="Written, but not counted yet. A line stays at 0% until a file is attached."
-                />
-            </Col>
-            <Col xs={12} lg={6}>
-                <StatTile
-                    label={
-                        <Space size={4}>
-                            <CalendarOutlined /> Filed after the deadline
-                        </Space>
-                    }
-                    value={data.deadlines?.late?.forms ?? 0}
-                    tone={(data.deadlines?.late?.forms ?? 0) > 0 ? VIZ.warning : VIZ.good}
-                    hint={
-                        data.deadlines?.active?.closes_at
-                            ? `${data.deadlines.active.label} closes ${dayjs(data.deadlines.active.closes_at).format(
-                                  "MMM D, YYYY"
-                              )} · ${data.deadlines.late?.judged ?? 0} forms judged against it`
-                            : "No period has a closing date set"
-                    }
-                />
-            </Col>
-        </Row>
+        <div className="pms-cycle-grid pms-glance-grid">
+            <StatTile
+                label="College average"
+                value={totals.college_average != null ? Number(totals.college_average).toFixed(2) : "—"}
+                suffix={
+                    totals.college_rating ? (
+                        <Tag color={ADJECTIVAL_COLORS[totals.college_rating]}>{totals.college_rating}</Tag>
+                    ) : null
+                }
+                hint={`${totals.rated} of ${totals.forms} forms rated so far`}
+            />
+            <StatTile
+                label="Commitments completed"
+                value={totals.progress_pct != null ? `${totals.progress_pct}%` : "—"}
+                meter={{ pct: totals.progress_pct ?? 0 }}
+                hint={`${totals.completed} of ${totals.commitments} committed lines are done`}
+            />
+            <StatTile
+                label="Forms submitted"
+                value={`${totals.submitted}/${totals.forms}`}
+                meter={{ pct: totals.forms ? (totals.submitted / totals.forms) * 100 : 0 }}
+                hint={
+                    coverage.expected
+                        ? `${coverage.filed} of ${coverage.expected} staff have opened an IPCR (${coverage.pct}%)`
+                        : undefined
+                }
+            />
+            <StatTile
+                label={
+                    <span className="pms-tile-label-icon">
+                        <WarningOutlined /> Overdue commitments
+                    </span>
+                }
+                value={totals.overdue}
+                tone={overdueTone}
+                hint={`${totals.due_soon} more fall due within seven days`}
+            />
+            <StatTile
+                label="Waiting for QA"
+                value={totals.awaiting_rating}
+                hint={`${totals.in_review} still with a head or VP`}
+            />
+            <StatTile
+                label="Returned for correction"
+                value={totals.returned}
+                tone={totals.returned > 0 ? VIZ.serious : undefined}
+                hint="Sent back by a reviewer and not yet resubmitted"
+            />
+            <StatTile
+                label="Due within seven days"
+                value={totals.due_soon}
+                tone={totals.due_soon > 0 ? VIZ.warning : undefined}
+                hint={`${totals.not_started} lines have not been started at all`}
+            />
+            <StatTile
+                label="Staff without an IPCR"
+                value={coverage.missing ?? 0}
+                tone={(coverage.missing ?? 0) > 0 ? VIZ.serious : VIZ.good}
+                hint={`${totals.units_reporting} of ${totals.units_total} units have opened a form`}
+            />
+            <StatTile
+                label="Submitted → rated"
+                value={endToEnd?.median_days != null ? `${endToEnd.median_days}d` : "—"}
+                hint={
+                    endToEnd?.forms
+                        ? `Median across ${endToEnd.forms} rated form${endToEnd.forms === 1 ? "" : "s"}`
+                        : "Nothing has gone all the way through yet"
+                }
+            />
+            <StatTile
+                label={weakest ? `Weakest: ${weakest.label}` : "Rating profile"}
+                value={weakest ? Number(weakest.value).toFixed(2) : "—"}
+                hint={
+                    data.dimensions?.rated_lines
+                        ? `Lowest of the ${data.dimensions.keys.length} rated dimensions, across ${data.dimensions.rated_lines} lines`
+                        : "Nothing has been rated yet"
+                }
+            />
+            <StatTile
+                label={
+                    <span className="pms-tile-label-icon">
+                        <FileExclamationOutlined /> Accomplishment without a file
+                    </span>
+                }
+                value={data.evidence?.awaiting_file ?? 0}
+                tone={(data.evidence?.awaiting_file ?? 0) > 0 ? VIZ.serious : VIZ.good}
+                hint="A line stays at 0% until the accomplishment is written and a file is attached."
+            />
+            <StatTile
+                label={
+                    <span className="pms-tile-label-icon">
+                        <CalendarOutlined /> Filed after the deadline
+                    </span>
+                }
+                value={data.deadlines?.late?.forms ?? 0}
+                tone={(data.deadlines?.late?.forms ?? 0) > 0 ? VIZ.warning : VIZ.good}
+                hint={
+                    data.deadlines?.active?.closes_at
+                        ? `${data.deadlines.active.label} closes ${dayjs(data.deadlines.active.closes_at).format(
+                              "MMM D, YYYY"
+                          )} · ${data.deadlines.late?.judged ?? 0} forms judged against it`
+                        : "No period has a closing date set"
+                }
+            />
+        </div>
     );
 
     const turnaroundCard = (

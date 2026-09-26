@@ -8,7 +8,11 @@ import {
     CheckSquareOutlined,
     DashboardOutlined,
     FileTextOutlined,
+    BellFilled,
     BellOutlined,
+    CheckSquareFilled,
+    DashboardFilled,
+    FileTextFilled,
     LogoutOutlined,
     MenuOutlined,
     PieChartOutlined,
@@ -24,7 +28,6 @@ import { useAuth } from "~/hooks/useAuth";
 import { useOrganization } from "~/hooks/useOrganization";
 import { ROLE_LABELS } from "~/utils/constants";
 import UserAvatar from "~/components/UserAvatar";
-import NotificationBell from "~/components/NotificationBell";
 import { PersonProvider } from "~/hooks/usePerson";
 
 const { Sider, Header, Content } = Layout;
@@ -43,7 +46,7 @@ const ITEMS = {
     schoolYears: { key: "/admin/school-years", icon: <CalendarOutlined />, label: "School Years" },
     workflow: { key: "/admin/workflow", icon: <ApartmentOutlined />, label: "Workflow" },
     audit: { key: "/admin/audit", icon: <AuditOutlined />, label: "Audit Trail" },
-    notifications: { key: "/notifications", icon: <BellOutlined />, label: "Notifications" },
+    notifications: { key: "/notifications", icon: <BellOutlined />, label: "Alerts" },
 };
 
 const withPersonal = (menu) => [...menu, ITEMS.notifications];
@@ -65,7 +68,7 @@ const MENUS = {
     ],
     // College OPCR is the president's form; My Forms stays in the app but off this menu.
     president: [ITEMS.dashboard, ITEMS.collegeOpcr, /* ITEMS.myForms, */ ITEMS.reports],
-    qa: [ITEMS.dashboard, ITEMS.reviewQueue, ITEMS.rating, ITEMS.reports],
+    qa: [ITEMS.dashboard, ITEMS.myForms, ITEMS.myTeam, ITEMS.reviewQueue, ITEMS.rating, ITEMS.reports],
     vp: [ITEMS.dashboard, /* ITEMS.myIpcr, */ ITEMS.myForms, ITEMS.myTeam, ITEMS.reviewQueue, ITEMS.rating],
     program_head: [ITEMS.dashboard, /* ITEMS.myIpcr, */ ITEMS.myForms, ITEMS.myTeam, ITEMS.reviewQueue, ITEMS.rating],
     employee: [ITEMS.dashboard, /* ITEMS.myIpcr, */ ITEMS.myForms],
@@ -105,7 +108,7 @@ export default function AppLayout({ children }) {
                       className: unread > 0 ? "pms-has-unread" : undefined,
                       label: (
                           <Space size={8}>
-                              <span>Notifications</span>
+                              <span>Alerts</span>
                               {unread > 0 && <Badge count={unread} size="small" overflowCount={99} />}
                           </Space>
                       ),
@@ -135,16 +138,17 @@ export default function AppLayout({ children }) {
     }, [location.pathname]);
 
     const tabs = [
-        { key: "/", icon: <DashboardOutlined />, label: "Home" },
+        { key: "/", icon: <DashboardOutlined />, activeIcon: <DashboardFilled />, label: "Home" },
         user?.role === "president"
-            ? { key: "/college-opcr", icon: <BankOutlined />, label: "OPCR" }
-            : { key: "/my-forms", icon: <FileTextOutlined />, label: "Forms" },
+            ? { key: "/college-opcr", icon: <BankOutlined />, activeIcon: <BankOutlined />, label: "OPCR" }
+            : { key: "/my-forms", icon: <FileTextOutlined />, activeIcon: <FileTextFilled />, label: "Forms" },
         ["admin", "qa", "vp", "program_head"].includes(user?.role) && {
             key: "/review-queue",
             icon: <CheckSquareOutlined />,
+            activeIcon: <CheckSquareFilled />,
             label: "Review",
         },
-        { key: "/notifications", icon: <BellOutlined />, label: "Alerts", badge: unread },
+        { key: "/notifications", icon: <BellOutlined />, activeIcon: <BellFilled />, label: "Alerts", badge: unread },
     ].filter(Boolean);
 
     const go = (key) => {
@@ -298,7 +302,6 @@ export default function AppLayout({ children }) {
                                 {activePeriod ? ` · ${activePeriod.label}` : ""}
                             </Tag>
                         )}
-                        <NotificationBell />
                         <Dropdown
                             menu={{
                                 items: [
@@ -349,8 +352,8 @@ export default function AppLayout({ children }) {
                                 className={active ? "is-active" : undefined}
                                 onClick={() => go(tab.key)}
                             >
-                                <Badge count={tab.badge || 0} size="small" offset={[4, 0]}>
-                                    {tab.icon}
+                                <Badge count={tab.badge || 0} size="small" offset={[2, -2]}>
+                                    {active ? tab.activeIcon ?? tab.icon : tab.icon}
                                 </Badge>
                                 <span>{tab.label}</span>
                             </button>
