@@ -12,6 +12,7 @@ import { useAuth } from "~/hooks/useAuth";
 
 export default function MyFormsPage() {
     const { user, can } = useAuth();
+    const viewOnly = user?.role === "admin";
     const navigate = useNavigate();
     const queryClient = useQueryClient();
     const [form] = Form.useForm();
@@ -83,7 +84,7 @@ export default function MyFormsPage() {
             render: (_, record) => (
                 <Space>
                     <Button size="small" type="primary" onClick={() => navigate(`/forms/${record.id}`)}>
-                        Open
+                        {viewOnly ? "View" : "Open"}
                     </Button>
                     <Button size="small" onClick={() => window.open(`/forms/${record.id}/print`, "_blank")}>
                         Print
@@ -96,9 +97,14 @@ export default function MyFormsPage() {
     return (
         <>
             <PageHeader
-                title="My Forms"
-                subtitle="Your performance commitment for each school year, and where it currently sits."
+                title={viewOnly ? "Forms" : "My Forms"}
+                subtitle={
+                    viewOnly
+                        ? "Every IPCR and OPCR in the college, and where each one sits."
+                        : "Your performance commitment for each school year, and where it currently sits."
+                }
                 extra={
+                    viewOnly ? null : (
                     <Space wrap>
                     {/* {can("admin", "program_head", "vp") && (
                         <Button icon={<TeamOutlined />} onClick={() => setBulkOpen(true)}>
@@ -125,16 +131,27 @@ export default function MyFormsPage() {
                         New form
                     </Button>
                     </Space>
+                    )
                 }
             />
 
             <Card>
                 {forms.length === 0 && !isLoading ? (
-                    <Empty description="You have no forms yet. Create one for the active school year to get started." />
+                    <Empty
+                        description={
+                            viewOnly
+                                ? "No forms yet."
+                                : "You have no forms yet. Create one for the active school year to get started."
+                        }
+                    />
                 ) : (
                     <>
                         <div className="pms-mobile-only">
-                            <FormCards forms={forms} onOpen={(record) => navigate(`/forms/${record.id}`)} />
+                            <FormCards
+                                forms={forms}
+                                actionLabel={viewOnly ? () => "View" : undefined}
+                                onOpen={(record) => navigate(`/forms/${record.id}`)}
+                            />
                         </div>
                         <div className="pms-desktop-only">
                             <Table

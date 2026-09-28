@@ -2,11 +2,32 @@ import React, { useMemo, useState } from "react";
 import { Button, Space, Typography } from "antd";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import api from "~/utils/api";
+import { useAuth } from "~/hooks/useAuth";
 import CommentList from "~/components/CommentList";
 import RichText from "~/components/RichText";
 import { toPlainText } from "~/components/RichTextView";
 
+function remarksClosed(form) {
+    const periods = form?.school_year?.periods ?? [];
+
+    if (form?.type === "ipcr") {
+        const period = periods.find((row) => Number(row.id) === Number(form.rating_period_id));
+
+        return period?.status === "closed";
+    }
+
+    return periods.length > 0 && periods.every((row) => row.status === "closed");
+}
+
 export default function CommentThread({ formId, indicatorId = null, compact = false }) {
+    const { user } = useAuth();
+    const viewOnly = user?.role === "admin";
+    const { data: form } = useQuery({
+        queryKey: ["pcr-form", String(formId)],
+        queryFn: () => api.get(`pcr-forms/${formId}`).then((r) => r.data),
+        enabled: Boolean(formId),
+    });
+    const closed = remarksClosed(form);
     const queryClient = useQueryClient();
     const [body, setBody] = useState("");
 
@@ -18,6 +39,7 @@ export default function CommentThread({ formId, indicatorId = null, compact = fa
     const { data: people = [] } = useQuery({
         queryKey: ["mentionables", formId],
         queryFn: () => api.get(`pcr-forms/${formId}/mentionables`).then((r) => r.data),
+        enabled: !viewOnly && !closed,
     });
 
     // Whoever the remark actually links to — reading the ids back beats
@@ -56,6 +78,15 @@ export default function CommentThread({ formId, indicatorId = null, compact = fa
                 />
             )}
 
+            {!viewOnly && closed && (
+                <Typography.Paragraph type="secondary" style={{ marginTop: 12, marginBottom: 0 }}>
+                    {form?.type === "opcr"
+                        ? "This school year is closed. Remarks can no longer be added."
+                        : "This period is closed. Remarks can no longer be added."}
+                </Typography.Paragraph>
+            )}
+
+            {!viewOnly && !closed && (
             <div style={{ marginTop: 12 }}>
                 <RichText
                     rows={compact ? 2 : 3}
@@ -69,7 +100,9 @@ export default function CommentThread({ formId, indicatorId = null, compact = fa
                     }
                 />
             </div>
+            )}
 
+            {!viewOnly && !closed && (
             <Space style={{ marginTop: 8 }} wrap>
                 <Button
                     type="primary"
@@ -85,6 +118,7 @@ export default function CommentThread({ formId, indicatorId = null, compact = fa
                     </Typography.Text>
                 )}
             </Space>
+            )}
         </div>
     );
 }

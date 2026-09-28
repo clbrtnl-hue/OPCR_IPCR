@@ -208,8 +208,9 @@ class PcrIndicatorController extends Controller
      * Whether this line may hang off that one. A commitment cascades: an office
      * target is delivered by a head, whose line is delivered by faculty, and so
      * on — so a parent is either the unit's published OPCR target or another
-     * IPCR line in the same cycle. Both must sit in the same review period, and
-     * a line may never end up inside its own subtree.
+     * IPCR line in the same cycle. An office target lasts the school year, so
+     * either review period may answer it. A line handed on from somebody's IPCR
+     * stays in that period, and a line may never end up inside its own subtree.
      */
     private function parentProblem(int $parentId, PcrOutput $output, ?int $periodId, $selfId): ?string
     {
@@ -225,7 +226,14 @@ class PcrIndicatorController extends Controller
             return 'Pick a target from the same school year.';
         }
 
-        if ($periodId && $parent->rating_period_id && (int) $parent->rating_period_id !== (int) $periodId) {
+        $officeTarget = $parentForm->type === 'opcr';
+
+        if (
+            ! $officeTarget
+            && $periodId
+            && $parent->rating_period_id
+            && (int) $parent->rating_period_id !== (int) $periodId
+        ) {
             return 'Pick a target from the same review period as this line.';
         }
 

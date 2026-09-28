@@ -194,7 +194,7 @@ export default function SchoolYearsPage() {
                                             description={
                                                 period.is_locked
                                                     ? "People will be able to edit and upload again."
-                                                    : "Everyone but an administrator will be view-only."
+                                                    : "Everyone will be view-only until you unlock it."
                                             }
                                             onConfirm={() =>
                                                 setPeriodLock.mutate({
@@ -288,7 +288,7 @@ export default function SchoolYearsPage() {
                                                 description={
                                                     period.is_locked
                                                         ? "People will be able to edit and upload again."
-                                                        : "Everyone but an administrator will be view-only — no edits, accomplishments, evidence or ratings."
+                                                        : "Everyone will be view-only — no edits, accomplishments, evidence or ratings — until you unlock it."
                                                 }
                                                 onConfirm={() =>
                                                     setPeriodLock.mutate({

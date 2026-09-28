@@ -41,8 +41,7 @@ function samePerson(left, right) {
 }
 
 function scoreable(form, user) {
-    if (!form || !user) return false;
-    if (user.role === "admin") return form.status === "qa_rating";
+    if (!form || !user || user.role === "admin") return false;
     if (form.status === "head_review" && samePerson(form.head_reviewer_id, user.id)) return true;
     if (form.status === "vp_review" && samePerson(form.vp_reviewer_id, user.id)) return true;
     if (user.role === "qa" && form.status === "qa_rating") return true;
@@ -52,6 +51,7 @@ function scoreable(form, user) {
 
 export default function RatingPage() {
     const { user } = useAuth();
+    const viewOnly = user?.role === "admin";
     const queryClient = useQueryClient();
     const [selectedId, setSelectedId] = useState(null);
     const [periodId, setPeriodId] = useState(null);
@@ -60,10 +60,11 @@ export default function RatingPage() {
     const dirtyScores = useRef(new Set());
 
     const { data: queue = [], isLoading } = useQuery({
-        queryKey: ["qa-queue"],
-        queryFn: () => api.get("pcr-forms?queue=1").then((r) => r.data),
+        queryKey: ["qa-queue", viewOnly ? "oversight" : "mine"],
+        queryFn: () =>
+            api.get(viewOnly ? "pcr-forms?oversight=rating" : "pcr-forms?queue=1").then((r) => r.data),
     });
-    const toRate = queue.filter((f) => scoreable(f, user));
+    const toRate = viewOnly ? queue : queue.filter((f) => scoreable(f, user));
 
     useEffect(() => {
         if (selectedId || toRate.length !== 1) return;
@@ -78,7 +79,7 @@ export default function RatingPage() {
     });
 
     const canRate = scoreable(form, user);
-    const closesHere = user?.role === "qa" || user?.role === "admin";
+    const closesHere = user?.role === "qa";
     const periods = form?.school_year?.periods ?? [];
     const formPeriodId = form?.type === "ipcr" ? (form?.rating_period_id ?? null) : null;
     const activePeriodId =
@@ -230,17 +231,19 @@ export default function RatingPage() {
             title: dimension.toUpperCase(),
             key: dimension,
             width: 90,
-            render: (_, record) => (
-                <Select
-                    size="small"
-                    style={{ width: 70 }}
-                    allowClear
-                    disabled={!canRate}
-                    value={scores[record.id]?.[dimension] ?? undefined}
-                    onChange={(value) => update(record.id, dimension, value ?? null)}
-                    options={SCORE_OPTIONS.map((o) => ({ value: o.value, label: String(o.value) }))}
-                />
-            ),
+            render: (_, record) =>
+                canRate ? (
+                    <Select
+                        size="small"
+                        style={{ width: 70 }}
+                        allowClear
+                        value={scores[record.id]?.[dimension] ?? undefined}
+                        onChange={(value) => update(record.id, dimension, value ?? null)}
+                        options={SCORE_OPTIONS.map((o) => ({ value: o.value, label: String(o.value) }))}
+                    />
+                ) : (
+                    <span>{scores[record.id]?.[dimension] ?? "—"}</span>
+                ),
         })),
         {
             title: "A",
@@ -274,12 +277,16 @@ export default function RatingPage() {
         <>
             <PageHeader
                 title="Rating"
-                subtitle="Score each success indicator on Quality, Efficiency and Timeliness. A is their average; the final rating is the mean of the section averages."
+                subtitle={
+                    viewOnly
+                        ? "Scores on forms with QA or already rated. You can read them, but you cannot rate or close a form."
+                        : "Score each success indicator on Quality, Efficiency and Timeliness. A is their average; the final rating is the mean of the section averages."
+                }
             />
 
             <Card style={{ marginBottom: 16 }}>
                 <Space wrap>
-                    <span>Form waiting for a rating:</span>
+                    <span>{viewOnly ? "Form:" : "Form waiting for a rating:"}</span>
                     <Select
                         style={{ minWidth: 340 }}
                         loading={isLoading}
@@ -316,8 +323,12 @@ export default function RatingPage() {
                     <Empty
                         description={
                             toRate.length === 0
-                                ? "No forms are waiting for a rating."
-                                : "Pick a form above to start rating."
+                                ? viewOnly
+                                    ? "No forms are with QA or already rated."
+                                    : "No forms are waiting for a rating."
+                                : viewOnly
+                                  ? "Pick a form above to read its scores."
+                                  : "Pick a form above to start rating."
                         }
                     />
                 </Card>
@@ -370,8 +381,12 @@ export default function RatingPage() {
                                     type="info"
                                     showIcon
                                     style={{ marginBottom: 16 }}
-                                    message="This rating is closed."
-                                    description="The form is no longer waiting for a rating, so the scores and remarks are view-only now."
+                                    message={viewOnly ? "Scores are read-only." : "This rating is closed."}
+                                    description={
+                                        viewOnly
+                                            ? "You can read these scores, but you cannot rate or close a form."
+                                            : "The form is no longer waiting for a rating, so the scores and remarks are view-only now."
+                                    }
                                 />
                             )}
 

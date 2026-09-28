@@ -207,7 +207,7 @@ class OpcrLifecycleTest extends PmsTestCase
             'school_year_id' => $year->id, 'status' => 'published',
         ]);
 
-        $this->actingAsRole('admin', ['org_unit_id' => $unit->id]);
+        $this->actingAsRole('president', ['org_unit_id' => $unit->id]);
 
         Carbon::setTestNow('2026-12-15');
 

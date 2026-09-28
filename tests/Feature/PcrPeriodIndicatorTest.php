@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Models\PcrIndicator;
+use App\Models\User;
 use Tests\PmsTestCase;
 
 /**
@@ -26,10 +27,12 @@ class PcrPeriodIndicatorTest extends PmsTestCase
 
     public function test_a_line_is_saved_against_the_chosen_period(): void
     {
-        ['form' => $form, 'second' => $second] = $this->setUpYear();
+        ['form' => $form, 'second' => $second, 'unit' => $unit] = $this->setUpYear();
 
+        $owner = User::factory()->create(['role' => 'employee', 'org_unit_id' => $unit->id]);
+        $form->update(['user_id' => $owner->id]);
         $output = $this->makeIndicator($form, 'core')->output;
-        $this->actingAsRole('admin');
+        $this->actingAsUser($owner);
 
         $response = $this->postJson('/api/pcr-indicators', [
             'output_id'        => $output->id,
@@ -45,13 +48,15 @@ class PcrPeriodIndicatorTest extends PmsTestCase
 
     public function test_a_period_from_another_school_year_is_refused(): void
     {
-        ['form' => $form] = $this->setUpYear();
+        ['form' => $form, 'unit' => $unit] = $this->setUpYear();
 
         $otherYear   = $this->makeSchoolYear(['label' => '2027', 'start_date' => '2027-01-01', 'end_date' => '2027-12-31']);
         $otherPeriod = $this->makePeriod($otherYear, 1);
 
+        $owner = User::factory()->create(['role' => 'employee', 'org_unit_id' => $unit->id]);
+        $form->update(['user_id' => $owner->id]);
         $output = $this->makeIndicator($form, 'core')->output;
-        $this->actingAsRole('admin');
+        $this->actingAsUser($owner);
 
         $this->postJson('/api/pcr-indicators', [
             'output_id'        => $output->id,

@@ -50,7 +50,7 @@ class PcrAssignmentController extends Controller
             return $problem;
         }
 
-        if ($closed = $this->accountableClosed($parent->form)) {
+        if ($closed = $this->handoutClosed($parent->form)) {
             return $closed;
         }
 
@@ -112,7 +112,7 @@ class PcrAssignmentController extends Controller
             return $problem;
         }
 
-        if ($closed = $this->accountableClosed($form)) {
+        if ($closed = $this->handoutClosed($form)) {
             return $closed;
         }
 
@@ -173,7 +173,7 @@ class PcrAssignmentController extends Controller
             return $problem;
         }
 
-        if ($closed = $this->accountableClosed($form)) {
+        if ($closed = $this->handoutClosed($form)) {
             return $closed;
         }
 
@@ -284,6 +284,31 @@ class PcrAssignmentController extends Controller
         ]);
     }
 
+    /**
+     * A submitted IPCR is in review, so its owner can no longer hand work out.
+     * A published OPCR keeps the people already named.
+     */
+    private function handoutClosed(PcrForm $form)
+    {
+        if ($closed = $this->ipcrSubmitted($form)) {
+            return $closed;
+        }
+
+        return $this->accountableClosed($form);
+    }
+
+    /** A submitted IPCR is in review, so its owner can no longer hand work out or take it back. */
+    private function ipcrSubmitted(PcrForm $form)
+    {
+        if ($form->type !== 'ipcr' || $form->isEditable()) {
+            return null;
+        }
+
+        return response()->json([
+            'message' => 'This IPCR has been submitted. People can no longer be assigned.',
+        ], 409);
+    }
+
     /** A published OPCR keeps the people already named. No new assign or cascade. */
     private function accountableClosed(PcrForm $form)
     {
@@ -310,10 +335,6 @@ class PcrAssignmentController extends Controller
             return response()->json([
                 'message' => 'Only the owner of this commitment can hand parts of it to someone else.',
             ], 403);
-        }
-
-        if ($actor->isAdmin()) {
-            return null;
         }
 
         $rules = app(WorkflowSettings::class);
@@ -402,6 +423,10 @@ class PcrAssignmentController extends Controller
             ], 403);
         }
 
+        if ($closed = $this->ipcrSubmitted($parent->output->form)) {
+            return $closed;
+        }
+
         if ($message = PcrWorkflow::formLockMessage(
             $actor,
             $parent->output->form,
@@ -427,6 +452,10 @@ class PcrAssignmentController extends Controller
             return response()->json([
                 'message' => 'Only the person who handed this out can take it back.',
             ], 403);
+        }
+
+        if ($closed = $this->ipcrSubmitted($assignment->indicator->output->form)) {
+            return $closed;
         }
 
         if ($message = PcrWorkflow::formLockMessage(

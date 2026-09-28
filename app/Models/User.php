@@ -95,8 +95,8 @@ class User extends Authenticatable
         $rules = app(\App\Services\WorkflowSettings::class);
 
         return [
-            'assign_outputs'    => $this->isAdmin() || (! $rules->isTerminalRole($this->role) && $rules->mayAssignOutputs($this->role)),
-            'assign_indicators' => $this->isAdmin() || (! $rules->isTerminalRole($this->role) && $rules->mayAssignIndicators($this->role)),
+            'assign_outputs'    => ! $rules->isTerminalRole($this->role) && $rules->mayAssignOutputs($this->role),
+            'assign_indicators' => ! $rules->isTerminalRole($this->role) && $rules->mayAssignIndicators($this->role),
         ];
     }
 

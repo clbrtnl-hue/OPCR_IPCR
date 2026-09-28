@@ -179,16 +179,13 @@ class PcrWorkflowTest extends PmsTestCase
         $this->move($stranger, $form, 'head_review')->assertStatus(403);
     }
 
-    public function test_admin_may_move_a_form_at_any_stage(): void
+    public function test_an_admin_cannot_move_a_form(): void
     {
-        ['form' => $form, 'period' => $period] = $this->scenario();
+        ['form' => $form] = $this->scenario();
 
         $admin = User::factory()->create(['role' => 'admin']);
 
-        $this->move($admin, $form, 'head_review')->assertOk();
-        $this->rate($admin, $form, $period);
-        $this->move($admin, $form, 'vp_review')->assertOk();
-        $this->move($admin, $form, 'qa_rating')->assertOk();
+        $this->move($admin, $form, 'head_review')->assertStatus(403);
     }
 
     public function test_qa_can_close_a_rated_form(): void

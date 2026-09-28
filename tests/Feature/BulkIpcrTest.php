@@ -29,11 +29,11 @@ class BulkIpcrTest extends PmsTestCase
         return compact('year', 'period', 'period2', 'unit', 'head', 'vp', 'members');
     }
 
-    public function test_an_admin_opens_a_shell_for_everyone_in_the_office(): void
+    public function test_the_head_opens_a_shell_for_everyone_in_the_office(): void
     {
         ['year' => $year, 'period' => $period, 'unit' => $unit, 'members' => $members, 'head' => $head] = $this->office();
 
-        $this->actingAsRole('admin');
+        $this->actingAsUser($head);
 
         $this->postJson('/api/pcr-forms/bulk', [
             'school_year_id' => $year->id,
@@ -43,7 +43,7 @@ class BulkIpcrTest extends PmsTestCase
             ->assertJsonPath('created', 4)
             ->assertJsonPath('skipped', 0);
 
-        foreach ($members->push($head) as $person) {
+        foreach ($members as $person) {
             $this->assertDatabaseHas('pcr_forms', [
                 'type'             => 'ipcr',
                 'user_id'          => $person->id,
@@ -55,14 +55,19 @@ class BulkIpcrTest extends PmsTestCase
             $this->assertDatabaseHas('notifications', ['user_id' => $person->id, 'type' => 'form']);
         }
 
+        $this->assertDatabaseHas('pcr_forms', [
+            'type' => 'ipcr', 'user_id' => $head->id, 'rating_period_id' => $period->id,
+        ]);
+        $this->assertDatabaseMissing('notifications', ['user_id' => $head->id, 'type' => 'form']);
+
         $this->assertSame(4, \App\Models\PcrStatusLog::where('to_status', 'draft')->count());
     }
 
     public function test_the_unnamed_period_is_the_active_one_and_the_other_half_is_separate(): void
     {
-        ['year' => $year, 'period' => $period, 'period2' => $period2, 'unit' => $unit] = $this->office();
+        ['year' => $year, 'period' => $period, 'period2' => $period2, 'unit' => $unit, 'head' => $head] = $this->office();
 
-        $this->actingAsRole('admin');
+        $this->actingAsUser($head);
 
         $this->postJson('/api/pcr-forms/bulk', [
             'school_year_id' => $year->id, 'org_unit_id' => $unit->id,
@@ -78,9 +83,9 @@ class BulkIpcrTest extends PmsTestCase
 
     public function test_a_second_run_skips_whoever_already_has_one(): void
     {
-        ['year' => $year, 'unit' => $unit] = $this->office();
+        ['year' => $year, 'unit' => $unit, 'head' => $head] = $this->office();
 
-        $this->actingAsRole('admin');
+        $this->actingAsUser($head);
 
         $this->postJson('/api/pcr-forms/bulk', [
             'school_year_id' => $year->id, 'org_unit_id' => $unit->id,
@@ -95,9 +100,9 @@ class BulkIpcrTest extends PmsTestCase
 
     public function test_only_the_named_people_get_one(): void
     {
-        ['year' => $year, 'unit' => $unit, 'members' => $members] = $this->office();
+        ['year' => $year, 'unit' => $unit, 'members' => $members, 'head' => $head] = $this->office();
 
-        $this->actingAsRole('admin');
+        $this->actingAsUser($head);
 
         $this->postJson('/api/pcr-forms/bulk', [
             'school_year_id' => $year->id,
@@ -148,7 +153,7 @@ class BulkIpcrTest extends PmsTestCase
 
     public function test_a_period_from_another_year_is_refused(): void
     {
-        ['year' => $year, 'unit' => $unit] = $this->office();
+        ['year' => $year, 'unit' => $unit, 'head' => $head] = $this->office();
 
         $otherYear = $this->makeSchoolYear([
             'label' => 'SY 2027-2028', 'is_active' => false,
@@ -156,7 +161,7 @@ class BulkIpcrTest extends PmsTestCase
         ]);
         $otherPeriod = $this->makePeriod($otherYear, 1);
 
-        $this->actingAsRole('admin');
+        $this->actingAsUser($head);
 
         $this->postJson('/api/pcr-forms/bulk', [
             'school_year_id'   => $year->id,
@@ -167,11 +172,13 @@ class BulkIpcrTest extends PmsTestCase
 
     public function test_an_empty_office_says_so(): void
     {
-        ['year' => $year] = $this->office();
+        ['year' => $year, 'unit' => $unit] = $this->office();
 
         $empty = $this->makeUnit(['name' => 'Library', 'code' => 'LIB', 'type' => 'office']);
+        $librarian = User::factory()->create(['role' => 'program_head', 'org_unit_id' => $unit->id]);
+        $empty->update(['head_user_id' => $librarian->id]);
 
-        $this->actingAsRole('admin');
+        $this->actingAsUser($librarian);
 
         $this->postJson('/api/pcr-forms/bulk', [
             'school_year_id' => $year->id, 'org_unit_id' => $empty->id,
@@ -180,16 +187,27 @@ class BulkIpcrTest extends PmsTestCase
 
     public function test_inactive_accounts_are_left_out(): void
     {
-        ['year' => $year, 'unit' => $unit, 'members' => $members] = $this->office();
+        ['year' => $year, 'unit' => $unit, 'members' => $members, 'head' => $head] = $this->office();
 
         $members[0]->update(['status' => 'inactive']);
 
-        $this->actingAsRole('admin');
+        $this->actingAsUser($head);
 
         $this->postJson('/api/pcr-forms/bulk', [
             'school_year_id' => $year->id, 'org_unit_id' => $unit->id,
         ])->assertJsonPath('created', 3);
 
         $this->assertDatabaseMissing('pcr_forms', ['user_id' => $members[0]->id]);
+    }
+
+    public function test_an_admin_cannot_open_shells(): void
+    {
+        ['year' => $year, 'unit' => $unit] = $this->office();
+
+        $this->actingAsRole('admin');
+
+        $this->postJson('/api/pcr-forms/bulk', [
+            'school_year_id' => $year->id, 'org_unit_id' => $unit->id,
+        ])->assertStatus(403);
     }
 }

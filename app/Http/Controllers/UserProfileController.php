@@ -88,7 +88,7 @@ class UserProfileController extends Controller
         return response()->json([
             'card'            => $card,
             'may_view_sheet'  => true,
-            'may_edit'        => (int) $viewer->id === (int) $user->id || $viewer->isAdmin(),
+            'may_edit'        => (int) $viewer->id === (int) $user->id,
             'profile'         => $user->profile,
             'educations'      => $user->educations,
             'eligibilities'   => $user->eligibilities,

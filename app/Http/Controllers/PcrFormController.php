@@ -54,7 +54,23 @@ class PcrFormController extends Controller
             $query->where('status', $status);
         }
 
-        if ($request->boolean('mine')) {
+        if ($oversight = $request->query('oversight')) {
+            if ($user->role !== 'admin') {
+                return response()->json(['message' => 'Forbidden.'], 403);
+            }
+
+            $statuses = match ($oversight) {
+                'review' => ['head_review', 'vp_review', 'qa_approval', 'returned'],
+                'rating' => ['qa_rating', 'rated', 'final'],
+                default  => null,
+            };
+
+            if ($statuses === null) {
+                return response()->json(['message' => 'Unknown list.'], 422);
+            }
+
+            $query->whereIn('status', $statuses);
+        } elseif ($request->boolean('mine')) {
             $this->scopeToOwner($query, $user);
         } else {
             $this->scopeToViewer($query, $user, $request->boolean('queue'));
@@ -165,6 +181,12 @@ class PcrFormController extends Controller
             return response()->json(['data' => 'updated', 'form' => $form]);
         }
 
+        if ($user->isAdmin()) {
+            return response()->json([
+                'message' => 'An administrator can view forms, not create them.',
+            ], 403);
+        }
+
         $ownerId = $data['type'] === 'ipcr' ? ($data['user_id'] ?? $user->id) : null;
 
         // An IPCR is filed per rating period; an OPCR covers the whole year.
@@ -193,7 +215,7 @@ class PcrFormController extends Controller
             return response()->json(['message' => $message], 409);
         }
 
-        if ($data['type'] === 'ipcr' && ! $user->isAdmin() && (int) $ownerId !== (int) $user->id) {
+        if ($data['type'] === 'ipcr' && (int) $ownerId !== (int) $user->id) {
             return response()->json(['message' => 'You can only create your own IPCR.'], 403);
         }
 
@@ -206,7 +228,7 @@ class PcrFormController extends Controller
         if ($data['type'] === 'opcr') {
             $rules = app(WorkflowSettings::class);
 
-            if (! $user->isAdmin() && ! in_array($user->role, $rules->opcr('creator_roles'), true)) {
+            if (! in_array($user->role, $rules->opcr('creator_roles'), true)) {
                 return response()->json([
                     'message' => 'Only the president opens the college OPCR. It goes to QA for approval, then the president publishes it.',
                 ], 403);
@@ -273,11 +295,10 @@ class PcrFormController extends Controller
         $user = $request->user();
         $unit = OrgUnit::findOrFail($data['org_unit_id']);
 
-        if (! $user->isAdmin()
-            && (int) $unit->head_user_id !== (int) $user->id
+        if ((int) $unit->head_user_id !== (int) $user->id
             && (int) $unit->vp_user_id !== (int) $user->id) {
             return response()->json([
-                'message' => 'Only an administrator, or the head or VP of that office, can open its IPCRs.',
+                'message' => 'Only the head or VP of that office can open its IPCRs.',
             ], 403);
         }
 
@@ -835,7 +856,7 @@ class PcrFormController extends Controller
         $form = PcrForm::findOrFail($id);
         $user = $request->user();
 
-        if (! $user->isAdmin() && ! ($form->status === 'draft' && PcrWorkflow::owns($user, $form))) {
+        if (! ($form->status === 'draft' && PcrWorkflow::owns($user, $form))) {
             return response()->json([
                 'message' => 'Only a draft you own can be deleted.',
             ], 409);
@@ -1074,15 +1095,16 @@ class PcrFormController extends Controller
     }
 
     /**
-     * An OPCR is largely the same year to year, so a new one can start from the
-     * last. Structure only — accomplishments and ratings belong to their year.
+     * An OPCR can start from last year's structure. An IPCR can start from the
+     * owner's other review period of this same year. Structure and the office
+     * target each line already answers — accomplishments and ratings stay behind.
      */
     public function copyFrom(Request $request, $id)
     {
         $data = $request->validate(['source_form_id' => 'required|integer|exists:pcr_forms,id']);
 
         $target = PcrForm::with('outputs')->findOrFail($id);
-        $source = PcrForm::with('outputs.indicators')->findOrFail($data['source_form_id']);
+        $source = PcrForm::with(['outputs.indicators', 'ratingPeriod', 'schoolYear'])->findOrFail($data['source_form_id']);
         $user   = $request->user();
 
         if (! PcrWorkflow::owns($user, $target) || ! $target->isEditable()) {
@@ -1091,13 +1113,25 @@ class PcrFormController extends Controller
             ], 409);
         }
 
+        if (! PcrWorkflow::canView($user, $source)) {
+            return response()->json(['message' => 'You do not have access to that form.'], 403);
+        }
+
+        if ($target->type === 'ipcr' && ! $this->isEarlierIpcr($source, $target)) {
+            return response()->json([
+                'message' => 'Copy from your own IPCR for another review period of this year.',
+            ], 422);
+        }
+
         if ($message = PcrWorkflow::formLockMessage($user, $target)) {
             return response()->json(['message' => $message], 409);
         }
 
         if ($target->outputs->isNotEmpty()) {
             return response()->json([
-                'message' => 'This form already has commitments. Clear them first to start from another year.',
+                'message' => $target->type === 'ipcr'
+                    ? 'This form already has commitments. Clear them first to copy a previous period.'
+                    : 'This form already has commitments. Clear them first to start from another year.',
             ], 409);
         }
 
@@ -1125,46 +1159,145 @@ class PcrFormController extends Controller
         $copied = 0;
 
         DB::transaction(function () use ($source, $target, $periodFor, &$copied) {
-            $idMap = [];
+            $outputMap = [];
+            $lineMap   = [];
 
             foreach ($source->outputs as $output) {
                 $new = PcrOutput::create([
-                    'form_id'    => $target->id,
-                    'section'    => $output->section,
-                    'title'      => $output->title,
-                    'sort_order' => $output->sort_order,
+                    'form_id'          => $target->id,
+                    'section'          => $output->section,
+                    'title'            => $output->title,
+                    'sort_order'       => $output->sort_order,
+                    'assigned_by'      => $output->assigned_by,
+                    'assigned_by_name' => $output->assigned_by_name,
                 ]);
 
-                $idMap[$output->id] = $new->id;
+                $outputMap[$output->id] = $new->id;
 
                 foreach ($output->indicators as $line) {
-                    PcrIndicator::create([
+                    $created = PcrIndicator::create([
                         'output_id'        => $new->id,
                         'rating_period_id' => $periodFor($line),
                         'description'      => $line->description,
+                        'target_date'      => $line->target_date,
                         'allotted_budget'  => $line->allotted_budget,
                         'accountable'      => $line->accountable,
                         'sort_order'       => $line->sort_order,
                     ]);
 
+                    $lineMap[$line->id] = $created->id;
                     $copied++;
                 }
             }
 
             foreach ($source->outputs as $output) {
-                if (! $output->parent_output_id || ! isset($idMap[$output->parent_output_id])) {
+                $parentId = $this->copiedParentOutputId($output->parent_output_id, $outputMap, $target);
+
+                if (! $parentId) {
                     continue;
                 }
 
-                PcrOutput::where('id', $idMap[$output->id])->update([
-                    'parent_output_id' => $idMap[$output->parent_output_id],
+                PcrOutput::where('id', $outputMap[$output->id])->update([
+                    'parent_output_id' => $parentId,
                 ]);
+            }
+
+            $officeParents = $this->officeParentsFor(array_keys($lineMap), $target);
+
+            foreach ($source->outputs as $output) {
+                foreach ($output->indicators as $line) {
+                    $parentId = $this->copiedParentIndicatorId($line->parent_indicator_id, $lineMap, $officeParents);
+
+                    if (! $parentId) {
+                        continue;
+                    }
+
+                    PcrIndicator::where('id', $lineMap[$line->id])->update([
+                        'parent_indicator_id' => $parentId,
+                    ]);
+                }
             }
         });
 
-        ActivityLog::record('PcrForm', $target->id, 'create', "Started from {$source->schoolYear?->label}");
+        $from = $target->type === 'ipcr'
+            ? ($source->ratingPeriod?->label ?? 'the previous period')
+            : ($source->schoolYear?->label ?? 'an earlier year');
+
+        ActivityLog::record('PcrForm', $target->id, 'create', "Copied commitments from {$from}");
 
         return response()->json(['data' => 'copied', 'lines' => $copied]);
+    }
+
+    /** The owner's other IPCR for this school year — not somebody else's, and not another year. */
+    private function isEarlierIpcr(PcrForm $source, PcrForm $target): bool
+    {
+        return $source->type === 'ipcr'
+            && (int) $source->id !== (int) $target->id
+            && (int) $source->user_id === (int) $target->user_id
+            && (int) $source->school_year_id === (int) $target->school_year_id;
+    }
+
+    /**
+     * A heading copied inside the same form follows its new parent. An IPCR
+     * heading that answers a college MFO keeps that office link for the year.
+     */
+    private function copiedParentOutputId(?int $parentId, array $outputMap, PcrForm $target): ?int
+    {
+        if (! $parentId) {
+            return null;
+        }
+
+        if (isset($outputMap[$parentId])) {
+            return $outputMap[$parentId];
+        }
+
+        if ($target->type !== 'ipcr') {
+            return null;
+        }
+
+        $parent = PcrOutput::with('form')->find($parentId);
+
+        return $parent?->form
+            && $parent->form->type === 'opcr'
+            && (int) $parent->form->school_year_id === (int) $target->school_year_id
+            ? $parentId
+            : null;
+    }
+
+    /**
+     * A line copied with its parent on the same form points at the copy. A line
+     * that already answers an office target keeps that link — the target lasts
+     * the school year, so the next review period still reports against it.
+     */
+    private function copiedParentIndicatorId(?int $parentId, array $lineMap, $officeParents): ?int
+    {
+        if (! $parentId) {
+            return null;
+        }
+
+        if (isset($lineMap[$parentId])) {
+            return $lineMap[$parentId];
+        }
+
+        return $officeParents->has($parentId) ? $parentId : null;
+    }
+
+    private function officeParentsFor(array $sourceLineIds, PcrForm $target)
+    {
+        if ($target->type !== 'ipcr' || $sourceLineIds === []) {
+            return collect();
+        }
+
+        $parentIds = PcrIndicator::whereIn('id', $sourceLineIds)
+            ->whereNotNull('parent_indicator_id')
+            ->pluck('parent_indicator_id');
+
+        return PcrIndicator::with('output.form')
+            ->whereIn('id', $parentIds)
+            ->get()
+            ->filter(fn (PcrIndicator $parent) => $parent->output?->form?->type === 'opcr'
+                && (int) $parent->output->form->school_year_id === (int) $target->school_year_id)
+            ->keyBy('id');
     }
 
     private function publishedOpcrFor(PcrForm $form): ?PcrForm
@@ -1193,10 +1326,9 @@ class PcrFormController extends Controller
 
         if ($opcr) {
             $fromOpcr = $opcr->outputs->flatMap(function ($output) use ($form, $assignedIds) {
+                // An office target lasts the school year. Mid-year and end-year
+                // IPCRs both link to it; the period on an old line does not hide it.
                 return $output->indicators
-                    ->filter(fn ($indicator) => ! $form->rating_period_id
-                        || ! $indicator->rating_period_id
-                        || (int) $indicator->rating_period_id === (int) $form->rating_period_id)
                     ->map(fn ($indicator) => [
                         'id'               => $indicator->id,
                         'section'          => $output->section,
@@ -1272,7 +1404,13 @@ class PcrFormController extends Controller
                 $form->rating_period_id,
                 fn ($query) => $query->where(function ($inner) use ($form) {
                     $inner->whereNull('rating_period_id')
-                        ->orWhere('rating_period_id', $form->rating_period_id);
+                        ->orWhere('rating_period_id', $form->rating_period_id)
+                        // An office target assigned in one period is still the
+                        // target to answer in the other period of the same year.
+                        ->orWhereHas(
+                            'indicator.output.form',
+                            fn ($owner) => $owner->where('type', 'opcr')
+                        );
                 })
             )
             ->get()

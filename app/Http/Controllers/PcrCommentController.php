@@ -7,6 +7,7 @@ use App\Models\OrgUnit;
 use App\Models\PcrComment;
 use App\Models\PcrForm;
 use App\Models\PcrIndicator;
+use App\Models\RatingPeriod;
 use App\Models\User;
 use App\Support\Html;
 use App\Services\PcrWorkflow;
@@ -87,8 +88,18 @@ class PcrCommentController extends Controller
         $user = $request->user();
         $form = PcrForm::with('orgUnit')->findOrFail($data['form_id']);
 
+        if ($user->isAdmin()) {
+            return response()->json([
+                'message' => 'An administrator can read remarks, not post them.',
+            ], 403);
+        }
+
         if (! PcrWorkflow::canView($user, $form)) {
             return response()->json(['message' => 'You do not have access to this form.'], 403);
+        }
+
+        if ($message = $this->closedPeriodMessage($form, $data['indicator_id'] ?? null)) {
+            return response()->json(['message' => $message], 409);
         }
 
         if (! empty($data['indicator_id'])) {
@@ -127,6 +138,41 @@ class PcrCommentController extends Controller
             'data'    => 'created',
             'comment' => $comment->load('mentions:id,name,role'),
         ], 201);
+    }
+
+    /**
+     * A closed review period takes no new remarks. An IPCR belongs to one
+     * period. An OPCR covers the year, so remarks stop only when every period
+     * of that year is closed.
+     */
+    private function closedPeriodMessage(PcrForm $form, ?int $indicatorId): ?string
+    {
+        $periodId = $indicatorId
+            ? PcrIndicator::where('id', $indicatorId)->value('rating_period_id')
+            : null;
+
+        $periodId = $periodId ?: $form->rating_period_id;
+
+        if ($periodId) {
+            $period = RatingPeriod::find($periodId);
+
+            if ($period && $period->status === 'closed') {
+                return "{$period->label} is closed. Remarks can no longer be added.";
+            }
+
+            return null;
+        }
+
+        $periods = RatingPeriod::where('school_year_id', $form->school_year_id)->get();
+
+        if ($periods->isNotEmpty() && $periods->every(fn (RatingPeriod $period) => $period->status === 'closed')) {
+            $form->loadMissing('schoolYear');
+            $label = $form->schoolYear?->label ?: 'This school year';
+
+            return "{$label} is closed. Remarks can no longer be added.";
+        }
+
+        return null;
     }
 
     private function notify(PcrComment $comment, PcrForm $form, User $author, array $mentions): void

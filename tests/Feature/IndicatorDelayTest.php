@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Models\PcrIndicator;
 use App\Models\SchoolYear;
+use App\Models\User;
 use App\Services\IndicatorProgressService;
 use Tests\PmsTestCase;
 
@@ -92,10 +93,13 @@ class IndicatorDelayTest extends PmsTestCase
         $this->makeOrganization();
         $unit = $this->makeUnit();
         $year = $this->makeSchoolYear();
-        $form = $this->makeForm(['org_unit_id' => $unit->id, 'school_year_id' => $year->id]);
+        $owner = User::factory()->create(['role' => 'employee', 'org_unit_id' => $unit->id]);
+        $form = $this->makeForm([
+            'org_unit_id' => $unit->id, 'school_year_id' => $year->id, 'user_id' => $owner->id,
+        ]);
         $output = $this->makeIndicator($form, 'core')->output;
 
-        $this->actingAsRole('admin');
+        $this->actingAsUser($owner);
 
         $response = $this->postJson('/api/pcr-indicators', [
             'output_id'   => $output->id,

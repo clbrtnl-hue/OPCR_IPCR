@@ -105,7 +105,7 @@ class PcrAccomplishmentController extends Controller
         $user       = $request->user();
         $form       = $attachment->accomplishment->indicator->output->form;
 
-        if (! $user->isAdmin() && ! PcrWorkflow::owns($user, $form)) {
+        if (! PcrWorkflow::owns($user, $form)) {
             return response()->json(['message' => 'Only the owner of this form can remove its evidence.'], 403);
         }
 
@@ -144,7 +144,7 @@ class PcrAccomplishmentController extends Controller
         $form      = $indicator->output->form;
         $user      = $request->user();
 
-        if (! $user->isAdmin() && ! PcrWorkflow::owns($user, $form)) {
+        if (! PcrWorkflow::owns($user, $form)) {
             return response()->json([
                 'message' => 'Only the owner of this form can record accomplishments on it.',
             ], 403);
@@ -168,7 +168,7 @@ class PcrAccomplishmentController extends Controller
             ], 409);
         }
 
-        if ($form->type !== 'opcr' && ! $user->isAdmin() && ! $period->isOpen()) {
+        if ($form->type !== 'opcr' && ! $period->isOpen()) {
             return response()->json([
                 'message' => "{$period->label} is not open. Ask an administrator to open it.",
             ], 409);

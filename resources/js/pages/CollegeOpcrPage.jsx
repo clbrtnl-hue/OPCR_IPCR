@@ -15,7 +15,7 @@ import FormEditorPage from "~/pages/FormEditorPage";
  */
 export default function CollegeOpcrPage() {
     const navigate = useNavigate();
-    const { user, can } = useAuth();
+    const { user } = useAuth();
     const queryClient = useQueryClient();
     const [yearId, setYearId] = React.useState(null);
 
@@ -91,14 +91,14 @@ export default function CollegeOpcrPage() {
                                 No OPCR for {activeYear?.label ?? "this year"} yet
                             </Typography.Text>
                             <Typography.Text type="secondary">
-                                {can("president")
+                                {user?.role === "president"
                                     ? "Open it, list the college's MFO/PPAs and their success indicators, then send it to QA for approval."
                                     : "The president opens the college OPCR for the year."}
                             </Typography.Text>
                         </Space>
                     }
                 >
-                    {can("president") && (
+                    {user?.role === "president" && (
                         <Button
                             type="primary"
                             icon={<PlusOutlined />}

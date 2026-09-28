@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Models\PcrForm;
+use App\Models\PcrIndicator;
 use App\Models\User;
 use Tests\PmsTestCase;
 
@@ -142,7 +143,7 @@ class IpcrPeriodFormTest extends PmsTestCase
         ])->assertStatus(422);
     }
 
-    public function test_a_line_may_only_link_a_target_in_its_own_period(): void
+    public function test_an_office_target_can_be_linked_in_either_review_period(): void
     {
         ['unit' => $unit, 'year' => $year, 'period1' => $period1, 'period2' => $period2] = $this->cycle();
 
@@ -170,21 +171,36 @@ class IpcrPeriodFormTest extends PmsTestCase
             'parent_indicator_id' => $target->id,
         ])->assertStatus(201);
 
-        $mismatched = $this->makeForm([
+        $endYear = $this->makeForm([
             'org_unit_id'      => $unit->id,
             'school_year_id'   => $year->id,
             'user_id'          => $owner->id,
             'rating_period_id' => $period2->id,
         ]);
-        $mismatchedOutput = $mismatched->outputs()->create([
+        $endYearOutput = $endYear->outputs()->create([
             'section' => 'core', 'title' => 'Research', 'parent_output_id' => $target->output_id,
         ]);
 
+        $listed = collect($this->getJson("/api/pcr-forms/{$endYear->id}/opcr-targets")->assertSuccessful()->json());
+        $this->assertTrue($listed->contains(fn ($row) => $row['id'] === $target->id));
+
         $this->postJson('/api/pcr-indicators', [
-            'output_id'           => $mismatchedOutput->id,
+            'output_id'           => $endYearOutput->id,
             'description'         => 'Publish 3 of the 25 articles.',
             'parent_indicator_id' => $target->id,
-        ])->assertStatus(422);
+        ])->assertStatus(201);
+
+        $midYearLine = $this->makeIndicator($matching, 'core', [
+            'rating_period_id' => $period1->id,
+            'description'      => 'A commitment that belongs to mid-year only.',
+        ]);
+
+        $this->postJson('/api/pcr-indicators', [
+            'output_id'           => $endYearOutput->id,
+            'description'         => 'This is not that period.',
+            'parent_indicator_id' => $midYearLine->id,
+        ])->assertStatus(422)
+            ->assertJsonPath('message', 'Pick a target from the same review period as this line.');
     }
 
     public function test_the_two_period_forms_run_independent_chains(): void
@@ -287,5 +303,134 @@ class IpcrPeriodFormTest extends PmsTestCase
 
         $queued = $this->getJson('/api/pcr-forms?queue=1')->assertSuccessful()->json();
         $this->assertSame([], $queued);
+    }
+
+    public function test_the_owner_copies_the_previous_period_and_keeps_the_office_target(): void
+    {
+        ['unit' => $unit, 'year' => $year, 'period1' => $period1, 'period2' => $period2] = $this->cycle();
+
+        $opcr = $this->makeForm([
+            'type' => 'opcr', 'org_unit_id' => $unit->id,
+            'school_year_id' => $year->id, 'status' => 'published',
+        ]);
+        $target = $this->makeIndicator($opcr, 'core');
+
+        $owner = $this->actingAsRole('program_head', ['org_unit_id' => $unit->id]);
+
+        $midYear = $this->makeForm([
+            'org_unit_id'      => $unit->id,
+            'school_year_id'   => $year->id,
+            'user_id'          => $owner->id,
+            'rating_period_id' => $period1->id,
+            'status'           => 'final',
+        ]);
+        $heading = $midYear->outputs()->create([
+            'section' => 'core', 'title' => 'Research', 'parent_output_id' => $target->output_id,
+        ]);
+        PcrIndicator::create([
+            'output_id'           => $heading->id,
+            'rating_period_id'    => $period1->id,
+            'description'         => '<p>Publish 3 of the 25 articles.</p>',
+            'parent_indicator_id' => $target->id,
+            'target_date'         => '2026-06-30',
+        ]);
+
+        $endYear = $this->makeForm([
+            'org_unit_id'      => $unit->id,
+            'school_year_id'   => $year->id,
+            'user_id'          => $owner->id,
+            'rating_period_id' => $period2->id,
+        ]);
+
+        $unit->update(['head_user_id' => $owner->id]);
+
+        $stranger = User::factory()->create(['role' => 'employee', 'org_unit_id' => $unit->id]);
+        $theirs   = $this->makeForm([
+            'org_unit_id'      => $unit->id,
+            'school_year_id'   => $year->id,
+            'user_id'          => $stranger->id,
+            'rating_period_id' => $period1->id,
+        ]);
+        $this->makeIndicator($theirs, 'core');
+
+        $this->postJson("/api/pcr-forms/{$endYear->id}/copy-from", ['source_form_id' => $theirs->id])
+            ->assertStatus(422);
+
+        $this->postJson("/api/pcr-forms/{$endYear->id}/copy-from", ['source_form_id' => $midYear->id])
+            ->assertSuccessful()
+            ->assertJsonPath('lines', 1);
+
+        $copied = $endYear->fresh()->outputs()->with('indicators')->first();
+
+        $this->assertSame('Research', $copied->title);
+        $this->assertSame($target->output_id, (int) $copied->parent_output_id);
+        $this->assertSame($period2->id, (int) $copied->indicators->first()->rating_period_id);
+        $this->assertSame($target->id, (int) $copied->indicators->first()->parent_indicator_id);
+        $this->assertSame(0, $copied->indicators->first()->accomplishments()->count());
+
+        $endYear->update(['status' => 'head_review']);
+
+        $this->postJson("/api/pcr-forms/{$endYear->id}/copy-from", ['source_form_id' => $midYear->id])
+            ->assertStatus(409);
+    }
+
+    public function test_a_submitted_ipcr_cannot_be_assigned(): void
+    {
+        ['unit' => $unit, 'year' => $year, 'period1' => $period1] = $this->cycle();
+
+        $head = $this->actingAsRole('program_head', ['org_unit_id' => $unit->id]);
+        $faculty = User::factory()->create(['role' => 'employee', 'org_unit_id' => $unit->id]);
+
+        $form = $this->makeForm([
+            'org_unit_id'      => $unit->id,
+            'school_year_id'   => $year->id,
+            'user_id'          => $head->id,
+            'rating_period_id' => $period1->id,
+            'status'           => 'head_review',
+        ]);
+        $line = $this->makeIndicator($form, 'core', ['rating_period_id' => $period1->id]);
+
+        $this->postJson("/api/pcr-indicators/{$line->id}/assign", ['user_ids' => [$faculty->id]])
+            ->assertStatus(409)
+            ->assertJsonPath('message', 'This IPCR has been submitted. People can no longer be assigned.');
+
+        $form->update(['status' => 'returned']);
+
+        $this->postJson("/api/pcr-indicators/{$line->id}/assign", ['user_ids' => [$faculty->id]])
+            ->assertStatus(201)
+            ->assertJsonPath('assigned', 1);
+    }
+
+    public function test_a_closed_period_takes_no_new_remarks(): void
+    {
+        ['unit' => $unit, 'year' => $year, 'period1' => $period1, 'period2' => $period2] = $this->cycle();
+
+        $owner = $this->actingAsRole('employee', ['org_unit_id' => $unit->id]);
+
+        $midYear = $this->makeForm([
+            'org_unit_id'      => $unit->id,
+            'school_year_id'   => $year->id,
+            'user_id'          => $owner->id,
+            'rating_period_id' => $period1->id,
+        ]);
+        $endYear = $this->makeForm([
+            'org_unit_id'      => $unit->id,
+            'school_year_id'   => $year->id,
+            'user_id'          => $owner->id,
+            'rating_period_id' => $period2->id,
+        ]);
+
+        $period1->update(['status' => 'closed']);
+
+        $this->postJson('/api/pcr-comments', [
+            'form_id' => $midYear->id,
+            'body'    => '<p>Too late for mid-year.</p>',
+        ])->assertStatus(409)
+            ->assertJsonPath('message', 'Mid-year Review is closed. Remarks can no longer be added.');
+
+        $this->postJson('/api/pcr-comments', [
+            'form_id' => $endYear->id,
+            'body'    => '<p>End-year is still open.</p>',
+        ])->assertCreated();
     }
 }

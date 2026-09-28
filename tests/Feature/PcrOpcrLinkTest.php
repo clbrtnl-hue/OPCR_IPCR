@@ -169,8 +169,8 @@ class PcrOpcrLinkTest extends PmsTestCase
             'school_year_id' => $year->id, 'status' => 'draft',
         ]);
 
-        $admin = User::factory()->create(['role' => 'admin']);
-        $this->actingAsUser($admin);
+        $president = User::factory()->create(['role' => 'president', 'org_unit_id' => $unit->id]);
+        $this->actingAsUser($president);
 
         $output = $this->makeIndicator($draftOpcr, 'strategic')->output;
 

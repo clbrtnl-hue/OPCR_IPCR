@@ -47,10 +47,15 @@ export default function DashboardPage() {
         queryFn: () => api.get("pcr-forms").then((r) => r.data),
     });
 
+    const isAdmin = user?.role === "admin";
+
     const { data: queue = [] } = useQuery({
-        queryKey: ["review-queue"],
-        queryFn: () => api.get("pcr-forms?queue=1").then((r) => r.data),
-        enabled: can("program_head", "vp", "qa"),
+        queryKey: ["review-queue", isAdmin ? "oversight" : "mine"],
+        queryFn: () =>
+            api
+                .get(isAdmin ? "pcr-forms?oversight=review" : "pcr-forms?queue=1")
+                .then((r) => r.data),
+        enabled: isAdmin || can("program_head", "vp", "qa"),
     });
 
     const activeYear = years.find((y) => y.is_active);
@@ -224,15 +229,19 @@ export default function DashboardPage() {
                     tone={(myWork?.overdue ?? 0) > 0 ? VIZ.critical : VIZ.good}
                     hint={`${myWork?.due_soon ?? 0} of mine fall due within seven days`}
                 />
-                {reviews && (
+                {(reviews || isAdmin) && (
                     <StatTile
-                        label="Waiting for me to review"
+                        label={isAdmin ? "In review" : "Waiting for me to review"}
                         icon={<TeamOutlined />}
                         accent={queue.length > 0 ? VIZ.warning : "#1e3a72"}
                         value={queue.length}
                         tone={queue.length > 0 ? VIZ.warning : undefined}
-                        onClick={() => navigate(can("qa") ? "/rating" : "/review-queue")}
-                        hint="Forms sitting at your step of the chain"
+                        onClick={() => navigate(isAdmin || !can("qa") ? "/review-queue" : "/rating")}
+                        hint={
+                            isAdmin
+                                ? "Forms waiting on a reviewer"
+                                : "Forms sitting at your step of the chain"
+                        }
                     />
                 )}
                 <StatTile

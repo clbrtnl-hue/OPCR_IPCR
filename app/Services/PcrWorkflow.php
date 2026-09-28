@@ -148,10 +148,6 @@ class PcrWorkflow
      */
     public static function mayScore(User $user, PcrForm $form): bool
     {
-        if ($user->isAdmin()) {
-            return true;
-        }
-
         if ($form->type !== 'ipcr') {
             return $form->status === 'qa_rating' && $user->role === 'qa';
         }
@@ -170,10 +166,6 @@ class PcrWorkflow
     /** QA closes the rating. On their own staff they close it without sending it up. */
     public static function mayFinalize(User $user, PcrForm $form): bool
     {
-        if ($user->isAdmin()) {
-            return true;
-        }
-
         if ($user->role !== 'qa') {
             return false;
         }
@@ -188,10 +180,6 @@ class PcrWorkflow
 
     public static function isReviewerFor(User $user, PcrForm $form, string $status): bool
     {
-        if ($user->isAdmin()) {
-            return true;
-        }
-
         return match ($status) {
             'head_review' => (int) $form->head_reviewer_id === (int) $user->id,
             'vp_review'   => (int) $form->vp_reviewer_id === (int) $user->id,
@@ -206,10 +194,6 @@ class PcrWorkflow
 
     public static function actorMayMoveTo(User $user, string $type, string $to): bool
     {
-        if ($user->isAdmin()) {
-            return true;
-        }
-
         if ($type === 'opcr') {
             $rules = app(WorkflowSettings::class);
 
@@ -318,10 +302,6 @@ class PcrWorkflow
 
     public static function owns(User $user, PcrForm $form): bool
     {
-        if ($user->isAdmin()) {
-            return true;
-        }
-
         if ($form->type === 'ipcr') {
             return (int) $form->user_id === (int) $user->id;
         }

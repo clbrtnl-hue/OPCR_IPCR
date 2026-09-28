@@ -7,9 +7,9 @@ use Illuminate\Http\UploadedFile;
 use Tests\PmsTestCase;
 
 /**
- * The cut-off. A locked rating period is finished. It is view-only for everyone
- * but an administrator: no edits, no assignments, no accomplishments, no
- * evidence, no progress, no rating.
+ * The cut-off. A locked rating period is finished. It is view-only for
+ * everyone, including an administrator: no edits, no assignments, no
+ * accomplishments, no evidence, no progress, no rating.
  */
 class PeriodLockTest extends PmsTestCase
 {
@@ -158,7 +158,7 @@ class PeriodLockTest extends PmsTestCase
         ])->assertSuccessful();
     }
 
-    public function test_an_admin_still_works_through_a_lock(): void
+    public function test_an_admin_cannot_edit_through_a_lock(): void
     {
         ['period' => $period, 'indicator' => $indicator] = $this->lockedScenario();
 
@@ -170,13 +170,13 @@ class PeriodLockTest extends PmsTestCase
             'indicator_id'          => $indicator->id,
             'rating_period_id'      => $period->id,
             'actual_accomplishment' => 'Corrected after the cut-off.',
-        ])->assertSuccessful();
+        ])->assertStatus(403);
 
         $this->postJson('/api/pcr-indicators', [
             'id'          => $indicator->id,
             'output_id'   => $indicator->output_id,
             'description' => 'Corrected after the cut-off.',
-        ])->assertSuccessful();
+        ])->assertStatus(409);
     }
 
     public function test_one_locked_semester_does_not_close_a_whole_year_opcr(): void

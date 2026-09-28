@@ -67,6 +67,7 @@ import IpcrSheet from "~/components/IpcrSheet";
 import RichText from "~/components/RichText";
 import PdfPreview from "~/components/PdfPreview";
 import CopyFromYear from "~/components/CopyFromYear";
+import CopyPreviousPeriod from "~/components/CopyPreviousPeriod";
 import CommentThread from "~/components/CommentThread";
 import FormHistory from "~/components/FormHistory";
 
@@ -174,7 +175,7 @@ export default function FormEditorPage({ formId = null }) {
     // Normalised: children invalidate ["pcr-form", String(...)], and a numeric
     // id from the prop would silently miss that cache key.
     const id = String(formId ?? routeId);
-    const { user, can } = useAuth();
+    const { user } = useAuth();
     const queryClient = useQueryClient();
     const [outputForm] = Form.useForm();
     const [outputModal, setOutputModal] = useState(false);
@@ -188,6 +189,7 @@ export default function FormEditorPage({ formId = null }) {
     const [issues, setIssues] = useState(null);
     const [writeUpIssues, setWriteUpIssues] = useState(null);
     const [copyOpen, setCopyOpen] = useState(false);
+    const [previousOpen, setPreviousOpen] = useState(false);
     const [cascadeOpen, setCascadeOpen] = useState(false);
     const [templateOpen, setTemplateOpen] = useState(false);
     const [returnNote, setReturnNote] = useState("");
@@ -284,12 +286,10 @@ export default function FormEditorPage({ formId = null }) {
 
     const isOwner = useMemo(() => {
         if (!form || !user) return false;
-        // Mirrors PcrWorkflow::owns() — admin bypasses, as everywhere else.
-        if (user.role === "admin") return true;
         if (form.type === "ipcr") return form.user_id === user.id;
         if (user.role === "president") return true;
         return form.org_unit_id === user.org_unit_id && user.role === "program_head";
-    }, [form, user, can]);
+    }, [form, user]);
 
     if (isLoading || !form) {
         return (
@@ -304,27 +304,30 @@ export default function FormEditorPage({ formId = null }) {
     // one locked semester does not close it — only a year whose every period
     // is locked does.
     const yearClosed =
-        form.type === "opcr" &&
-        user.role !== "admin" &&
-        periods.length > 0 &&
-        periods.every((period) => period.is_locked);
-    const periodLocked =
-        form.type === "opcr" ? yearClosed : user.role !== "admin" && Boolean(viewedPeriod?.is_locked);
-    const canEditCommitment = isOwner && ["draft", "returned"].includes(form.status) && !periodLocked;
+        form.type === "opcr" && periods.length > 0 && periods.every((period) => period.is_locked);
+    const periodLocked = form.type === "opcr" ? yearClosed : Boolean(viewedPeriod?.is_locked);
+    const isOpcr = form.type === "opcr";
+    const commitmentOpen = ["draft", "returned"].includes(form.status);
+    const canEditCommitment = isOwner && commitmentOpen && !periodLocked;
     const canRecordProgress = isOwner && !["rated", "final"].includes(form.status) && !periodLocked;
     // On an OPCR, naming an accountable person and cascading both stop at publish.
+    // On an IPCR they stop as soon as the form is submitted for review.
     // Offer only what the server would accept: the organization decides which
     // roles hand work out, and terminal roles deliver their own commitments.
     const canAssignHeadings =
-        isOwner && !["rated", "final"].includes(form.status) && Boolean(user.capabilities?.assign_outputs) && !periodLocked;
+        isOwner &&
+        !periodLocked &&
+        Boolean(user.capabilities?.assign_outputs) &&
+        (isOpcr ? !["rated", "final"].includes(form.status) : commitmentOpen);
     const canAssign =
-        isOwner && !["rated", "final"].includes(form.status) && Boolean(user.capabilities?.assign_indicators) && !periodLocked;
-    const isOpcr = form.type === "opcr";
+        isOwner &&
+        !periodLocked &&
+        Boolean(user.capabilities?.assign_indicators) &&
+        (isOpcr ? !["rated", "final"].includes(form.status) : commitmentOpen);
     const opcrHandoutClosed = isOpcr && ["published", "qa_rating", "rated", "final"].includes(form.status);
     const canNameAccountable = (canAssignHeadings || canAssign) && !opcrHandoutClosed;
     const canCascade = canAssign && !opcrHandoutClosed;
 
-    const isAdmin = user.role === "admin";
     const samePerson = (left, right) => Number(left) === Number(right);
 
     // Authority is being named on this form. One person may hold two posts.
@@ -332,8 +335,7 @@ export default function FormEditorPage({ formId = null }) {
     const isMyReviewStep =
         !isOpcr &&
         ((form.status === "head_review" && samePerson(form.head_reviewer_id, user.id)) ||
-            (form.status === "vp_review" && samePerson(form.vp_reviewer_id, user.id)) ||
-            (isAdmin && ["head_review", "vp_review"].includes(form.status)));
+            (form.status === "vp_review" && samePerson(form.vp_reviewer_id, user.id)));
 
     const qaRatesStaff =
         user.role === "qa" && form.status === "head_review" && samePerson(form.head_reviewer_id, user.id);
@@ -343,8 +345,7 @@ export default function FormEditorPage({ formId = null }) {
         !isOpcr &&
         ((form.status === "head_review" && samePerson(form.head_reviewer_id, user.id)) ||
             (form.status === "vp_review" && samePerson(form.vp_reviewer_id, user.id)) ||
-            (user.role === "qa" && form.status === "qa_rating") ||
-            (user.role === "admin" && form.status === "qa_rating"));
+            (user.role === "qa" && form.status === "qa_rating"));
     // Q, E, T and A stay off the working sheet until someone is actually rating.
     // They stay once the rating is done. The printed form always includes them.
     const showScores = (
@@ -355,9 +356,9 @@ export default function FormEditorPage({ formId = null }) {
 
     const nextStatus = form.status === "head_review" ? "vp_review" : "qa_rating";
 
-    // The OPCR's planning lane: admin sends the targets to QA, QA approves them,
-    // admin publishes, and only then can anyone tie an IPCR line to them.
-    const drivesOpcr = isAdmin || user.role === "president";
+    // The OPCR's planning lane: the president sends the targets to QA, QA
+    // approves them, and the president publishes them.
+    const drivesOpcr = user.role === "president";
 
     const opcrAction = !isOpcr
         ? null
@@ -370,7 +371,7 @@ export default function FormEditorPage({ formId = null }) {
               : null;
 
     const canUnpublish = isOpcr && drivesOpcr && form.status === "published";
-    const canClose = form.status === "rated" && can("qa", "president");
+    const canClose = form.status === "rated" && ["qa", "president"].includes(user.role);
     const canReturnOpcr = isOpcr && user.role === "qa" && form.status === "qa_approval";
 
     const sections = ["strategic", "core", "support"].filter(
@@ -538,7 +539,7 @@ export default function FormEditorPage({ formId = null }) {
                                 </Button>
                             </Popconfirm>
                         )}
-                        {canScore && (user.role === "qa" || user.role === "admin") && (
+                        {canScore && user.role === "qa" && (
                             <Button
                                 type="primary"
                                 loading={finalize.isPending}
@@ -705,6 +706,17 @@ export default function FormEditorPage({ formId = null }) {
                                         onClick={() => setOutputModal(true)}
                                     >
                                         Add output
+                                    </Button>
+                                )}
+                                {!isOpcr && canEditCommitment && form.outputs.length === 0 && (
+                                    <Button
+                                        className="pms-commit-text"
+                                        size="small"
+                                        aria-label="Copy previous period"
+                                        onClick={() => setPreviousOpen(true)}
+                                    >
+                                        <span className="pms-btn-long">Copy previous period</span>
+                                        <span className="pms-btn-short">Copy period</span>
                                     </Button>
                                 )}
                                 {isOpcr && canEditCommitment && form.outputs.length === 0 && (
@@ -944,6 +956,12 @@ export default function FormEditorPage({ formId = null }) {
             <CopyFromYear
                 open={copyOpen}
                 onClose={() => setCopyOpen(false)}
+                form={form}
+            />
+
+            <CopyPreviousPeriod
+                open={previousOpen}
+                onClose={() => setPreviousOpen(false)}
                 form={form}
             />
 

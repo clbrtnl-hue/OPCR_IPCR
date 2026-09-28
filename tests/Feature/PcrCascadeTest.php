@@ -170,9 +170,9 @@ class PcrCascadeTest extends PmsTestCase
     {
         ['target' => $target, 'head' => $head] = $this->office();
 
-        $admin = $this->actingAsRole('admin');
-        $this->service()->assignIndicator($target, $head, $admin);
+        $this->service()->assignIndicator($target, $head, $head);
 
+        $this->actingAsUser($head);
         $this->postJson("/api/pcr-indicators/{$target->id}/progress", [
             'progress_status' => 'completed',
         ])->assertStatus(409);
@@ -207,7 +207,7 @@ class PcrCascadeTest extends PmsTestCase
         $opcr->update(['status' => 'draft']);
         $period2 = $this->makePeriod($year, 2);
 
-        $this->actingAsRole('admin');
+        $this->actingAsRole('president');
 
         $this->postJson("/api/pcr-outputs/{$target->output_id}/assign", [
             'user_ids'         => [$head->id],
@@ -242,7 +242,7 @@ class PcrCascadeTest extends PmsTestCase
         ['target' => $target, 'head' => $head, 'opcr' => $opcr] = $this->office();
 
         $opcr->update(['status' => 'draft']);
-        $this->actingAsRole('admin');
+        $this->actingAsUser($head);
 
         $this->postJson("/api/pcr-indicators/{$target->id}/assign", ['user_ids' => [$head->id]])
             ->assertStatus(201)->assertJsonPath('assigned', 1);
@@ -257,11 +257,10 @@ class PcrCascadeTest extends PmsTestCase
     {
         ['target' => $target, 'head' => $head] = $this->office();
 
-        $admin = $this->actingAsRole('admin');
-        $assignment = $this->service()->assignIndicator($target, $head, $admin);
+        $assignment = $this->service()->assignIndicator($target, $head, $head);
         $this->commitAgainst($target, $head);
 
-        $this->actingAsUser($admin);
+        $this->actingAsUser($head);
         $this->deleteJson("/api/pcr-assignments/{$assignment->id}")->assertStatus(409);
 
         $this->assertDatabaseHas('pcr_target_assignments', ['id' => $assignment->id]);
@@ -271,10 +270,9 @@ class PcrCascadeTest extends PmsTestCase
     {
         ['target' => $target, 'head' => $head] = $this->office();
 
-        $admin = $this->actingAsRole('admin');
-        $assignment = $this->service()->assignIndicator($target, $head, $admin);
+        $assignment = $this->service()->assignIndicator($target, $head, $head);
 
-        $this->actingAsUser($admin);
+        $this->actingAsUser($head);
         $this->deleteJson("/api/pcr-assignments/{$assignment->id}")->assertSuccessful();
 
         $this->assertDatabaseMissing('pcr_target_assignments', ['id' => $assignment->id]);

@@ -9,13 +9,22 @@ import PageHeader from "~/components/PageHeader";
 import FormCards from "~/components/FormCards";
 import { useAuth } from "~/hooks/useAuth";
 
+const REVIEW_ACTION = (record) =>
+    record.status === "qa_approval"
+        ? "Approve"
+        : ["qa_rating", "head_review", "vp_review"].includes(record.status)
+          ? "Rate"
+          : "Review";
+
 export default function ReviewQueuePage() {
     const navigate = useNavigate();
     const { user } = useAuth();
+    const viewOnly = user?.role === "admin";
 
     const { data: queue = [], isLoading } = useQuery({
-        queryKey: ["review-queue"],
-        queryFn: () => api.get("pcr-forms?queue=1").then((r) => r.data),
+        queryKey: ["review-queue", viewOnly ? "oversight" : "mine"],
+        queryFn: () =>
+            api.get(viewOnly ? "pcr-forms?oversight=review" : "pcr-forms?queue=1").then((r) => r.data),
     });
 
     const columns = [
@@ -51,22 +60,19 @@ export default function ReviewQueuePage() {
             key: "actions",
             render: (_, record) => (
                 <Button type="primary" size="small" onClick={() => navigate(`/forms/${record.id}`)}>
-                    {record.status === "qa_approval"
-                        ? "Approve"
-                        : ["qa_rating", "head_review", "vp_review"].includes(record.status)
-                          ? "Rate"
-                          : "Review"}
+                    {viewOnly ? "View" : REVIEW_ACTION(record)}
                 </Button>
             ),
         },
     ];
 
-    const subtitle =
-        user?.role === "qa"
-            ? "OPCRs waiting for your approval and forms ready for rating."
-            : user?.role === "vp"
-              ? "Forms the heads have endorsed and that are waiting for your review."
-              : "Forms your unit has submitted and that are waiting for your review.";
+    const subtitle = viewOnly
+        ? "Forms waiting on a reviewer. You can open them, but you cannot approve or send them on."
+        : user?.role === "qa"
+          ? "OPCRs waiting for your approval and forms ready for rating."
+          : user?.role === "vp"
+            ? "Forms the heads have endorsed and that are waiting for your review."
+            : "Forms your unit has submitted and that are waiting for your review.";
 
     return (
         <>
@@ -74,20 +80,20 @@ export default function ReviewQueuePage() {
 
             <Card>
                 {queue.length === 0 && !isLoading ? (
-                    <Empty description="Nothing is waiting for you right now." />
+                    <Empty
+                        description={
+                            viewOnly
+                                ? "Nothing is in review right now."
+                                : "Nothing is waiting for you right now."
+                        }
+                    />
                 ) : (
                     <>
                         <div className="pms-mobile-only">
                             <FormCards
                                 forms={queue}
                                 showSubmitted
-                                actionLabel={(record) =>
-                                    record.status === "qa_approval"
-                                        ? "Approve"
-                                        : ["qa_rating", "head_review", "vp_review"].includes(record.status)
-                                          ? "Rate"
-                                          : "Review"
-                                }
+                                actionLabel={(record) => (viewOnly ? "View" : REVIEW_ACTION(record))}
                                 onOpen={(record) => navigate(`/forms/${record.id}`)}
                             />
                         </div>

@@ -67,7 +67,7 @@ export default function AppRoutes() {
                                 <Route
                                     path="/my-ipcr"
                                     element={
-                                        <Protected roles={["employee", "program_head", "vp"]}>
+                                        <Protected roles={["employee", "program_head", "vp", "qa"]}>
                                             <MyIpcrPage />
                                         </Protected>
                                     }

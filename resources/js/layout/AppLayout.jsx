@@ -17,6 +17,7 @@ const ITEMS = {
     dashboard: { key: "/", icon: <NavIcon name="dashboard" />, label: "Dashboard" },
     myIpcr: { key: "/my-ipcr", icon: <NavIcon name="ipcr" />, label: "My IPCR" },
     myForms: { key: "/my-forms", icon: <NavIcon name="forms" />, label: "My Forms" },
+    forms: { key: "/my-forms", icon: <NavIcon name="forms" />, label: "Forms" },
     myTeam: { key: "/my-team", icon: <NavIcon name="team" />, label: "My Team" },
     collegeOpcr: { key: "/college-opcr", icon: <NavIcon name="college" />, label: "College OPCR" },
     reviewQueue: { key: "/review-queue", icon: <NavIcon name="review" />, label: "Review Queue" },
@@ -36,7 +37,7 @@ const MENUS = {
     admin: [
         ITEMS.dashboard,
         ITEMS.collegeOpcr,
-        ITEMS.myForms,
+        ITEMS.forms,
         ITEMS.reviewQueue,
         ITEMS.rating,
         ITEMS.reports,
@@ -48,7 +49,7 @@ const MENUS = {
         },
     ],
     president: [ITEMS.dashboard, ITEMS.collegeOpcr, ITEMS.myForms, ITEMS.reports],
-    qa: [ITEMS.dashboard, ITEMS.myForms, ITEMS.myTeam, ITEMS.reviewQueue, ITEMS.rating, ITEMS.reports],
+    qa: [ITEMS.dashboard, ITEMS.myIpcr, ITEMS.myForms, ITEMS.myTeam, ITEMS.reviewQueue, ITEMS.rating, ITEMS.reports],
     vp: [ITEMS.dashboard, ITEMS.myIpcr, ITEMS.myForms, ITEMS.myTeam, ITEMS.reviewQueue, ITEMS.rating],
     program_head: [ITEMS.dashboard, ITEMS.myIpcr, ITEMS.myForms, ITEMS.myTeam, ITEMS.reviewQueue, ITEMS.rating],
     employee: [ITEMS.dashboard, ITEMS.myIpcr, ITEMS.myForms],
@@ -123,7 +124,7 @@ export default function AppLayout({ children }) {
         { key: "/", icon: <NavIcon name="dashboard" />, label: "Home" },
         user?.role === "president"
             ? { key: "/college-opcr", icon: <NavIcon name="college" />, label: "OPCR" }
-            : ["employee", "program_head", "vp"].includes(user?.role)
+            : ["employee", "program_head", "vp", "qa"].includes(user?.role)
               ? { key: "/my-ipcr", icon: <NavIcon name="ipcr" />, label: "IPCR" }
               : { key: "/my-forms", icon: <NavIcon name="forms" />, label: "Forms" },
         ["admin", "qa", "vp", "program_head"].includes(user?.role) && {

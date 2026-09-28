@@ -135,8 +135,8 @@ class SchoolYearController extends Controller
     }
 
     /**
-     * The cut-off. A locked period is view-only for everyone but an
-     * administrator — no commitments, accomplishments, evidence or ratings.
+     * The cut-off. A locked period is view-only for everyone — no commitments,
+     * accomplishments, evidence or ratings. Unlocking it is a setup action.
      */
     public function setPeriodLock(Request $request, $id)
     {
