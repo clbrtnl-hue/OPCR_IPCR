@@ -20,10 +20,24 @@ export function Meter({ pct, color = VIZ.series[0], label, value }) {
     );
 }
 
-export default function StatTile({ label, value, suffix, hint, tone, meter, onClick }) {
+export default function StatTile({ label, value, suffix, hint, tone, meter, onClick, icon, accent }) {
+    const mark = accent ?? "#1e3a72";
+
     return (
-        <Card className={onClick ? "viz-tile viz-tile-link" : "viz-tile"} onClick={onClick}>
-            <div className="viz-tile-label">{label}</div>
+        <Card
+            className={["viz-tile", onClick ? "viz-tile-link" : "", icon ? "viz-tile-rich" : ""]
+                .filter(Boolean)
+                .join(" ")}
+            onClick={onClick}
+        >
+            <div className="viz-tile-top">
+                <div className="viz-tile-label">{label}</div>
+                {icon && (
+                    <span className="viz-tile-icon" style={{ color: mark, background: `${mark}18` }}>
+                        {icon}
+                    </span>
+                )}
+            </div>
             <div className="viz-tile-value" style={tone ? { color: tone } : undefined}>
                 {value}
                 {suffix != null && <span className="viz-tile-suffix">{suffix}</span>}

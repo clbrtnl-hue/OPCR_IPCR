@@ -18,11 +18,17 @@ use App\Support\Html;
  */
 class IndicatorProgressService
 {
+    /** The written actual accomplishment is this share of a leaf's progress. */
+    public const NARRATIVE_WEIGHT = 30;
+
+    /** An attached file is this share. Both together are 100. */
+    public const EVIDENCE_WEIGHT = 70;
+
     /**
-     * A leaf is finished only when the writer has both a narrative and a file.
-     * Anything short of that stays at 0, and the lines above it are averaged again.
-     * A line that was handed on is not the writer's own number — it follows the
-     * people they named.
+     * A leaf's percent is the narrative (30) plus the evidence file (70).
+     * Either piece counts on its own, and the line is finished only once both
+     * are there. A line that was handed on is not the writer's own number —
+     * it follows the people they named.
      */
     public function syncFromRecord(PcrIndicator $line): void
     {
@@ -46,16 +52,12 @@ class IndicatorProgressService
             $records = $records->where('rating_period_id', $line->rating_period_id);
         }
 
-        $done = $records->contains(
-            fn ($record) => ! Html::isBlank($record->actual_accomplishment) && (int) $record->attachments_count > 0
-        );
-
-        $started = $records->contains(
-            fn ($record) => ! Html::isBlank($record->actual_accomplishment) || (int) $record->attachments_count > 0
-        );
+        $pct     = $this->percentFor($records);
+        $done    = $pct >= 100;
+        $started = $pct > 0;
 
         $line->forceFill([
-            'progress_pct'    => $done ? 100 : 0,
+            'progress_pct'    => $pct,
             'progress_status' => $done ? 'completed' : ($started ? 'ongoing' : 'not_started'),
             'completed_on'    => $done ? ($line->completed_on ?? now()->toDateString()) : null,
         ])->save();
@@ -166,9 +168,10 @@ class IndicatorProgressService
     }
 
     /**
-     * Every target assigned to a person shows that person's commitments as one
-     * figure. Three finished lines answer all seven targets at 100%. Several
-     * people on one target are averaged. Writing nothing leaves the targets at 0.
+     * Refresh every target this person was assigned. A target moves only with
+     * the commitments linked to it. An assigned target with no link is left
+     * without a percent, so the screen can show N/A instead of 0 or the
+     * person's overall IPCR average.
      */
     public function shareAcrossAssignedTargets(?PcrForm $form, array &$seen = []): void
     {
@@ -200,22 +203,22 @@ class IndicatorProgressService
         $seen[$target->id] = true;
         $target->loadMissing('output.form');
 
-        $assignments = $target->assignments()->get();
+        $children = $target->children()->get(['progress_status', 'progress_pct']);
 
-        if ($assignments->isEmpty()) {
+        if ($children->isEmpty()) {
+            if ($target->assignments()->exists()) {
+                $target->forceFill([
+                    'progress_pct'    => 0,
+                    'progress_status' => 'not_started',
+                ])->save();
+            }
+
             return;
         }
 
-        $yearId = $target->output?->form?->school_year_id;
-        $parts  = $assignments->map(fn ($assignment) => $this->basket(
-            (int) $assignment->user_id,
-            $yearId,
-            $assignment->rating_period_id
-        ));
-
         $target->forceFill([
-            'progress_pct'    => (int) round($parts->avg('progress_pct')),
-            'progress_status' => $this->statusFor($parts),
+            'progress_pct'    => (int) round($children->avg('progress_pct')),
+            'progress_status' => $this->statusFor($children),
         ])->save();
 
         $ownerForm = $target->output?->form;
@@ -225,31 +228,29 @@ class IndicatorProgressService
         }
     }
 
-    private function basket(int $userId, ?int $yearId, ?int $periodId): object
+    /**
+     * The furthest a line has got across its records. A narrative is 30 and a
+     * file is 70, so one of each on the same record is 100.
+     */
+    private function percentFor($records): int
     {
-        $form = PcrForm::query()
-            ->where('type', 'ipcr')
-            ->where('user_id', $userId)
-            ->when($yearId, fn ($query) => $query->where('school_year_id', $yearId))
-            ->when($periodId, fn ($query) => $query->where('rating_period_id', $periodId))
-            ->first();
+        $best = 0;
 
-        $lines = $form
-            ? PcrIndicator::whereIn('output_id', $form->outputs()->pluck('id'))
-                ->when($periodId, fn ($query) => $query->where(
-                    fn ($inner) => $inner->whereNull('rating_period_id')->orWhere('rating_period_id', $periodId)
-                ))
-                ->get(['progress_pct', 'progress_status'])
-            : collect();
+        foreach ($records as $record) {
+            $score = 0;
 
-        if ($lines->isEmpty()) {
-            return (object) ['progress_pct' => 0, 'progress_status' => 'not_started'];
+            if (! Html::isBlank($record->actual_accomplishment)) {
+                $score += self::NARRATIVE_WEIGHT;
+            }
+
+            if ((int) $record->attachments_count > 0) {
+                $score += self::EVIDENCE_WEIGHT;
+            }
+
+            $best = max($best, $score);
         }
 
-        return (object) [
-            'progress_pct'    => (int) round($lines->avg('progress_pct')),
-            'progress_status' => $this->statusFor($lines),
-        ];
+        return $best;
     }
 
     private function statusFor($children): string

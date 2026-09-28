@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Models\Notification;
 use App\Models\PcrIndicator;
+use App\Models\PcrOutput;
 use App\Models\PcrTargetAssignment;
 use App\Models\User;
 use Tests\PmsTestCase;
@@ -23,11 +24,11 @@ class BulkCascadeTest extends PmsTestCase
 
         $opcr = $this->makeForm([
             'type' => 'opcr', 'org_unit_id' => $unit->id,
-            'school_year_id' => $year->id, 'status' => 'published',
+            'school_year_id' => $year->id, 'status' => 'draft',
             'user_id' => null,
         ]);
 
-        $output = PcrTargetAssignment::create(['form_id' => $opcr->id, 'section' => 'core', 'title' => 'Research']);
+        $output = PcrOutput::create(['form_id' => $opcr->id, 'section' => 'core', 'title' => 'Research']);
 
         $lines = collect(['Publish 25 articles.', 'Run 4 research fora.', 'Fund 3 grants.'])
             ->map(fn ($text, $index) => PcrIndicator::create([
@@ -38,6 +39,18 @@ class BulkCascadeTest extends PmsTestCase
         $faculty = User::factory()->create(['role' => 'employee', 'org_unit_id' => $unit->id]);
 
         return compact('unit', 'year', 'period', 'period2', 'opcr', 'output', 'lines', 'head', 'faculty', 'president');
+    }
+
+    public function test_a_published_opcr_cannot_be_cascaded(): void
+    {
+        ['opcr' => $opcr, 'head' => $head] = $this->college();
+
+        $opcr->update(['status' => 'published']);
+        $this->actingAsRole('president');
+
+        $this->postJson("/api/pcr-forms/{$opcr->id}/cascade", ['user_ids' => [$head->id]])
+            ->assertStatus(409)
+            ->assertJsonPath('message', 'This OPCR is already published. Accountable people can no longer be assigned.');
     }
 
     public function test_every_line_reaches_every_person_in_one_call(): void

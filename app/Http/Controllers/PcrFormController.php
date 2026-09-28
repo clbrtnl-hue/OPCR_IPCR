@@ -19,6 +19,7 @@ use App\Services\PcrWorkflow;
 use App\Services\WorkflowSettings;
 use App\Support\Html;
 use App\Support\PcrOutline;
+use App\Support\PcrPrint;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
@@ -124,6 +125,8 @@ class PcrFormController extends Controller
 
         if ($form->type === 'opcr') {
             $payload['rating_window_open'] = PcrWorkflow::opcrRatingMonthOpen($form);
+            $head = PcrPrint::officeHead();
+            $payload['office_head'] = $head?->only(['id', 'name', 'position_title']);
         }
 
         return response()->json($payload);
@@ -153,7 +156,7 @@ class PcrFormController extends Controller
                 ], 409);
             }
 
-            if ($message = PcrWorkflow::lockMessage($user, PcrWorkflow::periodForWrite($form))) {
+            if ($message = PcrWorkflow::formLockMessage($user, $form)) {
                 return response()->json(['message' => $message], 409);
             }
 
@@ -192,6 +195,12 @@ class PcrFormController extends Controller
 
         if ($data['type'] === 'ipcr' && ! $user->isAdmin() && (int) $ownerId !== (int) $user->id) {
             return response()->json(['message' => 'You can only create your own IPCR.'], 403);
+        }
+
+        if ($data['type'] === 'ipcr' && User::whereKey($ownerId)->where('role', 'president')->exists()) {
+            return response()->json([
+                'message' => 'The president files the college OPCR, not an individual IPCR.',
+            ], 422);
         }
 
         if ($data['type'] === 'opcr') {
@@ -301,7 +310,7 @@ class PcrFormController extends Controller
 
         $members = User::where('org_unit_id', $unit->id)
             ->where('status', 'active')
-            ->where('role', '!=', 'admin')
+            ->whereNotIn('role', ['admin', 'president'])
             ->when(! empty($data['user_ids']), fn ($q) => $q->whereIn('id', $data['user_ids']))
             ->orderByPerson()
             ->get();
@@ -384,6 +393,17 @@ class PcrFormController extends Controller
 
         if (! $template) {
             return response()->json(['message' => 'That template no longer exists.'], 422);
+        }
+
+        if (($template['for'] ?? null) && $template['for'] !== $form->type) {
+            return response()->json(['message' => 'That template does not belong on this form.'], 422);
+        }
+
+        $roles  = $template['roles'] ?? null;
+        $except = $template['except_roles'] ?? [];
+
+        if (($roles && ! in_array($user->role, $roles, true)) || in_array($user->role, $except, true)) {
+            return response()->json(['message' => 'That template does not belong on this form.'], 422);
         }
 
         if (! PcrWorkflow::owns($user, $form) || ! PcrWorkflow::canEditCommitments($user, $form)) {
@@ -705,6 +725,23 @@ class PcrFormController extends Controller
                 $note,
                 $form->id
             );
+
+            // The writer already has the correction. The head and VP only need
+            // to know it went back, and not the person who just sent it back.
+            if ($form->type === 'ipcr') {
+                $ownerId = $form->user_id ? (int) $form->user_id : null;
+
+                Notification::sendMany(
+                    array_filter(
+                        [$form->head_reviewer_id, $form->vp_reviewer_id],
+                        fn ($id) => $id && (int) $id !== $ownerId
+                    ),
+                    'returned',
+                    "{$label} from {$subject} was returned for correction",
+                    $note,
+                    $form->id
+                );
+            }
         }
     }
 
@@ -1054,7 +1091,7 @@ class PcrFormController extends Controller
             ], 409);
         }
 
-        if ($message = PcrWorkflow::lockMessage($user, PcrWorkflow::periodForWrite($target))) {
+        if ($message = PcrWorkflow::formLockMessage($user, $target)) {
             return response()->json(['message' => $message], 409);
         }
 

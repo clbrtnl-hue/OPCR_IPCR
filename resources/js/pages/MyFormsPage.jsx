@@ -163,15 +163,11 @@ export default function MyFormsPage() {
                 <Form form={form} layout="vertical" requiredMark={false} onFinish={(v) => create.mutate(v)}>
                     <Form.Item name="type" label="Form type" rules={[{ required: true }]}>
                         <Select
-                            options={[
-                                { value: "ipcr", label: "IPCR — my individual commitment" },
-                                // Only an administrator opens an office OPCR; it then goes
-                                // to QA for approval and is published from there.
-                                // The president writes one OPCR for the college each year.
-                                ...(can("president")
+                            options={
+                                can("president")
                                     ? [{ value: "opcr", label: "OPCR — the college's commitment" }]
-                                    : []),
-                            ]}
+                                    : [{ value: "ipcr", label: "IPCR — my individual commitment" }]
+                            }
                         />
                     </Form.Item>
                     <Form.Item

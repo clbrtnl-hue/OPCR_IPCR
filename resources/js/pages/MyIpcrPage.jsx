@@ -124,24 +124,12 @@ export default function MyIpcrPage() {
         </Space>
     );
 
-    if (form) {
-        return (
-            <>
-                {switcher}
-                <FormEditorPage key={form.id} formId={form.id} />
-            </>
-        );
-    }
-
     return (
         <>
-            <PageHeader
-                title="My IPCR"
-                subtitle="Your Individual Performance Commitment and Review — one for each review period."
-                extra={switcher}
-            />
-
-            {open.isError ? (
+            {switcher}
+            {form ? (
+                <FormEditorPage key={form.id} formId={form.id} />
+            ) : open.isError ? (
                 <Alert
                     type="error"
                     showIcon

@@ -3,7 +3,6 @@ import {
     Badge,
     Button,
     Drawer,
-    Modal,
     Popconfirm,
     Select,
     Space,
@@ -33,6 +32,7 @@ import { AccomplishmentCell } from "~/components/AccomplishmentView";
 import IndicatorRow from "~/components/IndicatorRow";
 import LineCards from "~/components/LineCards";
 import UserAvatar from "~/components/UserAvatar";
+import AssignDrawer from "~/components/AssignDrawer";
 import { usePerson } from "~/hooks/usePerson";
 import { toPlainText } from "~/components/RichTextView";
 import ProgressCell from "~/components/ProgressCell";
@@ -61,6 +61,7 @@ export default function IpcrSheet({
     canAssign,
     canAssignHeadings,
     canScore = false,
+    showScores = false,
     opcrTargets = [],
     summary,
     onAddOutput,
@@ -74,7 +75,6 @@ export default function IpcrSheet({
     const [justAdded, setJustAdded] = useState(null);
     const [pickingLineId, setPickingLineId] = useState(null);
     const [assigning, setAssigning] = useState(null);
-    const [picked, setPicked] = useState([]);
     const { openPerson } = usePerson();
     const [draftScores, setDraftScores] = useState({});
     const savingScores = useRef(new Set());
@@ -162,7 +162,6 @@ export default function IpcrSheet({
                     : `Assigned to ${data.assigned} ${data.assigned === 1 ? "person" : "people"}.`
             );
             setAssigning(null);
-            setPicked([]);
             refresh();
         },
     });
@@ -347,7 +346,7 @@ export default function IpcrSheet({
         (o.indicators ?? []).some((i) => accountableFor(i).length > 0)
     );
     const showAccountable = canAssign || anyDelegated;
-    const columnCount = showAccountable ? 10 : 9;
+    const columnCount = (showAccountable ? 6 : 5) + (showScores ? 4 : 0);
 
     const rows = [];
 
@@ -650,7 +649,7 @@ export default function IpcrSheet({
                                 computedHint={
                                     (line.children ?? []).length > 0
                                         ? "Rolled up from the commitments written against this line."
-                                        : "100% once the actual accomplishment is written and a file is attached."
+                                        : "The narrative counts as 30%. A file counts as 70%. Both together reach 100%."
                                 }
                             />
                         </td>
@@ -719,35 +718,38 @@ export default function IpcrSheet({
                             />
                         </td>
 
-                        {["q", "e", "t"].map((dimension) => (
-                            <td key={dimension} className="pms-sheet-score">
-                                {canScore ? (
-                                    <Select
-                                        size="small"
-                                        style={{ width: 64 }}
-                                        allowClear
-                                        value={draftScores[line.id]?.[dimension] ?? undefined}
-                                        options={SCORE_OPTIONS}
-                                        onChange={(value) => saveScore(line.id, dimension, value)}
-                                    />
-                                ) : (
-                                    rating?.[dimension] ?? ""
-                                )}
+                        {showScores &&
+                            ["q", "e", "t"].map((dimension) => (
+                                <td key={dimension} className="pms-sheet-score">
+                                    {canScore ? (
+                                        <Select
+                                            size="small"
+                                            style={{ width: 64 }}
+                                            allowClear
+                                            value={draftScores[line.id]?.[dimension] ?? undefined}
+                                            options={SCORE_OPTIONS}
+                                            onChange={(value) => saveScore(line.id, dimension, value)}
+                                        />
+                                    ) : (
+                                        rating?.[dimension] ?? ""
+                                    )}
+                                </td>
+                            ))}
+                        {showScores && (
+                            <td className="pms-sheet-score">
+                                {canScore
+                                    ? averageOf(draftScores[line.id]) ?? ""
+                                    : rating?.a != null
+                                      ? Number(rating.a).toFixed(2)
+                                      : ""}
                             </td>
-                        ))}
-                        <td className="pms-sheet-score">
-                            {canScore
-                                ? averageOf(draftScores[line.id]) ?? ""
-                                : rating?.a != null
-                                  ? Number(rating.a).toFixed(2)
-                                  : ""}
-                        </td>
+                        )}
                     </tr>
                 );
             });
         });
 
-        if (outputs.length) {
+        if (outputs.length && showScores) {
             rows.push(
                 <tr key={`summary-${section}`} className="pms-sheet-summary">
                     <td colSpan={3}>AVERAGE RATING — {SECTION_LABELS[section]}</td>
@@ -760,7 +762,7 @@ export default function IpcrSheet({
         }
     });
 
-    if (rows.length) {
+    if (rows.length && showScores) {
         rows.push(
             <tr key="grand-total" className="pms-sheet-total">
                 <td colSpan={3}>TOTAL OVERALL RATING</td>
@@ -789,7 +791,7 @@ export default function IpcrSheet({
 
     return (
         <>
-            <LineCards form={form} periodId={periodId} onOpen={setOpenLineId} />
+            <LineCards form={form} periodId={periodId} showScores={showScores} onOpen={setOpenLineId} />
 
             <div className="pms-sheet-wrap">
                 <table className="pms-sheet">
@@ -804,10 +806,14 @@ export default function IpcrSheet({
                             <th style={{ width: 140 }}>Progress</th>
                             {showAccountable && <th style={{ width: 180 }}>Accountable</th>}
                             <th style={{ width: 240 }}>Actual Accomplishments</th>
-                            <th style={{ width: canScore ? 76 : 38 }} title="Quality">Q</th>
-                            <th style={{ width: canScore ? 76 : 38 }} title="Efficiency">E</th>
-                            <th style={{ width: canScore ? 76 : 38 }} title="Timeliness">T</th>
-                            <th style={{ width: 46 }} title="Average">A</th>
+                            {showScores && (
+                                <>
+                                    <th style={{ width: canScore ? 76 : 38 }} title="Quality">Q</th>
+                                    <th style={{ width: canScore ? 76 : 38 }} title="Efficiency">E</th>
+                                    <th style={{ width: canScore ? 76 : 38 }} title="Timeliness">T</th>
+                                    <th style={{ width: 46 }} title="Average">A</th>
+                                </>
+                            )}
                         </tr>
                     </thead>
                     <tbody>{rows}</tbody>
@@ -843,35 +849,15 @@ export default function IpcrSheet({
                 )}
             </Drawer>
 
-            <Modal
-                title={`Assign “${assigning?.title ?? toPlainText(assigning?.description) ?? ""}”`}
+            <AssignDrawer
                 open={Boolean(assigning)}
-                onCancel={() => {
-                    setAssigning(null);
-                    setPicked([]);
-                }}
-                onOk={() => assign.mutate(picked)}
-                okText="Assign"
-                okButtonProps={{ disabled: picked.length === 0, loading: assign.isPending }}
-            >
-                <Typography.Paragraph type="secondary">
-                    {assigning?.kind === "output"
-                        ? "Each person gets this MFO/PPA in their own IPCR and writes their own success indicators under it."
-                        : "They will see this target on their IPCR and write their own commitments against it. The wording is not copied."}
-                </Typography.Paragraph>
-                <Select
-                    mode="multiple"
-                    style={{ width: "100%" }}
-                    placeholder="Search for people"
-                    value={picked}
-                    onChange={setPicked}
-                    optionFilterProp="label"
-                    options={people.map((p) => ({
-                        value: p.id,
-                        label: p.position_title ? `${p.name} — ${p.position_title}` : p.name,
-                    }))}
-                />
-            </Modal>
+                kind={assigning?.kind}
+                title={assigning?.title ?? toPlainText(assigning?.description)}
+                people={people}
+                loading={assign.isPending}
+                onClose={() => setAssigning(null)}
+                onAssign={(ids) => assign.mutate(ids)}
+            />
         </>
     );
 }

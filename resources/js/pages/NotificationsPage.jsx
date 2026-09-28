@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from "react";
-import { Button, Card, Empty, Segmented, Skeleton, Space, Tag, Typography, message } from "antd";
+import { Button, Card, Empty, Segmented, Skeleton, Space, Tabs, Tag, Typography, message } from "antd";
 import { CheckOutlined } from "@ant-design/icons";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
@@ -145,6 +145,18 @@ export default function NotificationsPage() {
         }
     };
 
+    const kindTabs = () => (
+        <Tabs
+            className="pms-line-tabs"
+            activeKey={kind}
+            onChange={(value) => {
+                setKind(value);
+                setLimit(PAGE);
+            }}
+            items={kinds.map((item) => ({ key: item.value, label: item.label }))}
+        />
+    );
+
     const scopeControl = () => (
         <Segmented
             value={scope}
@@ -226,18 +238,7 @@ export default function NotificationsPage() {
                 />
 
                 <Card>
-                    {kinds.length > 2 && (
-                        <Segmented
-                            size="small"
-                            value={kind}
-                            onChange={(value) => {
-                                setKind(value);
-                                setLimit(PAGE);
-                            }}
-                            options={kinds}
-                            style={{ marginBottom: 14 }}
-                        />
-                    )}
+                    {kinds.length > 2 && kindTabs()}
                     {body}
                 </Card>
             </div>
@@ -259,17 +260,7 @@ export default function NotificationsPage() {
 
                 <Card className="pms-alerts-card">
                     {kinds.length > 2 && (
-                        <div className="pms-alerts-kinds">
-                            <Segmented
-                                size="small"
-                                value={kind}
-                                onChange={(value) => {
-                                    setKind(value);
-                                    setLimit(PAGE);
-                                }}
-                                options={kinds}
-                            />
-                        </div>
+                        <div className="pms-alerts-kinds">{kindTabs()}</div>
                     )}
                     {mobileBody}
                 </Card>

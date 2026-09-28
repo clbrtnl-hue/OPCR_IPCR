@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Models\PcrIndicator;
+use App\Models\PcrTargetAssignment;
 use App\Models\User;
 use Tests\PmsTestCase;
 
@@ -70,7 +71,7 @@ class VpReviewOnlyTest extends PmsTestCase
         $this->postJson("/api/pcr-forms/{$opcr->id}/cascade", ['user_ids' => [$faculty->id]])->assertStatus(403);
     }
 
-    public function test_a_vp_cannot_withdraw_an_assignment(): void
+    public function test_a_vp_cannot_withdraw_an_assignment_on_a_form_they_do_not_own(): void
     {
         ['vp' => $vp, 'target' => $target, 'teamIpcr' => $teamIpcr] = $this->college();
 
@@ -82,6 +83,25 @@ class VpReviewOnlyTest extends PmsTestCase
 
         $this->deleteJson("/api/pcr-assignments/{$child->id}")->assertStatus(403);
         $this->assertDatabaseHas('pcr_indicators', ['id' => $child->id]);
+    }
+
+    public function test_a_vp_can_withdraw_an_untouched_assignment_on_their_own_ipcr(): void
+    {
+        ['vp' => $vp, 'vpIpcr' => $vpIpcr, 'head' => $head] = $this->college();
+
+        $line = $this->makeIndicator($vpIpcr, 'core');
+
+        $this->actingAsUser($vp);
+
+        $this->postJson("/api/pcr-indicators/{$line->id}/assign", ['user_ids' => [$head->id]])
+            ->assertStatus(201);
+
+        $assignment = PcrTargetAssignment::where('indicator_id', $line->id)
+            ->where('user_id', $head->id)
+            ->first();
+
+        $this->deleteJson("/api/pcr-assignments/{$assignment->id}")->assertSuccessful();
+        $this->assertDatabaseMissing('pcr_target_assignments', ['id' => $assignment->id]);
     }
 
     public function test_a_vp_cannot_edit_a_team_members_ipcr(): void

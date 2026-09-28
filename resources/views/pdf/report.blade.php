@@ -131,6 +131,35 @@
         </tbody>
     </table>
 
+    <h2>By VP</h2>
+    <table>
+        <thead>
+            <tr>
+                <th width="20%">VP</th><th width="18%">Position</th><th width="22%">Unit</th>
+                <th class="num">Forms</th><th class="num">Submitted</th><th class="num">Rated</th>
+                <th class="num">Commitments</th><th class="num">Progress</th><th class="num">Overdue</th>
+                <th class="num">Average</th><th>Adjectival</th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach ($payload['vps'] as $vp)
+                <tr>
+                    <td>{{ $vp['vp'] }}</td>
+                    <td>{{ $vp['position'] ?? '—' }}</td>
+                    <td>{{ $vp['unit'] }}</td>
+                    <td class="num">{{ $vp['forms'] }}</td>
+                    <td class="num">{{ $vp['submitted'] }}</td>
+                    <td class="num">{{ $vp['rated'] }}</td>
+                    <td class="num">{{ $vp['commitments'] }}</td>
+                    <td class="num">{{ $pct($vp['progress_pct']) }}</td>
+                    <td class="num">{{ $vp['overdue'] }}</td>
+                    <td class="num">{{ $score($vp['average']) }}</td>
+                    <td>{{ $vp['adjectival'] ?? 'Not yet rated' }}</td>
+                </tr>
+            @endforeach
+        </tbody>
+    </table>
+
     <h2>By individual</h2>
     <table>
         <thead>

@@ -48,7 +48,7 @@ class NotificationTest extends PmsTestCase
 
     public function test_returning_notifies_the_writer_with_the_reason(): void
     {
-        ['form' => $form, 'employee' => $employee, 'head' => $head] = $this->scenario();
+        ['form' => $form, 'employee' => $employee, 'head' => $head, 'vp' => $vp] = $this->scenario();
 
         Passport::actingAs($employee, [], 'api');
         $this->postJson("/api/pcr-forms/{$form->id}/status", ['status' => 'head_review']);
@@ -63,6 +63,52 @@ class NotificationTest extends PmsTestCase
             'user_id' => $employee->id,
             'type'    => 'returned',
             'body'    => 'Attach the acceptance letters.',
+        ]);
+
+        $this->assertDatabaseHas('notifications', [
+            'user_id' => $vp->id,
+            'type'    => 'returned',
+            'title'   => "IPCR from {$employee->name} was returned for correction",
+            'body'    => 'Attach the acceptance letters.',
+        ]);
+
+        $this->assertDatabaseMissing('notifications', [
+            'user_id' => $head->id,
+            'type'    => 'returned',
+        ]);
+    }
+
+    public function test_a_vp_return_notifies_the_head_and_not_the_vp(): void
+    {
+        ['form' => $form, 'employee' => $employee, 'head' => $head, 'vp' => $vp] = $this->scenario();
+
+        Passport::actingAs($employee, [], 'api');
+        $this->postJson("/api/pcr-forms/{$form->id}/status", ['status' => 'head_review'])->assertOk();
+
+        $form->update(['status' => 'vp_review']);
+
+        Passport::actingAs($vp, [], 'api');
+        $this->postJson("/api/pcr-forms/{$form->id}/status", [
+            'status' => 'returned',
+            'note'   => 'The targets still need a measure.',
+        ])->assertOk();
+
+        $this->assertDatabaseHas('notifications', [
+            'user_id' => $employee->id,
+            'type'    => 'returned',
+            'title'   => 'Your IPCR was returned for correction',
+        ]);
+
+        $this->assertDatabaseHas('notifications', [
+            'user_id' => $head->id,
+            'type'    => 'returned',
+            'title'   => "IPCR from {$employee->name} was returned for correction",
+            'body'    => 'The targets still need a measure.',
+        ]);
+
+        $this->assertDatabaseMissing('notifications', [
+            'user_id' => $vp->id,
+            'type'    => 'returned',
         ]);
     }
 

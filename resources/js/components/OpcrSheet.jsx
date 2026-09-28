@@ -3,9 +3,7 @@ import {
     Badge,
     Button,
     Drawer,
-    Modal,
     Popconfirm,
-    Select,
     Space,
     Tag,
     Tooltip,
@@ -29,6 +27,7 @@ import SheetCell from "~/components/SheetCell";
 import { toPlainText } from "~/components/RichTextView";
 import { usePerson } from "~/hooks/usePerson";
 import UserAvatar from "~/components/UserAvatar";
+import AssignDrawer from "~/components/AssignDrawer";
 import ProgressCell from "~/components/ProgressCell";
 import OpcrLineDrawer from "~/components/OpcrLineDrawer";
 import LineCards from "~/components/LineCards";
@@ -36,6 +35,10 @@ import CommentThread from "~/components/CommentThread";
 import { ADJECTIVAL_COLORS, DELAY_META, NARRATIVE_MAX, SECTION_LABELS } from "~/utils/constants";
 
 const SECTIONS = ["strategic", "core", "support"];
+
+function lacksLinkedCommitment(line) {
+    return (line.assignments ?? []).length > 0 && (line.children ?? []).length === 0;
+}
 
 function localParentId(output, ids) {
     return output.parent_output_id && ids.has(output.parent_output_id) ? output.parent_output_id : null;
@@ -54,10 +57,9 @@ function siblingsOf(outputs, output) {
  * rather than opening a dialog for every line — the paper form is the mental
  * model, so the screen should not fight it.
  */
-export default function OpcrSheet({ form, periodId, canEdit, canAssign, canRecordProgress, summary, focusLineId = null }) {
+export default function OpcrSheet({ form, periodId, canEdit, canAssign, canRecordProgress, showScores = false, summary, focusLineId = null }) {
     const queryClient = useQueryClient();
     const [assigning, setAssigning] = useState(null);   // an output, or an indicator
-    const [picked, setPicked] = useState([]);
     const [justAdded, setJustAdded] = useState(null);   // { kind, id }
     const [openLineId, setOpenLineId] = useState(null);
     const [commentLineId, setCommentLineId] = useState(null);
@@ -206,7 +208,6 @@ export default function OpcrSheet({ form, periodId, canEdit, canAssign, canRecor
                     : `Assigned to ${data.assigned} ${data.assigned === 1 ? "person" : "people"}.`
             );
             setAssigning(null);
-            setPicked([]);
             refresh();
         },
     });
@@ -274,14 +275,16 @@ export default function OpcrSheet({ form, periodId, canEdit, canAssign, canRecor
     }, [form.outputs, periodId]);
 
     const rollUp = (lines) => {
-        if (!lines.length) return null;
+        const measured = lines.filter((line) => !lacksLinkedCommitment(line));
+
+        if (!measured.length) return null;
 
         const pct = Math.round(
-            lines.reduce((total, l) => total + Number(l.progress_pct ?? 0), 0) / lines.length
+            measured.reduce((total, l) => total + Number(l.progress_pct ?? 0), 0) / measured.length
         );
-        const status = lines.every((l) => l.progress_status === "completed")
+        const status = measured.every((l) => l.progress_status === "completed")
             ? "completed"
-            : lines.some((l) => l.progress_status !== "not_started" || Number(l.progress_pct ?? 0) > 0)
+            : measured.some((l) => l.progress_status !== "not_started" || Number(l.progress_pct ?? 0) > 0)
               ? "ongoing"
               : "not_started";
 
@@ -323,6 +326,7 @@ export default function OpcrSheet({ form, periodId, canEdit, canAssign, canRecor
         return null;
     }, [openLineId, form.outputs]);
 
+    const columnCount = showScores ? 11 : 7;
     const rows = [];
 
     SECTIONS.forEach((section) => {
@@ -332,7 +336,7 @@ export default function OpcrSheet({ form, periodId, canEdit, canAssign, canRecor
 
         rows.push(
             <tr key={`section-${section}`} className="pms-sheet-section">
-                <td colSpan={11}>
+                <td colSpan={columnCount}>
                     <Space>
                         <span>{SECTION_LABELS[section].toUpperCase()}</span>
                         {canEdit && (
@@ -469,7 +473,7 @@ export default function OpcrSheet({ form, periodId, canEdit, canAssign, canRecor
                 rows.push(
                     <tr key={`output-${output.id}-empty`} data-output-row={`output-${output.id}`}>
                         {outputCell}
-                        <td colSpan={10} className="pms-sheet-empty">
+                        <td colSpan={columnCount - 1} className="pms-sheet-empty">
                             {canEdit
                                 ? isHeader
                                     ? "Grouping row — add a PPA under it, or a success indicator on this MFO."
@@ -591,11 +595,12 @@ export default function OpcrSheet({ form, periodId, canEdit, canAssign, canRecor
                             <ProgressCell
                                 status={line.progress_status ?? "not_started"}
                                 pct={line.progress_pct ?? 0}
+                                unavailable={lacksLinkedCommitment(line)}
                                 computed
                                 computedHint={
-                                    computed
-                                        ? "Rolled up from the commitments written against this line."
-                                        : "100% once the actual accomplishment is written and a file is attached."
+                                    (line.children ?? []).length > 0
+                                        ? "With Linked Commitment. Rolled up from the commitments linked to this target."
+                                        : "The narrative counts as 30%. A file counts as 70%. Both together reach 100%."
                                 }
                             />
                         </td>
@@ -725,19 +730,23 @@ export default function OpcrSheet({ form, periodId, canEdit, canAssign, canRecor
                             </div>
                         </td>
 
-                        <td className="pms-sheet-score">{rating?.q ?? ""}</td>
-                        <td className="pms-sheet-score">{rating?.e ?? ""}</td>
-                        <td className="pms-sheet-score">{rating?.t ?? ""}</td>
-                        <td className="pms-sheet-score">
-                            {rating?.a != null ? Number(rating.a).toFixed(2) : ""}
-                        </td>
+                        {showScores && (
+                            <>
+                                <td className="pms-sheet-score">{rating?.q ?? ""}</td>
+                                <td className="pms-sheet-score">{rating?.e ?? ""}</td>
+                                <td className="pms-sheet-score">{rating?.t ?? ""}</td>
+                                <td className="pms-sheet-score">
+                                    {rating?.a != null ? Number(rating.a).toFixed(2) : ""}
+                                </td>
+                            </>
+                        )}
                     </tr>
                 );
             });
         });
 
         // What the paper form prints under each block.
-        if (outputs.length) {
+        if (outputs.length && showScores) {
             rows.push(
                 <tr key={`summary-${section}`} className="pms-sheet-summary">
                     <td colSpan={3}>AVERAGE RATING — {SECTION_LABELS[section]}</td>
@@ -776,7 +785,7 @@ export default function OpcrSheet({ form, periodId, canEdit, canAssign, canRecor
         SECTIONS.flatMap((section) => bySection[section].flatMap((output) => output.lines))
     );
 
-    if (rows.length) {
+    if (rows.length && showScores) {
         rows.push(
             <tr key="grand-total" className="pms-sheet-total">
                 <td colSpan={3}>TOTAL OVERALL RATING</td>
@@ -810,9 +819,20 @@ export default function OpcrSheet({ form, periodId, canEdit, canAssign, canRecor
         );
     }
 
+    const unlinkedCount = SECTIONS.flatMap((section) =>
+        bySection[section].flatMap((output) => output.lines)
+    ).filter(lacksLinkedCommitment).length;
+
     return (
         <>
-            <LineCards form={form} periodId={periodId} onOpen={setOpenLineId} />
+            {unlinkedCount > 0 && (
+                <div className="pms-unlinked">
+                    {unlinkedCount} assigned OPCR target{unlinkedCount === 1 ? "" : "s"} have no linked IPCR
+                    commitment{unlinkedCount === 1 ? "" : "s"}.
+                </div>
+            )}
+
+            <LineCards form={form} periodId={periodId} showScores={showScores} onOpen={setOpenLineId} />
 
             <div className="pms-sheet-wrap">
                 <table className="pms-sheet">
@@ -831,10 +851,14 @@ export default function OpcrSheet({ form, periodId, canEdit, canAssign, canRecor
                             <th style={{ width: 110 }}>Alloted Budget</th>
                             <th style={{ width: 190 }}>Individual / Accountable</th>
                             <th style={{ width: 210 }}>Actual Accomplishments</th>
-                            <th style={{ width: 38 }} title="Quality">Q</th>
-                            <th style={{ width: 38 }} title="Efficiency">E</th>
-                            <th style={{ width: 38 }} title="Timeliness">T</th>
-                            <th style={{ width: 46 }} title="Average">A</th>
+                            {showScores && (
+                                <>
+                                    <th style={{ width: 38 }} title="Quality">Q</th>
+                                    <th style={{ width: 38 }} title="Efficiency">E</th>
+                                    <th style={{ width: 38 }} title="Timeliness">T</th>
+                                    <th style={{ width: 46 }} title="Average">A</th>
+                                </>
+                            )}
                         </tr>
                     </thead>
                     <tbody>{rows}</tbody>
@@ -880,35 +904,16 @@ export default function OpcrSheet({ form, periodId, canEdit, canAssign, canRecor
                 )}
             </Drawer>
 
-            <Modal
-                title={`Assign “${assigning?.title ?? toPlainText(assigning?.description) ?? ""}”`}
+            <AssignDrawer
                 open={Boolean(assigning)}
-                onCancel={() => {
-                    setAssigning(null);
-                    setPicked([]);
-                }}
-                onOk={() => assign.mutate(picked)}
-                okText="Assign"
-                okButtonProps={{ disabled: picked.length === 0, loading: assign.isPending }}
-            >
-                <Typography.Paragraph type="secondary">
-                    {assigning?.kind === "output"
-                        ? "Each person gets this MFO/PPA in their own IPCR and writes their own success indicators under it."
-                        : "They will see this office target on their IPCR and write their own commitments against it. The college wording is not copied."}
-                </Typography.Paragraph>
-                <Select
-                    mode="multiple"
-                    style={{ width: "100%" }}
-                    placeholder="Search for people"
-                    value={picked}
-                    onChange={setPicked}
-                    optionFilterProp="label"
-                    options={people.map((p) => ({
-                        value: p.id,
-                        label: p.position_title ? `${p.name} — ${p.position_title}` : p.name,
-                    }))}
-                />
-            </Modal>
+                kind={assigning?.kind}
+                isOpcr
+                title={assigning?.title ?? toPlainText(assigning?.description)}
+                people={people}
+                loading={assign.isPending}
+                onClose={() => setAssigning(null)}
+                onAssign={(ids) => assign.mutate(ids)}
+            />
         </>
     );
 }

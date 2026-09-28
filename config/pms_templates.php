@@ -4,72 +4,155 @@ return [
 
     [
         'key'         => 'support-standard',
-        'name'        => 'Standard support functions',
-        'section'     => 'support',
-        'description' => 'The reporting every member of staff owes the college each period — DTR, IPCR, SALN and the rest.',
+        'name'        => 'Support functions',
+        'for'          => 'ipcr',
+        'except_roles' => ['program_head', 'vp'],
+        'section'      => 'support',
+        'description'  => 'The support commitments every employee reports — submissions and attendance.',
         'outputs'     => [
             [
-                'title'      => 'Administrative Requirements',
+                'title'      => 'Submission of IPCR to the Department Head',
                 'indicators' => [
-                    'Submit the Daily Time Record within five (5) working days after the end of every month, 100% complete and signed.',
-                    'Submit the accomplished IPCR within the deadline set for the rating period.',
-                    'File the Statement of Assets, Liabilities and Net Worth on or before April 30.',
-                    'Submit leave applications at least three (3) working days before the intended date, except in emergencies.',
+                    'Prompt submission with 95% Accuracy',
                 ],
             ],
             [
-                'title'      => 'Attendance and Participation',
+                'title'      => 'Submission of DTR',
                 'indicators' => [
-                    'Attend 100% of the general assemblies, convocations and college-wide activities called for the period, absences covered by an approved leave.',
-                    'Attend at least 90% of scheduled department or office meetings.',
+                    'Prompt submission with 95% Accuracy',
+                ],
+            ],
+            [
+                'title'      => 'Submission of SALN',
+                'indicators' => [
+                    'NOT APPLICABLE',
+                ],
+            ],
+            [
+                'title'      => 'Attendance to LGU activities',
+                'indicators' => [
+                    'NOT APPLICABLE',
+                ],
+            ],
+            [
+                'title'      => 'Attendance to meetings',
+                'indicators' => [
+                    'Attend to at least 80% of all meetings',
+                ],
+            ],
+            [
+                'title'      => 'Attendance to school activities',
+                'indicators' => [
+                    'Attend to at least 80% of all activities',
                 ],
             ],
         ],
     ],
 
     [
-        'key'         => 'support-faculty',
-        'name'        => 'Faculty support functions',
+        'key'         => 'support-head',
+        'name'        => 'Support functions',
+        'for'         => 'ipcr',
+        'roles'       => ['program_head'],
         'section'     => 'support',
-        'description' => 'The classroom housekeeping expected of teaching staff on top of the standard reporting.',
+        'description' => 'The support MFOs for a head. Success indicators are left blank so they can be written on the form.',
         'outputs'     => [
             [
-                'title'      => 'Classroom Documentation',
-                'indicators' => [
-                    'Submit the syllabus for every assigned subject on or before the first week of classes.',
-                    'Submit class records and grade sheets within the deadline set by the Registrar, 100% complete.',
-                    'Encode grades in the student portal within five (5) working days after the final examination.',
-                ],
+                'title'      => 'Submission of IPCR to the Head of Office',
+                'indicators' => [],
             ],
             [
-                'title'      => 'Professional Development',
-                'indicators' => [
-                    'Attend at least one (1) training, seminar or workshop relevant to the field of assignment within the rating period.',
-                ],
+                'title'      => 'Submission of DTR',
+                'indicators' => [],
+            ],
+            [
+                'title'      => 'Submission of SALN',
+                'indicators' => [],
+            ],
+            [
+                'title'      => 'Attendance to Monday convocation',
+                'indicators' => [],
+            ],
+            [
+                'title'      => 'Attendance to local committee meetings',
+                'indicators' => [],
+            ],
+            [
+                'title'      => 'Attendance to departmental/institutional activities',
+                'indicators' => [],
+            ],
+            [
+                'title'      => 'Attendance to relevant trainings, seminars, symposia, and the like',
+                'indicators' => [],
+            ],
+            [
+                'title'      => 'Affiliation/membership to relevant organizations',
+                'indicators' => [],
             ],
         ],
     ],
 
     [
-        'key'         => 'support-office',
-        'name'        => 'Office support functions',
+        'key'         => 'support-vp',
+        'name'        => 'Support functions',
+        'for'         => 'ipcr',
+        'roles'       => ['vp'],
         'section'     => 'support',
-        'description' => 'Reporting and property duties carried by non-teaching offices.',
+        'description' => 'The support MFOs for a VP. Success indicators are left blank so they can be written on the form.',
         'outputs'     => [
             [
-                'title'      => 'Office Reporting',
-                'indicators' => [
-                    'Submit the monthly accomplishment report within five (5) working days after the end of every month.',
-                    'Maintain and update the office records and filing system, 100% retrievable on request.',
-                    'Submit the annual inventory of office property and equipment on or before the date set by the Supply Office.',
-                ],
+                'title'      => 'Submission of IPCR to the Head of Office',
+                'indicators' => [],
             ],
             [
-                'title'      => 'Client Service',
-                'indicators' => [
-                    'Act on client requests within the turnaround time published in the Citizen’s Charter.',
-                    'Maintain a client satisfaction rating of at least Very Satisfactory for the rating period.',
-                ],
+                'title'      => 'Submission of DTR',
+                'indicators' => [],
+            ],
+            [
+                'title'      => 'Submission of SALN',
+                'indicators' => [],
+            ],
+            [
+                'title'      => 'Attendance to LGU Monday convocation',
+                'indicators' => [],
+            ],
+            [
+                'title'      => 'Attendance to committee meetings',
+                'indicators' => [],
+            ],
+            [
+                'title'      => 'Attendance to relevant trainings',
+                'indicators' => [],
+            ],
+        ],
+    ],
+
+    [
+        'key'         => 'opcr-support',
+        'name'        => 'Support functions',
+        'for'         => 'opcr',
+        'section'     => 'support',
+        'description' => 'The college support MFOs. Success indicators are left blank so they can be written on the form. Other support functions can still be added.',
+        'outputs'     => [
+            [
+                'title'      => 'Actions on other matters referred by the LCE or his authorized representative.',
+                'indicators' => [],
+            ],
+            [
+                'title'      => 'Compliance to regulatory Orders issued by competent authority.',
+                'indicators' => [],
+            ],
+            [
+                'title'      => 'Attendance to the activities of other committee membership such as regular meetings.',
+                'indicators' => [],
+            ],
+            [
+                'title'      => 'Attendance to MANCOM meetings.',
+                'indicators' => [],
+            ],
+            [
+                'title'      => 'Budget Utilization Rate (BUR).',
+                'indicators' => [],
             ],
         ],
     ],

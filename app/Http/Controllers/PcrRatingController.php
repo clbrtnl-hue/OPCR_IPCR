@@ -35,7 +35,11 @@ class PcrRatingController extends Controller
         $period = RatingPeriod::findOrFail($data['rating_period_id']);
         $user   = $request->user();
 
-        if ($period->isLockedFor($user)) {
+        if ($form->type === 'opcr') {
+            if ($message = PcrWorkflow::formLockMessage($user, $form)) {
+                return response()->json(['message' => $message], 409);
+            }
+        } elseif ($period->isLockedFor($user)) {
             return response()->json([
                 'message' => "{$period->label} is locked. It is view-only now — ask an administrator to unlock it.",
             ], 409);
@@ -109,7 +113,11 @@ class PcrRatingController extends Controller
         $period = RatingPeriod::findOrFail($data['rating_period_id']);
         $user   = $request->user();
 
-        if ($period->isLockedFor($user)) {
+        if ($form->type === 'opcr') {
+            if ($message = PcrWorkflow::formLockMessage($user, $form)) {
+                return response()->json(['message' => $message], 409);
+            }
+        } elseif ($period->isLockedFor($user)) {
             return response()->json([
                 'message' => "{$period->label} is locked. It is view-only now — ask an administrator to unlock it.",
             ], 409);

@@ -1,26 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Badge, Button, Drawer, Layout, Menu, Dropdown, Space, Tag, Tooltip, Typography } from "antd";
-import {
-    ApartmentOutlined,
-    AuditOutlined,
-    BankOutlined,
-    CalendarOutlined,
-    CheckSquareOutlined,
-    DashboardOutlined,
-    FileTextOutlined,
-    BellFilled,
-    BellOutlined,
-    CheckSquareFilled,
-    DashboardFilled,
-    FileTextFilled,
-    LogoutOutlined,
-    MenuOutlined,
-    PieChartOutlined,
-    SolutionOutlined,
-    StarOutlined,
-    TeamOutlined,
-    UserOutlined,
-} from "@ant-design/icons";
 import { useQuery } from "@tanstack/react-query";
 import { useLocation, useNavigate } from "react-router-dom";
 import api from "~/utils/api";
@@ -29,25 +8,26 @@ import { useOrganization } from "~/hooks/useOrganization";
 import { ROLE_LABELS } from "~/utils/constants";
 import UserAvatar from "~/components/UserAvatar";
 import NotificationBell from "~/components/NotificationBell";
+import NavIcon from "~/components/NavIcon";
 import { PersonProvider } from "~/hooks/usePerson";
 
 const { Sider, Header, Content } = Layout;
 
 const ITEMS = {
-    dashboard: { key: "/", icon: <DashboardOutlined />, label: "Dashboard" },
-    myIpcr: { key: "/my-ipcr", icon: <SolutionOutlined />, label: "My IPCR" },
-    myForms: { key: "/my-forms", icon: <FileTextOutlined />, label: "My Forms" },
-    myTeam: { key: "/my-team", icon: <TeamOutlined />, label: "My Team" },
-    collegeOpcr: { key: "/college-opcr", icon: <BankOutlined />, label: "College OPCR" },
-    reviewQueue: { key: "/review-queue", icon: <CheckSquareOutlined />, label: "Review Queue" },
-    rating: { key: "/rating", icon: <StarOutlined />, label: "Rating" },
-    reports: { key: "/reports", icon: <PieChartOutlined />, label: "Reports" },
-    users: { key: "/admin/users", icon: <TeamOutlined />, label: "Accounts" },
-    orgUnits: { key: "/admin/org-units", icon: <BankOutlined />, label: "Hierarchy" },
-    schoolYears: { key: "/admin/school-years", icon: <CalendarOutlined />, label: "School Years" },
-    workflow: { key: "/admin/workflow", icon: <ApartmentOutlined />, label: "Workflow" },
-    audit: { key: "/admin/audit", icon: <AuditOutlined />, label: "Audit Trail" },
-    notifications: { key: "/notifications", icon: <BellOutlined />, label: "Notifications" },
+    dashboard: { key: "/", icon: <NavIcon name="dashboard" />, label: "Dashboard" },
+    myIpcr: { key: "/my-ipcr", icon: <NavIcon name="ipcr" />, label: "My IPCR" },
+    myForms: { key: "/my-forms", icon: <NavIcon name="forms" />, label: "My Forms" },
+    myTeam: { key: "/my-team", icon: <NavIcon name="team" />, label: "My Team" },
+    collegeOpcr: { key: "/college-opcr", icon: <NavIcon name="college" />, label: "College OPCR" },
+    reviewQueue: { key: "/review-queue", icon: <NavIcon name="review" />, label: "Review Queue" },
+    rating: { key: "/rating", icon: <NavIcon name="star" />, label: "Rating" },
+    reports: { key: "/reports", icon: <NavIcon name="reports" />, label: "Reports" },
+    users: { key: "/admin/users", icon: <NavIcon name="accounts" />, label: "Accounts" },
+    orgUnits: { key: "/admin/org-units", icon: <NavIcon name="hierarchy" />, label: "Hierarchy" },
+    schoolYears: { key: "/admin/school-years", icon: <NavIcon name="calendar" />, label: "School Years" },
+    workflow: { key: "/admin/workflow", icon: <NavIcon name="workflow" />, label: "Workflow" },
+    audit: { key: "/admin/audit", icon: <NavIcon name="audit" />, label: "Audit Trail" },
+    notifications: { key: "/notifications", icon: <NavIcon name="bell" />, label: "Notifications" },
 };
 
 const withPersonal = (menu) => [...menu, ITEMS.notifications];
@@ -62,17 +42,16 @@ const MENUS = {
         ITEMS.reports,
         {
             key: "setup",
-            icon: <BankOutlined />,
+            icon: <NavIcon name="setup" />,
             label: "Setup",
             children: [ITEMS.users, ITEMS.orgUnits, ITEMS.schoolYears, ITEMS.workflow, ITEMS.audit],
         },
     ],
-    // College OPCR is the president's form; My Forms stays in the app but off this menu.
-    president: [ITEMS.dashboard, ITEMS.collegeOpcr, /* ITEMS.myForms, */ ITEMS.reports],
+    president: [ITEMS.dashboard, ITEMS.collegeOpcr, ITEMS.myForms, ITEMS.reports],
     qa: [ITEMS.dashboard, ITEMS.myForms, ITEMS.myTeam, ITEMS.reviewQueue, ITEMS.rating, ITEMS.reports],
-    vp: [ITEMS.dashboard, /* ITEMS.myIpcr, */ ITEMS.myForms, ITEMS.myTeam, ITEMS.reviewQueue, ITEMS.rating],
-    program_head: [ITEMS.dashboard, /* ITEMS.myIpcr, */ ITEMS.myForms, ITEMS.myTeam, ITEMS.reviewQueue, ITEMS.rating],
-    employee: [ITEMS.dashboard, /* ITEMS.myIpcr, */ ITEMS.myForms],
+    vp: [ITEMS.dashboard, ITEMS.myIpcr, ITEMS.myForms, ITEMS.myTeam, ITEMS.reviewQueue, ITEMS.rating],
+    program_head: [ITEMS.dashboard, ITEMS.myIpcr, ITEMS.myForms, ITEMS.myTeam, ITEMS.reviewQueue, ITEMS.rating],
+    employee: [ITEMS.dashboard, ITEMS.myIpcr, ITEMS.myForms],
 };
 
 export default function AppLayout({ children }) {
@@ -125,31 +104,32 @@ export default function AppLayout({ children }) {
             .filter((item) => path === item.key || (item.key !== "/" && path.startsWith(item.key)))
             .sort((a, b) => b.key.length - a.key.length)[0];
 
-        // A form opened from a list still belongs to My Forms — except the
-        // president, whose document is the college OPCR.
+        // A form opened from a list still belongs to My Forms. The college
+        // OPCR itself stays on /college-opcr.
         if (!match && path.startsWith("/forms/")) {
-            return user?.role === "president" ? "/college-opcr" : "/my-forms";
+            return "/my-forms";
         }
 
         return match?.key ?? "/";
-    }, [location.pathname, items, user?.role]);
+    }, [location.pathname, items]);
 
     useEffect(() => {
         setNavOpen(false);
     }, [location.pathname]);
 
     const tabs = [
-        { key: "/", icon: <DashboardOutlined />, activeIcon: <DashboardFilled />, label: "Home" },
+        { key: "/", icon: <NavIcon name="dashboard" />, label: "Home" },
         user?.role === "president"
-            ? { key: "/college-opcr", icon: <BankOutlined />, activeIcon: <BankOutlined />, label: "OPCR" }
-            : { key: "/my-forms", icon: <FileTextOutlined />, activeIcon: <FileTextFilled />, label: "Forms" },
+            ? { key: "/college-opcr", icon: <NavIcon name="college" />, label: "OPCR" }
+            : ["employee", "program_head", "vp"].includes(user?.role)
+              ? { key: "/my-ipcr", icon: <NavIcon name="ipcr" />, label: "IPCR" }
+              : { key: "/my-forms", icon: <NavIcon name="forms" />, label: "Forms" },
         ["admin", "qa", "vp", "program_head"].includes(user?.role) && {
             key: "/review-queue",
-            icon: <CheckSquareOutlined />,
-            activeIcon: <CheckSquareFilled />,
+            icon: <NavIcon name="review" />,
             label: "Review",
         },
-        { key: "/notifications", icon: <BellOutlined />, activeIcon: <BellFilled />, label: "Alerts", badge: unread },
+        { key: "/notifications", icon: <NavIcon name="bell" />, label: "Alerts", badge: unread },
     ].filter(Boolean);
 
     const go = (key) => {
@@ -185,10 +165,11 @@ export default function AppLayout({ children }) {
 
             <div className="pms-sider-nav">
                 <Menu
-                    theme="dark"
+                    theme="light"
                     mode="inline"
+                    inlineCollapsed={isCollapsed}
                     selectedKeys={[selectedKey]}
-                    defaultOpenKeys={["setup"]}
+                    defaultOpenKeys={isCollapsed ? [] : ["setup"]}
                     items={menuItems}
                     onClick={({ key }) => go(key)}
                 />
@@ -233,12 +214,13 @@ export default function AppLayout({ children }) {
                 </Tooltip>
 
                 <Menu
-                    theme="dark"
+                    theme="light"
                     mode="inline"
+                    inlineCollapsed={isCollapsed}
                     selectable={false}
                     items={[
-                        { key: "/profile", icon: <UserOutlined />, label: "My profile" },
-                        { key: "logout", icon: <LogoutOutlined />, label: "Sign out", danger: true },
+                        { key: "/profile", icon: <NavIcon name="user" />, label: "My profile" },
+                        { key: "logout", icon: <NavIcon name="logout" />, label: "Sign out", danger: true },
                     ]}
                     onClick={async ({ key }) => {
                         if (key === "logout") {
@@ -264,8 +246,8 @@ export default function AppLayout({ children }) {
                 collapsible
                 collapsed={collapsed}
                 onCollapse={setCollapsed}
-                theme="dark"
-                width={230}
+                theme="light"
+                width={248}
             >
                 {rail(collapsed)}
             </Sider>
@@ -277,7 +259,7 @@ export default function AppLayout({ children }) {
                 onClose={() => setNavOpen(false)}
                 width={280}
                 closable={false}
-                styles={{ body: { padding: 0, background: "#001529" } }}
+                styles={{ body: { padding: 0, background: "#fff" } }}
             >
                 {rail(
                     false,
@@ -303,7 +285,7 @@ export default function AppLayout({ children }) {
                     <Button
                         className="pms-nav-toggle"
                         type="text"
-                        icon={<MenuOutlined />}
+                        icon={<NavIcon name="menu" />}
                         aria-label="Open menu"
                         onClick={() => setNavOpen(true)}
                     />
@@ -328,13 +310,13 @@ export default function AppLayout({ children }) {
                                 items: [
                                     {
                                         key: "profile",
-                                        icon: <UserOutlined />,
+                                        icon: <NavIcon name="user" />,
                                         label: "My profile",
                                         onClick: () => navigate("/profile"),
                                     },
                                     {
                                         key: "logout",
-                                        icon: <LogoutOutlined />,
+                                        icon: <NavIcon name="logout" />,
                                         label: "Sign out",
                                         onClick: async () => {
                                             await logout();
@@ -344,7 +326,7 @@ export default function AppLayout({ children }) {
                                 ],
                             }}
                         >
-                            <Space style={{ cursor: "pointer" }}>
+                            <Space className="pms-header-account" style={{ cursor: "pointer" }}>
                                 <UserAvatar user={user} showTooltip={false} />
                                 <span className="pms-header-user">
                                     <div style={{ lineHeight: 1.2 }}>{user?.name}</div>
@@ -374,7 +356,7 @@ export default function AppLayout({ children }) {
                                 onClick={() => go(tab.key)}
                             >
                                 <Badge count={tab.badge || 0} size="small" offset={[2, -2]}>
-                                    {active ? tab.activeIcon ?? tab.icon : tab.icon}
+                                    {tab.icon}
                                 </Badge>
                                 <span>{tab.label}</span>
                             </button>

@@ -3,8 +3,10 @@ import { Empty, List, Modal, Radio, Space, Tag, Typography, message } from "antd
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import api from "~/utils/api";
 import { SECTION_LABELS } from "~/utils/constants";
+import { useAuth } from "~/hooks/useAuth";
 
 export default function TemplatePicker({ form, open, onClose }) {
+    const { user } = useAuth();
     const queryClient = useQueryClient();
     const [chosen, setChosen] = React.useState(null);
 
@@ -18,17 +20,31 @@ export default function TemplatePicker({ form, open, onClose }) {
     const apply = useMutation({
         mutationFn: () => api.post(`pcr-forms/${form.id}/apply-template`, { template: chosen }),
         onSuccess: ({ data }) => {
-            message.success(
-                data.lines === 0
-                    ? "Those lines are already on this form."
-                    : `${data.lines} success indicator${data.lines === 1 ? "" : "s"} inserted — edit them to match your work.`
-            );
+            const already = data.outputs === 0 && data.lines === 0;
+            const summary = already
+                ? "Those lines are already on this form."
+                : data.lines === 0
+                  ? `${data.outputs} MFO${data.outputs === 1 ? "" : "s"} inserted — add the success indicators on the form.`
+                  : `${data.lines} success indicator${data.lines === 1 ? "" : "s"} inserted — edit them to match your work.`;
+
+            message.success(summary);
             queryClient.invalidateQueries({ queryKey: ["pcr-form", String(form.id)] });
             onClose();
         },
     });
 
-    const picked = templates.find((t) => t.key === chosen);
+    const visible = templates.filter((template) => {
+        if (template.for && template.for !== form.type) return false;
+        if (template.roles && !template.roles.includes(user?.role)) return false;
+        if (template.except_roles?.includes(user?.role)) return false;
+
+        return true;
+    });
+    const headingsOnly = visible.length > 0 && visible.every((template) =>
+        template.outputs.every((output) => output.indicators.length === 0)
+    );
+    const picked = visible.find((template) => template.key === chosen);
+    const mfoOnly = picked && picked.outputs.every((output) => output.indicators.length === 0);
 
     return (
         <Modal
@@ -41,12 +57,12 @@ export default function TemplatePicker({ form, open, onClose }) {
             onOk={() => apply.mutate()}
         >
             <Typography.Paragraph type="secondary">
-                The support functions almost everybody commits to, ready-worded. They are inserted
-                as ordinary lines — reword, retarget or delete any of them afterwards. Anything
-                already on the form is not duplicated.
+                {headingsOnly
+                    ? "These support MFOs are inserted as headings only — write the success indicators on the form. Anything already there is not duplicated."
+                    : "The support functions almost everybody commits to, ready-worded. They are inserted as ordinary lines — reword, retarget or delete any of them afterwards. Anything already on the form is not duplicated."}
             </Typography.Paragraph>
 
-            {templates.length === 0 ? (
+            {visible.length === 0 ? (
                 <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="No templates are configured." />
             ) : (
                 <Radio.Group
@@ -55,7 +71,10 @@ export default function TemplatePicker({ form, open, onClose }) {
                     style={{ width: "100%" }}
                 >
                     <Space direction="vertical" size={8} style={{ width: "100%" }}>
-                        {templates.map((template) => (
+                        {visible.map((template) => {
+                            const lines = template.outputs.reduce((sum, output) => sum + output.indicators.length, 0);
+
+                            return (
                             <Radio key={template.key} value={template.key} style={{ alignItems: "flex-start" }}>
                                 <Space direction="vertical" size={0}>
                                     <Space size={6}>
@@ -64,13 +83,16 @@ export default function TemplatePicker({ form, open, onClose }) {
                                             {SECTION_LABELS[template.section] ?? template.section}
                                         </Tag>
                                         <Typography.Text type="secondary">
-                                            {template.outputs.reduce((sum, o) => sum + o.indicators.length, 0)} lines
+                                            {lines > 0
+                                                ? `${lines} line${lines === 1 ? "" : "s"}`
+                                                : `${template.outputs.length} MFOs`}
                                         </Typography.Text>
                                     </Space>
                                     <Typography.Text type="secondary">{template.description}</Typography.Text>
                                 </Space>
                             </Radio>
-                        ))}
+                            );
+                        })}
                     </Space>
                 </Radio.Group>
             )}
@@ -80,16 +102,22 @@ export default function TemplatePicker({ form, open, onClose }) {
                     size="small"
                     style={{ marginTop: 16 }}
                     header={<Typography.Text type="secondary">What gets inserted</Typography.Text>}
-                    dataSource={picked.outputs.flatMap((output) =>
-                        output.indicators.map((line) => ({ title: output.title, line }))
-                    )}
+                    dataSource={
+                        mfoOnly
+                            ? picked.outputs.map((output) => ({ title: output.title, line: null }))
+                            : picked.outputs.flatMap((output) =>
+                                  output.indicators.map((line) => ({ title: output.title, line }))
+                              )
+                    }
                     renderItem={(item) => (
                         <List.Item>
                             <Space direction="vertical" size={0}>
-                                <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                                    {item.title}
-                                </Typography.Text>
-                                <Typography.Text>{item.line}</Typography.Text>
+                                {!mfoOnly && (
+                                    <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                                        {item.title}
+                                    </Typography.Text>
+                                )}
+                                <Typography.Text>{mfoOnly ? item.title : item.line}</Typography.Text>
                             </Space>
                         </List.Item>
                     )}

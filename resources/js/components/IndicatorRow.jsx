@@ -265,7 +265,7 @@ export default function IndicatorRow({
                     computedHint={
                         indicator.children?.length
                             ? "Rolled up from the commitments written against this line."
-                            : "100% once the actual accomplishment is written and a file is attached. A narrative alone stays at 0%."
+                            : "The narrative counts as 30%. A file counts as 70%. Both together reach 100%."
                     }
                 />
             </div>

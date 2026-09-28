@@ -1,10 +1,72 @@
 body {
     margin: 0;
-    background: #f4f6f5;
+    background: #eef1f6;
+    color: #1a2333;
+}
+
+html::-webkit-scrollbar,
+body::-webkit-scrollbar {
+    width: 4px;
+    height: 4px;
+}
+
+html::-webkit-scrollbar-track,
+body::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+html::-webkit-scrollbar-thumb,
+body::-webkit-scrollbar-thumb {
+    background: transparent;
+    border-radius: 999px;
+}
+
+html:hover::-webkit-scrollbar-thumb,
+body:hover::-webkit-scrollbar-thumb,
+html::-webkit-scrollbar-thumb:hover,
+body::-webkit-scrollbar-thumb:hover {
+    background: rgba(61, 74, 99, 0.4);
+}
+
+/* Windows draws up/down arrow buttons unless every button slot is collapsed. */
+*::-webkit-scrollbar-button,
+*::-webkit-scrollbar-button:single-button,
+*::-webkit-scrollbar-button:vertical:start:decrement,
+*::-webkit-scrollbar-button:vertical:end:increment,
+*::-webkit-scrollbar-button:horizontal:start:decrement,
+*::-webkit-scrollbar-button:horizontal:end:increment,
+*::-webkit-scrollbar-button:vertical:start:increment,
+*::-webkit-scrollbar-button:vertical:end:decrement,
+*::-webkit-scrollbar-button:horizontal:start:increment,
+*::-webkit-scrollbar-button:horizontal:end:decrement {
+    display: none;
+    width: 0;
+    height: 0;
+    background: transparent;
+    appearance: none;
+}
+
+*::-webkit-scrollbar-corner {
+    background: transparent;
+}
+
+*::-webkit-scrollbar-thumb {
+    background: transparent;
+    border-radius: 999px;
+}
+
+*:hover::-webkit-scrollbar-thumb,
+*::-webkit-scrollbar-thumb:hover {
+    background: rgba(61, 74, 99, 0.4);
 }
 
 .pms-shell {
     min-height: 100vh;
+    background: #eef1f6;
+}
+
+.pms-shell > .ant-layout {
+    background: #eef1f6;
 }
 
 .pms-brand {
@@ -12,7 +74,7 @@ body {
     align-items: center;
     gap: 10px;
     padding: 18px 16px;
-    color: #fff;
+    color: #1a2333;
     font-weight: 600;
     letter-spacing: 0.02em;
 }
@@ -33,11 +95,13 @@ body {
     align-items: center;
     justify-content: space-between;
     gap: 16px;
-    padding: 0 24px;
-    background: #fff;
-    border-bottom: 1px solid #e6e9e8;
-    /* Ant's Header sets a 64px line-height, which the stacked name and role
-       inherit — two lines of it overflow the bar and clip the name. */
+    padding: 14px 22px 6px;
+    background: rgba(238, 241, 246, 0.9);
+    border-bottom: none;
+    backdrop-filter: blur(12px);
+    /* Ant's Header sets a 64px height and line-height. The stacked name and
+       role need the bar to grow with its content instead of clipping. */
+    height: auto !important;
     line-height: normal;
 }
 
@@ -56,7 +120,16 @@ body {
 }
 
 .pms-content {
-    padding: 24px;
+    padding: 8px 22px 28px;
+}
+
+.pms-content .ant-card {
+    border-color: rgba(30, 58, 114, 0.07);
+    box-shadow: 0 10px 28px rgba(30, 58, 114, 0.045);
+}
+
+.pms-content .ant-alert {
+    border-radius: 16px;
 }
 
 .pms-page-head {
@@ -69,8 +142,10 @@ body {
 
 .pms-page-title {
     margin: 0 0 4px;
-    font-size: 20px;
-    font-weight: 600;
+    font-size: 22px;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    color: #1a2333;
 }
 
 .pms-page-subtitle {
@@ -666,58 +741,78 @@ body {
 .pms-chain .ant-steps-item-description {
     font-size: 12px;
     line-height: 1.4;
-    max-width: 160px;
+    max-width: 180px;
     margin: 0 auto;
+    color: #8b93a7;
+}
+
+.pms-chain .ant-steps-item:not(:has(.is-here)):not(:has(.is-done)) .ant-steps-item-title {
+    color: #8b93a7;
+    font-weight: 500;
+}
+
+.pms-chain .ant-steps-item:has(.is-here) .ant-steps-item-title {
+    color: #1a2333;
 }
 
 .pms-chain .ant-steps-item-content {
     width: 160px !important;
 }
 
+.pms-chain .ant-steps-item-icon {
+    width: 32px !important;
+    height: 32px !important;
+    line-height: 32px !important;
+    background: transparent !important;
+    border: none !important;
+}
+
 .pms-chain .ant-steps-item-tail {
-    top: 14px !important;
+    top: 15px !important;
     margin-inline-start: 0 !important;
-    padding: 0 8px !important;
+    padding: 0 !important;
+}
+
+.pms-chain .ant-steps-item-tail::after {
+    height: 3px !important;
+    border-radius: 999px;
+    background: #e4eaf3 !important;
 }
 
 .pms-chain-dot {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 28px;
-    height: 28px;
+    width: 32px;
+    height: 32px;
     border-radius: 50%;
-    border: 1.5px solid #d9d9d9;
-    background: #fff;
-    color: rgba(0, 0, 0, 0.3);
-    font-size: 13px;
-    transition: border-color 0.2s, color 0.2s, box-shadow 0.2s;
+    border: none;
+    background: #f3f5f8;
+    color: #98a2b3;
+    font-size: 14px;
+    transition: background 0.2s, color 0.2s, box-shadow 0.2s;
 }
 
-/* Where the form actually is — the one thing worth finding at a glance. */
-/* Where the form is now, in the app's own colour rather than the stage's —
-   the ring is a "you are here", not another piece of information. */
-.pms-chain-dot.is-here {
-    border-width: 2px;
-    border-color: #1e3a72 !important;
-    color: #1e3a72 !important;
-    box-shadow: 0 0 0 4px rgba(30, 58, 114, 0.12);
-    background: #fff;
-}
-
+/* Done stages stay quiet so they don't compete with where the form is now. */
 .pms-chain-dot.is-done {
-    border-color: #1e3a72;
+    background: #e7eefb;
+    color: #1e3a72;
+}
+
+.pms-chain-dot.is-here {
     background: #1e3a72;
-    color: #fff;
+    color: #fff !important;
+    box-shadow: 0 0 0 4px rgba(30, 58, 114, 0.14);
 }
 
 .pms-chain-dot.is-skipped {
-    border-style: dashed;
-    color: rgba(0, 0, 0, 0.25);
+    border: 1.5px dashed rgba(30, 58, 114, 0.28);
+    background: #fff;
+    color: #b0b7c6;
 }
 
 .pms-chain .ant-steps-item-finish .ant-steps-item-tail::after {
-    background-color: #1e3a72;
+    background: #1e3a72 !important;
 }
 
 /* A skipped stage is context, not an achievement. */
@@ -786,8 +881,29 @@ body {
     overflow: auto;
     max-height: calc(100vh - 340px);
     min-height: 320px;
-    border: 1px solid #d9d9d9;
-    border-radius: 8px;
+    border: 1px solid rgba(30, 58, 114, 0.06);
+    border-radius: 16px;
+    background: #fff;
+    box-shadow: 0 10px 28px rgba(30, 58, 114, 0.045);
+}
+
+.pms-sheet-wrap::-webkit-scrollbar {
+    width: 4px;
+    height: 4px;
+}
+
+.pms-sheet-wrap::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.pms-sheet-wrap::-webkit-scrollbar-thumb {
+    background: transparent;
+    border-radius: 999px;
+}
+
+.pms-sheet-wrap:hover::-webkit-scrollbar-thumb,
+.pms-sheet-wrap::-webkit-scrollbar-thumb:hover {
+    background: rgba(61, 74, 99, 0.4);
 }
 
 .pms-sheet {
@@ -800,7 +916,7 @@ body {
 
 .pms-sheet th,
 .pms-sheet td {
-    border: 1px solid #d9d9d9;
+    border: 1px solid #c9d2e3;
     padding: 6px 8px;
     vertical-align: top;
     text-align: left;
@@ -809,11 +925,13 @@ body {
 .pms-sheet th {
     text-align: center;
     font-weight: 600;
-    background: #fafafa;
+    letter-spacing: 0.02em;
+    color: #1e3a72;
+    background: #f4f7fc;
     position: sticky;
     z-index: 3;
     /* A sticky cell keeps no border of its own while scrolling. */
-    box-shadow: inset 0 -1px 0 #d9d9d9, inset 0 1px 0 #d9d9d9;
+    box-shadow: inset 0 -1px 0 #c9d2e3, inset 0 1px 0 #c9d2e3;
 }
 
 .pms-sheet thead th {
@@ -822,7 +940,7 @@ body {
 
 /* Nothing scrolls through the heading band. */
 .pms-sheet thead {
-    background: #fafafa;
+    background: #f4f7fc;
 }
 
 
@@ -833,10 +951,15 @@ body {
 }
 
 .pms-sheet-section td {
-    background: #f0f0f0;
+    background: #e7eefb;
+    color: #1e3a72;
     font-weight: 700;
     letter-spacing: 0.03em;
-    box-shadow: inset 0 -1px 0 #d9d9d9;
+    box-shadow: inset 0 -1px 0 #c9d2e3;
+}
+
+.pms-sheet tbody tr:not(.pms-sheet-section):not(.pms-sheet-summary):not(.pms-sheet-total):hover > td {
+    background: #f7f9fc;
 }
 
 .pms-assigned-targets {
@@ -944,7 +1067,7 @@ body {
 }
 
 .pms-cell:not(.is-readonly):hover {
-    box-shadow: inset 0 0 0 1px #d9d9d9;
+    box-shadow: inset 0 0 0 1px rgba(30, 58, 114, 0.18);
 }
 
 .pms-cell:focus {
@@ -1013,6 +1136,127 @@ body {
     color: #cf1322;
 }
 
+.pms-assign-target {
+    margin: 10px 0 0;
+    font-weight: 600;
+    line-height: 1.4;
+}
+
+.pms-cascade-label {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 8px;
+    margin: 18px 0 8px;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: #6b7280;
+}
+
+.pms-cascade-people {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    max-height: 240px;
+    margin-top: 8px;
+    overflow: auto;
+}
+
+.pms-cascade-person {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+    padding: 8px 10px;
+    border: 1px solid #e6e9e8;
+    border-radius: 12px;
+    background: #fff;
+    text-align: left;
+    cursor: pointer;
+}
+
+.pms-cascade-person.is-on {
+    border-color: #1e3a72;
+    background: #f3f6fb;
+}
+
+.pms-cascade-person-text {
+    min-width: 0;
+}
+
+.pms-cascade-person-text strong,
+.pms-cascade-person-text span {
+    display: block;
+}
+
+.pms-cascade-person-text strong {
+    font-size: 14px;
+}
+
+.pms-cascade-person-text span {
+    color: #6b7280;
+    font-size: 12px;
+}
+
+.pms-cascade-check {
+    margin-left: auto;
+    color: #1e3a72;
+}
+
+.pms-cascade-group {
+    margin-bottom: 14px;
+}
+
+.pms-cascade-output {
+    margin-top: 8px;
+    padding: 10px 12px;
+    border: 1px solid #e6e9e8;
+    border-radius: 12px;
+    background: #fff;
+}
+
+.pms-cascade-lines {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin: 8px 0 0 24px;
+}
+
+.pms-cascade-lines .ant-checkbox-wrapper {
+    align-items: flex-start;
+}
+
+.pms-cascade-foot {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+.pms-cascade-foot strong,
+.pms-cascade-foot span {
+    display: block;
+}
+
+.pms-cascade-foot span {
+    color: #6b7280;
+    font-size: 12px;
+}
+
+.pms-cascade-foot-actions {
+    display: flex;
+    flex: none;
+    gap: 8px;
+}
+
+@media (max-width: 520px) {
+    .pms-cascade-drawer .ant-drawer-content-wrapper {
+        width: 100% !important;
+    }
+}
+
 /* The sheet opened full width: give the grid the whole drawer. */
 .pms-sheet-drawer .ant-drawer-body {
     padding: 16px;
@@ -1044,14 +1288,16 @@ body {
 
 /* The bands the paper form closes each block with. */
 .pms-sheet-summary td {
-    background: #fafafa;
+    background: #f4f7fc;
+    color: #1e3a72;
     font-weight: 600;
     font-size: 11.5px;
     letter-spacing: 0.02em;
 }
 
 .pms-sheet-total td {
-    background: #f0f0f0;
+    background: #e7eefb;
+    color: #1e3a72;
     font-weight: 700;
 }
 
@@ -1060,12 +1306,12 @@ body {
     overflow: hidden;
     white-space: nowrap;
     cursor: pointer;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    border-bottom: 1px solid rgba(30, 58, 114, 0.08);
     transition: background 0.15s;
 }
 
 .pms-brand:hover {
-    background: rgba(255, 255, 255, 0.05);
+    background: rgba(30, 58, 114, 0.04);
 }
 
 .pms-brand.is-collapsed {
@@ -1090,7 +1336,7 @@ body {
     font-size: 10.5px;
     font-weight: 400;
     letter-spacing: 0.02em;
-    color: rgba(255, 255, 255, 0.55);
+    color: #8b93a7;
     overflow: hidden;
     text-overflow: ellipsis;
 }
@@ -1100,9 +1346,10 @@ body {
     width: 36px;
     height: 36px;
     object-fit: contain;
-    background: #fff;
-    border-radius: 8px;
+    background: #f4f7fc;
+    border-radius: 12px;
     padding: 3px;
+    box-shadow: inset 0 0 0 1px rgba(30, 58, 114, 0.08);
 }
 
 /* A cell whose save is still travelling. */
@@ -1289,6 +1536,82 @@ body {
     fill: #52514e;
 }
 
+.viz-radar-caption {
+    display: flex;
+    justify-content: center;
+    flex-wrap: wrap;
+    gap: 8px 18px;
+}
+
+.viz-radar-caption span {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    min-width: 72px;
+    font-size: 12px;
+    color: #52514e;
+}
+
+.viz-radar-caption strong {
+    font-size: 14px;
+    color: #0b0b0b;
+    font-variant-numeric: tabular-nums;
+}
+
+.viz-donut {
+    display: flex;
+    align-items: center;
+    gap: 8px 12px;
+}
+
+.viz-donut .ant-plot,
+.viz-donut > div:first-child {
+    flex: 1;
+    min-width: 0;
+}
+
+.viz-donut-legend {
+    flex: 0 1 190px;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 2px;
+    margin: 0;
+    min-width: 0;
+}
+
+.viz-donut-legend .viz-legend-item {
+    display: grid;
+    grid-template-columns: 10px minmax(0, 1fr) auto;
+    gap: 8px;
+    min-height: 22px;
+}
+
+.viz-donut-legend .viz-legend-label {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.viz-donut-legend .viz-legend-item strong {
+    font-variant-numeric: tabular-nums;
+    color: #0b0b0b;
+}
+
+.viz-legend-item.is-zero {
+    opacity: 0.45;
+}
+
+@media (max-width: 520px) {
+    .viz-donut {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .viz-donut-legend {
+        flex-basis: auto;
+    }
+}
+
 .viz-tooltip {
     position: absolute;
     transform: translate(-50%, -100%);
@@ -1309,6 +1632,27 @@ body {
 
 .viz-tile .ant-card-body {
     padding: 14px 16px;
+}
+
+.viz-tile-top {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 8px;
+}
+
+.viz-tile-icon {
+    display: grid;
+    place-items: center;
+    width: 34px;
+    height: 34px;
+    border-radius: 12px;
+    font-size: 16px;
+    flex: none;
+}
+
+.viz-tile-rich .ant-card-body {
+    padding: 16px 18px 14px;
 }
 
 .viz-tile-label {
@@ -1384,6 +1728,116 @@ body {
     justify-content: space-between;
     gap: 12px;
     margin-bottom: 10px;
+}
+
+.pms-hero {
+    position: relative;
+    overflow: hidden;
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 24px;
+    margin-bottom: 22px;
+    padding: 28px 32px;
+    border-radius: 22px;
+    color: #fff;
+    background:
+        radial-gradient(circle at 88% 0%, rgba(255, 255, 255, 0.18), transparent 26%),
+        radial-gradient(circle at 8% 120%, rgba(140, 176, 255, 0.35), transparent 42%),
+        linear-gradient(115deg, #16315f 0%, #1e3a72 46%, #3c62b0 100%);
+    box-shadow: 0 16px 40px rgba(30, 58, 114, 0.16);
+}
+
+.pms-hero::before,
+.pms-hero::after {
+    content: "";
+    position: absolute;
+    border-radius: 50%;
+    pointer-events: none;
+}
+
+.pms-hero::before {
+    width: 160px;
+    height: 160px;
+    right: 28px;
+    bottom: -78px;
+    background: rgba(255, 255, 255, 0.08);
+}
+
+.pms-hero::after {
+    width: 220px;
+    height: 220px;
+    right: -48px;
+    top: -90px;
+    border: 1px solid rgba(255, 255, 255, 0.16);
+}
+
+.pms-hero > * {
+    position: relative;
+    z-index: 1;
+}
+
+.pms-hero-kicker {
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: rgba(255, 255, 255, 0.72);
+}
+
+.pms-hero h1 {
+    margin: 8px 0 6px;
+    font-size: 28px;
+    font-weight: 700;
+    letter-spacing: -0.03em;
+    line-height: 1.15;
+    color: #fff;
+}
+
+.pms-hero p {
+    margin: 0;
+    max-width: 52ch;
+    color: rgba(255, 255, 255, 0.8);
+    font-size: 14px;
+    line-height: 1.5;
+}
+
+.pms-hero-extra {
+    display: flex;
+    flex: none;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 10px;
+    max-width: min(100%, 420px);
+    padding: 12px;
+    border-radius: 16px;
+    background: rgba(255, 255, 255, 0.96);
+}
+
+@media (max-width: 991px) {
+    .pms-hero {
+        flex-direction: column;
+        align-items: stretch;
+        padding: 20px;
+        border-radius: 16px;
+    }
+
+    .pms-hero h1 {
+        font-size: 22px;
+    }
+
+    .pms-hero-extra {
+        align-items: stretch;
+        max-width: none;
+    }
+
+    .pms-hero-extra .ant-segmented {
+        max-width: 100%;
+    }
+
+    .pms-hero-extra .ant-segmented-group {
+        flex-wrap: wrap;
+    }
 }
 
 .viz-card {
@@ -1615,8 +2069,61 @@ body {
 
 .pms-shell > .ant-layout-sider {
     position: sticky;
-    top: 0;
-    height: 100vh;
+    top: 12px;
+    height: calc(100vh - 24px);
+    margin: 12px 0 12px 12px;
+    overflow: hidden;
+    border-radius: 20px;
+    background: #fff;
+    border: 1px solid rgba(30, 58, 114, 0.06);
+    box-shadow: 0 10px 30px rgba(30, 58, 114, 0.06);
+}
+
+.pms-shell > .ant-layout-sider,
+.pms-shell > .ant-layout-sider.ant-layout-sider-dark,
+.pms-shell > .ant-layout-sider.ant-layout-sider-light,
+.pms-shell .ant-layout-sider-children,
+.pms-sider,
+.pms-sider-nav,
+.pms-sider .ant-menu,
+.pms-sider .ant-menu-sub,
+.pms-sider .ant-menu-inline,
+.pms-nav-drawer .ant-drawer-content,
+.pms-nav-drawer .ant-drawer-body {
+    background: #fff !important;
+}
+
+.pms-sider .ant-menu-light,
+.pms-sider .ant-menu-dark {
+    border-inline-end: none !important;
+}
+
+.pms-sider .ant-menu-item-selected {
+    font-weight: 600;
+}
+
+.pms-shell .ant-layout-sider-trigger {
+    position: absolute;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    width: auto !important;
+    background: #f7f8fc !important;
+    color: #1e3a72 !important;
+    border-top: 1px solid rgba(30, 58, 114, 0.06);
+}
+
+@media (min-width: 992px) {
+    .pms-shell.ant-layout-has-sider {
+        align-items: flex-start;
+    }
+
+    .pms-shell > .ant-layout {
+        flex: 1;
+        margin: 12px;
+        min-height: calc(100vh - 24px);
+        background: transparent;
+    }
 }
 
 .pms-shell .ant-layout-sider-children {
@@ -1637,18 +2144,10 @@ body {
     min-height: 0;
     overflow-y: auto;
     overscroll-behavior: contain;
-    scrollbar-width: thin;
-    scrollbar-color: transparent transparent;
-    scrollbar-gutter: stable;
-}
-
-.pms-sider-nav:hover,
-.pms-sider-nav:focus-within {
-    scrollbar-color: rgba(255, 255, 255, 0.28) transparent;
 }
 
 .pms-sider-nav::-webkit-scrollbar {
-    width: 6px;
+    width: 4px;
 }
 
 .pms-sider-nav::-webkit-scrollbar-track {
@@ -1661,8 +2160,8 @@ body {
 }
 
 .pms-sider-nav:hover::-webkit-scrollbar-thumb,
-.pms-sider-nav:focus-within::-webkit-scrollbar-thumb {
-    background: rgba(255, 255, 255, 0.28);
+.pms-sider-nav::-webkit-scrollbar-thumb:hover {
+    background: rgba(61, 74, 99, 0.4);
 }
 
 .pms-sider-nav::before,
@@ -1680,17 +2179,17 @@ body {
 .pms-sider-nav::before {
     top: 0;
     margin-bottom: -14px;
-    background: linear-gradient(#001529, rgba(0, 21, 41, 0));
+    background: linear-gradient(#fff, rgba(255, 255, 255, 0));
 }
 
 .pms-sider-nav::after {
     bottom: 0;
     margin-top: -14px;
-    background: linear-gradient(rgba(0, 21, 41, 0), #001529);
+    background: linear-gradient(rgba(255, 255, 255, 0), #fff);
 }
 
 .pms-sider-foot {
-    border-top: 1px solid rgba(255, 255, 255, 0.08);
+    border-top: 1px solid rgba(30, 58, 114, 0.08);
     padding-bottom: 48px;
 }
 
@@ -1701,7 +2200,7 @@ body {
     padding: 10px 16px 8px;
     font-size: 11px;
     line-height: 1.35;
-    color: rgba(255, 255, 255, 0.45);
+    color: #8b93a7;
 }
 
 .pms-sider-cycle span {
@@ -1710,7 +2209,7 @@ body {
 }
 
 .pms-sider-cycle strong {
-    color: rgba(255, 255, 255, 0.85);
+    color: #1a2333;
     font-size: 12.5px;
     font-weight: 600;
 }
@@ -1725,7 +2224,7 @@ body {
 }
 
 .pms-sider-user:hover {
-    background: rgba(255, 255, 255, 0.06);
+    background: rgba(30, 58, 114, 0.05);
 }
 
 .pms-sider-who {
@@ -1736,7 +2235,7 @@ body {
 }
 
 .pms-sider-name {
-    color: #fff;
+    color: #1a2333;
     font-size: 13px;
     font-weight: 600;
     overflow: hidden;
@@ -1745,7 +2244,7 @@ body {
 }
 
 .pms-sider-role {
-    color: rgba(255, 255, 255, 0.5);
+    color: #8b93a7;
     font-size: 11.5px;
 }
 
@@ -1789,11 +2288,22 @@ body {
 }
 
 .pms-header-cycle {
-    background: #eef3fc;
+    background: #e7eefb;
     color: #1e3a72;
     font-weight: 600;
     font-size: 12px;
     padding-inline: 10px;
+    border-radius: 999px;
+}
+
+.pms-header-account {
+    padding: 4px 10px 4px 4px;
+    border-radius: 999px;
+    transition: background 0.15s;
+}
+
+.pms-header-account:hover {
+    background: rgba(30, 58, 114, 0.06);
 }
 
 .pms-nav-toggle {
@@ -2041,6 +2551,12 @@ body {
     justify-content: flex-end;
     max-width: 100%;
     overflow-x: auto;
+}
+
+.pms-form-tools .ant-btn,
+.pms-form-actions .ant-btn,
+.pms-commit-actions .ant-btn {
+    border-radius: 999px;
 }
 
 .pms-form-actions:not(:has(.ant-btn)) {
@@ -2371,13 +2887,70 @@ body {
     width: max-content;
 }
 
+.pms-line-tabs.ant-tabs {
+    color: #5c6578;
+}
+
+.pms-line-tabs .ant-tabs-nav {
+    margin-bottom: 0;
+}
+
+.pms-line-tabs .ant-tabs-nav::before {
+    border-bottom-color: rgba(30, 58, 114, 0.08);
+}
+
+.pms-line-tabs .ant-tabs-tab {
+    padding: 10px 0;
+}
+
+.pms-line-tabs .ant-tabs-tab-btn {
+    color: #5c6578;
+    font-weight: 500;
+}
+
+.pms-line-tabs .ant-tabs-tab-active .ant-tabs-tab-btn {
+    color: #1e3a72;
+    font-weight: 600;
+}
+
+.pms-line-tabs .ant-tabs-ink-bar {
+    background: #1e3a72;
+    height: 2px;
+}
+
+.pms-line-tabs .ant-tabs-content-holder {
+    display: none;
+}
+
+.ant-card-head .pms-line-tabs .ant-tabs-nav::before {
+    border-bottom: none;
+}
+
+.pms-report-bar {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 16px;
+    margin-bottom: 8px;
+}
+
+.pms-report-bar .pms-line-tabs {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+.pms-report-bar .ant-space {
+    flex: 0 0 auto;
+    margin-bottom: 8px;
+}
+
 .pms-report-tabs {
     overflow-x: auto;
     margin-bottom: 12px;
 }
 
-.pms-report-tabs .ant-segmented {
-    width: max-content;
+.pms-report-tabs .pms-line-tabs {
+    min-width: max-content;
 }
 
 .pms-report-tools {
@@ -2499,6 +3072,44 @@ body {
     font-weight: 650;
 }
 
+.pms-tabbar .pms-nav-icon {
+    width: 22px;
+    height: 22px;
+    color: #98a2b3;
+}
+
+.pms-tabbar button.is-active .pms-nav-icon {
+    color: #1e3a72;
+}
+
+.pms-nav-icon {
+    display: block;
+    width: 18px;
+    height: 18px;
+    flex: none;
+}
+
+.pms-sider .ant-menu-item .pms-nav-icon,
+.pms-sider .ant-menu-submenu-title .pms-nav-icon {
+    color: #98a2b3;
+}
+
+.pms-sider .ant-menu-item-selected .pms-nav-icon,
+.pms-sider .ant-menu-item-active .pms-nav-icon,
+.pms-sider .ant-menu-submenu-selected > .ant-menu-submenu-title .pms-nav-icon,
+.pms-sider .ant-menu-submenu-title:hover .pms-nav-icon {
+    color: #1e3a72;
+}
+
+.pms-sider .ant-menu-item-danger .pms-nav-icon {
+    color: #d03b3b;
+}
+
+.pms-bell-btn .pms-nav-icon,
+.pms-nav-toggle .pms-nav-icon {
+    color: #3d4a63;
+}
+
 .pms-tabbar .anticon {
     font-size: 20px;
 }
@@ -2604,18 +3215,49 @@ body {
     .pms-desktop-only {
         display: block !important;
         max-height: none;
+        border-radius: 0;
+        box-shadow: none;
     }
 }
 
-/* The rail when it is minimised: icons only, but nothing lost. */
+/* The rail when it is minimised: icons only, pinned to the middle of the row.
+   Ant Design centres with padding and keeps the label in the flow at opacity 0,
+   so a flex override leaves the icon sitting left of the highlight. */
+.ant-layout-sider-collapsed .pms-sider .ant-menu-title-content,
+.ant-layout-sider-collapsed .pms-sider .ant-menu-item .ant-menu-item-icon + span,
+.ant-layout-sider-collapsed .pms-sider .ant-menu-submenu-title .ant-menu-item-icon + span,
+.ant-layout-sider-collapsed .pms-sider .ant-menu-submenu-arrow {
+    display: none !important;
+    width: 0 !important;
+    margin: 0 !important;
+    opacity: 0 !important;
+}
+
+.ant-layout-sider-collapsed .pms-sider .ant-menu-item,
+.ant-layout-sider-collapsed .pms-sider .ant-menu-submenu-title {
+    position: relative !important;
+}
+
+.ant-layout-sider-collapsed .pms-sider .ant-menu-item > .pms-nav-icon,
+.ant-layout-sider-collapsed .pms-sider .ant-menu-submenu-title > .pms-nav-icon {
+    position: absolute !important;
+    inset: 0 !important;
+    width: 18px !important;
+    height: 18px !important;
+    margin: auto !important;
+    line-height: 0 !important;
+    transform: none !important;
+}
+
 .ant-layout-sider-collapsed .pms-brand-logo {
     width: 34px;
     height: 34px;
 }
 
-.ant-layout-sider-collapsed .pms-sider-nav .anticon,
-.ant-layout-sider-collapsed .pms-sider-foot .anticon {
-    font-size: 17px;
+.ant-layout-sider-collapsed .pms-sider-nav .pms-nav-icon,
+.ant-layout-sider-collapsed .pms-sider-foot .pms-nav-icon {
+    width: 18px;
+    height: 18px;
 }
 
 .pms-sider-user.is-collapsed {
@@ -2628,12 +3270,12 @@ body {
 }
 
 /* Collapsed, the count has nowhere to sit — a dot on the bell carries it. */
-.ant-layout-sider-collapsed .pms-has-unread .anticon {
+.ant-layout-sider-collapsed .pms-has-unread .pms-nav-icon {
     position: relative;
     overflow: visible;
 }
 
-.ant-layout-sider-collapsed .pms-has-unread .anticon::after {
+.ant-layout-sider-collapsed .pms-has-unread .pms-nav-icon::after {
     content: "";
     position: absolute;
     top: -2px;
@@ -2642,5 +3284,5 @@ body {
     height: 8px;
     border-radius: 50%;
     background: #ff4d4f;
-    box-shadow: 0 0 0 2px #001529;
+    box-shadow: 0 0 0 2px #fff;
 }

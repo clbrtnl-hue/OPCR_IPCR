@@ -40,7 +40,7 @@ class PcrDeliveryRollupTest extends PmsTestCase
             'school_year_id' => $year->id, 'status' => 'published',
             'user_id' => null,
         ]);
-        $target = $this->makeIndicator($opcr, 'core');
+        $target = $this->makeIndicator($opcr, 'core', ['rating_period_id' => $period->id]);
 
         return compact('year', 'period', 'later', 'head', 'faculty', 'office', 'elsewhere', 'opcr', 'target');
     }

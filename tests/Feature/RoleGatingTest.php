@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Models\User;
 use Tests\PmsTestCase;
 
 class RoleGatingTest extends PmsTestCase
@@ -42,11 +43,34 @@ class RoleGatingTest extends PmsTestCase
         $this->json($method, $url)->assertOk();
     }
 
-    public function test_only_qa_can_post_ratings(): void
+    public function test_a_rating_is_refused_unless_this_form_is_waiting_for_you(): void
     {
         $this->actingAsRole('program_head');
 
-        $this->postJson('/api/pcr-ratings', [])->assertStatus(403);
+        $this->postJson('/api/pcr-ratings', [])->assertStatus(422);
+
+        $year   = $this->makeSchoolYear();
+        $period = $this->makePeriod($year);
+        $unit   = $this->makeUnit();
+        $owner  = User::factory()->create(['role' => 'employee', 'org_unit_id' => $unit->id]);
+        $form   = $this->makeForm([
+            'school_year_id' => $year->id,
+            'org_unit_id'    => $unit->id,
+            'user_id'        => $owner->id,
+            'status'         => 'draft',
+        ]);
+        $line = $this->makeIndicator($form);
+
+        $this->actingAsRole('program_head');
+
+        $this->postJson('/api/pcr-ratings', [
+            'form_id'          => $form->id,
+            'rating_period_id' => $period->id,
+            'ratings'          => [
+                ['indicator_id' => $line->id, 'q' => 4, 'e' => 4, 't' => 4],
+            ],
+        ])->assertStatus(409)
+            ->assertJsonPath('message', 'This form is not waiting for a rating yet.');
     }
 
     public function test_reports_are_closed_to_an_employee_but_open_to_the_president(): void

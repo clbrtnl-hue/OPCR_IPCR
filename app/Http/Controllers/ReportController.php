@@ -176,14 +176,16 @@ class ReportController extends Controller
                 $units,
                 $orgUnits
             ),
-            'heads'       => $this->headsFor($units, $orgUnits),
+            'heads'       => $this->leadersFor($units, $orgUnits, 'head_user_id', 'head'),
+            'vps'         => $this->leadersFor($units, $orgUnits, 'vp_user_id', 'vp'),
         ];
     }
 
     public function mySummary(Request $request)
     {
         $data = $request->validate([
-            'school_year_id' => 'nullable|integer|exists:school_years,id',
+            'school_year_id'   => 'nullable|integer|exists:school_years,id',
+            'rating_period_id' => 'nullable|integer|exists:rating_periods,id',
         ]);
 
         $user = $request->user();
@@ -208,8 +210,17 @@ class ReportController extends Controller
                 ->get();
         }
 
-        $work      = $this->commitmentsFor($forms, null);
+        $periodId = $data['rating_period_id'] ?? null;
+
+        if ($periodId) {
+            $forms = $forms
+                ->filter(fn ($form) => $form->rating_period_id === null || (int) $form->rating_period_id === (int) $periodId)
+                ->values();
+        }
+
+        $work      = $this->commitmentsFor($forms, $periodId);
         $summaries = PcrPeriodSummary::whereIn('form_id', $forms->pluck('id'))
+            ->when($periodId, fn ($q, $p) => $q->where('rating_period_id', $p))
             ->orderByDesc('rating_period_id')
             ->get();
 
@@ -248,7 +259,7 @@ class ReportController extends Controller
         $data = $request->validate([
             'school_year_id'   => 'required|integer|exists:school_years,id',
             'rating_period_id' => 'nullable|integer|exists:rating_periods,id',
-            'table'            => ['required', Rule::in(['units', 'forms', 'commitments', 'ratings', 'people', 'heads'])],
+            'table'            => ['required', Rule::in(['units', 'forms', 'commitments', 'ratings', 'people', 'heads', 'vps'])],
             'format'           => ['nullable', Rule::in(['csv', 'xlsx'])],
         ]);
 
@@ -409,14 +420,16 @@ class ReportController extends Controller
             ];
         }
 
-        if ($table === 'heads') {
+        if ($table === 'heads' || $table === 'vps') {
+            $nameKey = $table === 'heads' ? 'head' : 'vp';
+
             return [
-                'title'   => 'By head',
-                'headers' => ['Head', 'Position', 'Unit', 'Forms', 'Submitted', 'Rated', 'Commitments', 'Progress %', 'Overdue', 'Average', 'Adjectival'],
-                'rows'    => collect($payload['heads'])->map(fn ($head) => [
-                    $head['head'], $head['position'], $head['unit'], $head['forms'], $head['submitted'], $head['rated'],
-                    $head['commitments'], $head['progress_pct'] ?? '', $head['overdue'],
-                    $score($head['average']), $head['adjectival'] ?? 'Not yet rated',
+                'title'   => $table === 'heads' ? 'By head' : 'By VP',
+                'headers' => [$table === 'heads' ? 'Head' : 'VP', 'Position', 'Unit', 'Forms', 'Submitted', 'Rated', 'Commitments', 'Progress %', 'Overdue', 'Average', 'Adjectival'],
+                'rows'    => collect($payload[$table])->map(fn ($row) => [
+                    $row[$nameKey], $row['position'], $row['unit'], $row['forms'], $row['submitted'], $row['rated'],
+                    $row['commitments'], $row['progress_pct'] ?? '', $row['overdue'],
+                    $score($row['average']), $row['adjectival'] ?? 'Not yet rated',
                 ])->all(),
             ];
         }
@@ -630,25 +643,26 @@ class ReportController extends Controller
         })->values();
     }
 
-    private function headsFor($units, $orgUnits): array
+    /** One row per unit that names a head or a VP. The same person may cover several units. */
+    private function leadersFor($units, $orgUnits, string $column, string $nameKey): array
     {
-        $heads = $orgUnits->whereNotNull('head_user_id');
+        $leaders = $orgUnits->whereNotNull($column);
 
-        $people = User::whereIn('id', $heads->pluck('head_user_id')->unique())
+        $people = User::whereIn('id', $leaders->pluck($column)->unique())
             ->get(['id', 'name', 'position_title'])
             ->keyBy('id');
 
         $byUnit = collect($units)->keyBy('id');
 
-        return $heads
-            ->map(function ($unit) use ($byUnit, $people) {
-                $row  = $byUnit[$unit->id] ?? null;
-                $head = $people[$unit->head_user_id] ?? null;
+        return $leaders
+            ->map(function ($unit) use ($byUnit, $people, $column, $nameKey) {
+                $row    = $byUnit[$unit->id] ?? null;
+                $person = $people[$unit->{$column}] ?? null;
 
                 return [
                     'id'           => $unit->id,
-                    'head'         => $head?->name,
-                    'position'     => $head?->position_title,
+                    $nameKey       => $person?->name,
+                    'position'     => $person?->position_title,
                     'unit'         => $unit->name,
                     'unit_code'    => $unit->code,
                     'forms'        => $row['total_forms'] ?? 0,

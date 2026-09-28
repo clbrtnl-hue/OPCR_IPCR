@@ -50,6 +50,10 @@ class PcrAssignmentController extends Controller
             return $problem;
         }
 
+        if ($closed = $this->accountableClosed($parent->form)) {
+            return $closed;
+        }
+
         $periodId = $request->input('rating_period_id');
 
         if ($periodId) {
@@ -66,7 +70,7 @@ class PcrAssignmentController extends Controller
             $periodId = PcrWorkflow::periodForWrite($parent->form);
         }
 
-        if ($message = PcrWorkflow::lockMessage($actor, $periodId ? (int) $periodId : null)) {
+        if ($message = PcrWorkflow::formLockMessage($actor, $parent->form, $periodId ? (int) $periodId : null)) {
             return response()->json(['message' => $message], 409);
         }
 
@@ -108,6 +112,10 @@ class PcrAssignmentController extends Controller
             return $problem;
         }
 
+        if ($closed = $this->accountableClosed($form)) {
+            return $closed;
+        }
+
         $periodId = $request->input('rating_period_id')
             ?: $parent->rating_period_id
             ?: PcrWorkflow::periodForWrite($form);
@@ -118,7 +126,7 @@ class PcrAssignmentController extends Controller
             ], 422);
         }
 
-        if ($message = PcrWorkflow::lockMessage($actor, $periodId ? (int) $periodId : null)) {
+        if ($message = PcrWorkflow::formLockMessage($actor, $form, $periodId ? (int) $periodId : null)) {
             return response()->json(['message' => $message], 409);
         }
 
@@ -165,6 +173,10 @@ class PcrAssignmentController extends Controller
             return $problem;
         }
 
+        if ($closed = $this->accountableClosed($form)) {
+            return $closed;
+        }
+
         $periodId = $data['rating_period_id'] ?? null;
 
         if ($periodId) {
@@ -181,7 +193,7 @@ class PcrAssignmentController extends Controller
             $periodId = PcrWorkflow::periodForWrite($form);
         }
 
-        if ($message = PcrWorkflow::lockMessage($actor, $periodId ? (int) $periodId : null)) {
+        if ($message = PcrWorkflow::formLockMessage($actor, $form, $periodId ? (int) $periodId : null)) {
             return response()->json(['message' => $message], 409);
         }
 
@@ -270,6 +282,18 @@ class PcrAssignmentController extends Controller
             'user_ids'   => 'required|array|min:1',
             'user_ids.*' => 'integer|exists:users,id',
         ]);
+    }
+
+    /** A published OPCR keeps the people already named. No new assign or cascade. */
+    private function accountableClosed(PcrForm $form)
+    {
+        if ($form->type !== 'opcr' || ! in_array($form->status, ['published', 'qa_rating', 'rated', 'final'], true)) {
+            return null;
+        }
+
+        return response()->json([
+            'message' => 'This OPCR is already published. Accountable people can no longer be assigned.',
+        ], 409);
     }
 
     /**
@@ -372,19 +396,16 @@ class PcrAssignmentController extends Controller
 
         $actor = $request->user();
 
-        if (in_array($actor->role, WorkflowSettings::REVIEW_ONLY_ROLES, true)) {
-            return $this->reviewOnly();
-        }
-
         if (! PcrWorkflow::owns($actor, $parent->output->form)) {
             return response()->json([
                 'message' => 'Only the person who handed this out can take it back.',
             ], 403);
         }
 
-        if ($message = PcrWorkflow::lockMessage(
+        if ($message = PcrWorkflow::formLockMessage(
             $actor,
-            PcrWorkflow::periodForWrite($parent->output->form, $child->rating_period_id)
+            $parent->output->form,
+            $child->rating_period_id
         )) {
             return response()->json(['message' => $message], 409);
         }
@@ -402,19 +423,16 @@ class PcrAssignmentController extends Controller
     {
         $actor = $request->user();
 
-        if (in_array($actor->role, WorkflowSettings::REVIEW_ONLY_ROLES, true)) {
-            return $this->reviewOnly();
-        }
-
         if (! PcrWorkflow::owns($actor, $assignment->indicator->output->form)) {
             return response()->json([
                 'message' => 'Only the person who handed this out can take it back.',
             ], 403);
         }
 
-        if ($message = PcrWorkflow::lockMessage(
+        if ($message = PcrWorkflow::formLockMessage(
             $actor,
-            PcrWorkflow::periodForWrite($assignment->indicator->output->form, $assignment->rating_period_id)
+            $assignment->indicator->output->form,
+            $assignment->rating_period_id
         )) {
             return response()->json(['message' => $message], 409);
         }

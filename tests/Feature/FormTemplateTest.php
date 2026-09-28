@@ -149,12 +149,77 @@ class FormTemplateTest extends PmsTestCase
 
         $this->actingAsRole('president', ['org_unit_id' => $unit->id]);
 
-        $this->postJson("/api/pcr-forms/{$opcr->id}/apply-template", ['template' => 'support-office'])
-            ->assertOk();
+        $this->postJson("/api/pcr-forms/{$opcr->id}/apply-template", ['template' => 'opcr-support'])
+            ->assertOk()
+            ->assertJsonPath('outputs', 5)
+            ->assertJsonPath('lines', 0);
 
-        $lines = PcrIndicator::whereHas('output', fn ($q) => $q->where('form_id', $opcr->id))->get();
+        $outputs = PcrOutput::where('form_id', $opcr->id)->get();
 
-        $this->assertNotEmpty($lines);
-        $this->assertTrue($lines->every(fn ($line) => $line->rating_period_id === null));
+        $this->assertCount(5, $outputs);
+        $this->assertTrue($outputs->every(fn ($output) => $output->section === 'support'));
+        $this->assertSame(
+            0,
+            PcrIndicator::whereIn('output_id', $outputs->pluck('id'))->count()
+        );
+
+        $this->postJson("/api/pcr-forms/{$opcr->id}/apply-template", ['template' => 'support-standard'])
+            ->assertStatus(422);
+    }
+
+    public function test_a_head_gets_the_head_support_mfos_only(): void
+    {
+        ['unit' => $unit, 'year' => $year, 'period' => $period, 'faculty' => $faculty, 'form' => $employeeForm] = $this->draft();
+
+        $head = User::factory()->create(['role' => 'program_head', 'org_unit_id' => $unit->id]);
+        $ipcr = $this->makeForm([
+            'org_unit_id'      => $unit->id,
+            'school_year_id'   => $year->id,
+            'user_id'          => $head->id,
+            'rating_period_id' => $period->id,
+        ]);
+
+        $this->actingAsUser($head);
+
+        $this->postJson("/api/pcr-forms/{$ipcr->id}/apply-template", ['template' => 'support-head'])
+            ->assertOk()
+            ->assertJsonPath('outputs', 8)
+            ->assertJsonPath('lines', 0);
+
+        $this->postJson("/api/pcr-forms/{$ipcr->id}/apply-template", ['template' => 'support-standard'])
+            ->assertStatus(422);
+
+        $this->actingAsUser($faculty);
+
+        $this->postJson("/api/pcr-forms/{$employeeForm->id}/apply-template", ['template' => 'support-head'])
+            ->assertStatus(422);
+    }
+
+    public function test_a_vp_gets_the_vp_support_mfos_only(): void
+    {
+        ['unit' => $unit, 'year' => $year, 'period' => $period, 'faculty' => $faculty, 'form' => $employeeForm] = $this->draft();
+
+        $vp = User::factory()->create(['role' => 'vp', 'org_unit_id' => $unit->id]);
+        $ipcr = $this->makeForm([
+            'org_unit_id'      => $unit->id,
+            'school_year_id'   => $year->id,
+            'user_id'          => $vp->id,
+            'rating_period_id' => $period->id,
+        ]);
+
+        $this->actingAsUser($vp);
+
+        $this->postJson("/api/pcr-forms/{$ipcr->id}/apply-template", ['template' => 'support-vp'])
+            ->assertOk()
+            ->assertJsonPath('outputs', 6)
+            ->assertJsonPath('lines', 0);
+
+        $this->postJson("/api/pcr-forms/{$ipcr->id}/apply-template", ['template' => 'support-standard'])
+            ->assertStatus(422);
+
+        $this->actingAsUser($faculty);
+
+        $this->postJson("/api/pcr-forms/{$employeeForm->id}/apply-template", ['template' => 'support-vp'])
+            ->assertStatus(422);
     }
 }

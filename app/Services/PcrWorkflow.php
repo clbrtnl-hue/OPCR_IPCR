@@ -288,6 +288,28 @@ class PcrWorkflow
         return "{$period->label} is locked. It is view-only now — ask an administrator to unlock it.";
     }
 
+    /**
+     * An IPCR is locked with its own review period. A year-wide OPCR stays
+     * writable until every period of that school year is locked.
+     */
+    public static function formLockMessage(User $user, PcrForm $form, ?int $explicit = null): ?string
+    {
+        if ($form->type !== 'opcr') {
+            return self::lockMessage($user, self::periodForWrite($form, $explicit));
+        }
+
+        $periods = RatingPeriod::where('school_year_id', $form->school_year_id)->orderBy('seq')->get();
+
+        if ($periods->isEmpty() || $periods->contains(fn (RatingPeriod $period) => ! $period->isLockedFor($user))) {
+            return null;
+        }
+
+        $form->loadMissing('schoolYear');
+        $label = $form->schoolYear?->label ?: 'This school year';
+
+        return "{$label} is closed. It is view-only now — ask an administrator to unlock a review period.";
+    }
+
     /** Only a published OPCR is something other people's IPCRs may point at. */
     public static function opcrIsVisible(PcrForm $form): bool
     {

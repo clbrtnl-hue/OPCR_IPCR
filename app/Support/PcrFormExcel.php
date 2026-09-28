@@ -61,73 +61,139 @@ class PcrFormExcel
         $this->page('OPCR', [
             'A' => 30.86, 'B' => 10.0, 'C' => 10.43, 'D' => 9.43, 'E' => 13.0,
             'F' => 21.43, 'G' => 19.29, 'H' => 8.71, 'I' => 7.29, 'J' => 7.43,
-            'K' => 7.29, 'L' => 4.29, 'M' => 3.29, 'N' => 13.71,
+            'K' => 7.29, 'L' => 4.29, 'M' => 3.29, 'N' => 13.71, 'O' => 9.14,
         ]);
+        $this->sheet->getDefaultRowDimension()->setRowHeight(12.75);
+        $this->sheet->getPageSetup()
+            ->setPaperSize(PageSetup::PAPERSIZE_FOLIO)
+            ->setFitToWidth(1)
+            ->setFitToHeight(1);
+        $this->sheet->getPageMargins()
+            ->setLeft(0.197)->setRight(0.118)->setTop(0.236)->setBottom(0.236)
+            ->setHeader(0)->setFooter(0);
+        $this->sheet->getSheetView()->setZoomScale(100);
 
-        $this->seal('A1', 56);
+        $this->seal('A1', 92, 136, 7);
         $this->merge('A2:N4', $this->title(), 18, true, 'center', 'center');
-        $this->height(2, 16);
-        $this->height(3, 16);
-        $this->height(4, 16);
+        $this->height(2, 12.75);
+        $this->height(3, 12.75);
+        $this->height(4, 12.75);
 
         $this->merge('A7:N7', $this->commitment(), 12, true, 'left', 'center');
-        $this->height(7, 36);
+        $this->outline('A7:N7');
+        $this->height(7, 34.5);
 
-        $this->merge('H8:K8', mb_strtoupper($this->officeHead?->name ?? $this->ratee()), 12, true, 'center');
+        $this->merge('H8:K8', $this->upper($this->officeHead?->name ?? $this->ratee()), 12, true, 'center', 'bottom');
         $this->merge('H9:K9', 'Office Head', 12, true, 'center', 'top');
         $this->merge('H10:K10', 'Date: '.$this->periodLabel(), 9, false, 'center', 'top');
         $this->underline('H8:K8');
+        $this->height(8, 35.25);
+        $this->height(9, 16.5);
+        $this->height(10, 15);
 
-        $this->merge('A12:E12', 'Approved by:', 12, true, 'left', 'center', 'D8D8D8');
+        // Approved-by is a gray bar across A–F, not one merged cell. The name
+        // sits on A16:E16 and the approval date on G16:H16, same row.
+        $this->write('A12', 'Approved by:', 12, true, 'left', 'center');
+        $this->fill('A12:F12', 'D8D8D8');
+        $this->outline('A12:F12');
+        $this->edge('A13:A18', 'left');
+        $this->edge('F13:F18', 'right');
+
         $this->merge('G12:H12', 'Date', 12, true, 'center', 'center', 'D8D8D8');
+        $this->outline('G12:H12');
+        $this->edge('G13:G18', 'left');
+        $this->edge('H13:H18', 'right');
 
-        $row = 13;
-        foreach (PcrPrint::scale() as $band) {
-            $this->write("J{$row}", $band['value'].' - '.$band['label'], 11);
-            $this->write("N{$row}", $band['range'] ?? '', 10, true);
-            $row++;
+        $this->fill('I12:N12', 'D8D8D8');
+        $this->edge('I12:N12', 'top');
+        $this->edge('I12:N12', 'bottom');
+        $this->edge('N12', 'right');
+        $this->height(12, 12.75);
+
+        foreach ([
+            ['5 - Outstanding', '100%', '91-100'],
+            ['4 - Very Satisfactory', '90-99%', '81-90'],
+            ['3 - Satisfactory', '70-89%', '71-80'],
+            ['2 - Unsatisfactory', '50-69%', '61-70'],
+            ['1 - Poor', 'Below 50%', 'Below 60'],
+        ] as $index => [$label, $percent, $band]) {
+            $scaleRow = 13 + $index;
+            $this->write("J{$scaleRow}", $label, 11, false, 'left');
+            $this->write("N{$scaleRow}", $percent, 10, true, 'left');
+            $this->write("O{$scaleRow}", $band, 10, false, 'left');
+            $this->edge("N{$scaleRow}", 'right');
+            $this->height($scaleRow, $scaleRow === 16 ? 15 : 12.75);
         }
 
-        $this->merge('A16:E16', $this->form->vpReviewer?->name ?? '', 12, true, 'center');
+        $approvedOn = $this->form->vp_reviewed_at
+            ? mb_strtoupper($this->form->vp_reviewed_at->format('F d, Y'))
+            : '';
+        $this->merge('A16:E16', $this->upper($this->form->vpReviewer?->name), 12, true, 'center');
         $this->merge('A17:E17', $this->form->vpReviewer?->position_title ?? 'Municipal Administrator', 12, true, 'center');
-        $this->merge('G16:H16', $this->form->vp_reviewed_at?->format('F d, Y') ?? '', 12, true, 'center');
-        $this->box('A12:E17');
-        $this->box('G12:H17');
+        $this->merge('G16:H16', $approvedOn, 12, true, 'center');
+        $this->height(18, 12.75);
 
         $this->headerRow(19);
+        $this->height(19, 14.25);
+        $this->height(20, 15);
         $this->writeBody(21);
     }
 
     private function buildIpcr(): void
     {
         $this->page('IPCR', [
-            'A' => 45.57, 'B' => 8.71, 'C' => 13.0, 'D' => 44.43, 'E' => 8.71,
-            'F' => 13.0, 'G' => 27.14, 'H' => 8.71, 'I' => 13.0, 'J' => 13.0,
-            'K' => 13.0, 'L' => 9.14, 'M' => 22.0,
+            'A' => 45.57, 'B' => 8.71, 'C' => 8.71, 'D' => 44.43, 'E' => 8.71,
+            'F' => 8.71, 'G' => 27.14, 'H' => 8.71, 'I' => 8.71, 'J' => 8.71,
+            'K' => 8.71, 'L' => 9.14, 'M' => 105.14,
         ]);
+        $this->sheet->getDefaultRowDimension()->setRowHeight(15);
+        $this->sheet->getPageSetup()
+            ->setPaperSize(PageSetup::PAPERSIZE_FOLIO)
+            ->setFitToWidth(1)
+            ->setFitToHeight(1);
+        $this->sheet->getPageMargins()
+            ->setLeft(0.7)->setRight(0.7)->setTop(0.75)->setBottom(0.75)
+            ->setHeader(0)->setFooter(0);
+        $this->sheet->getSheetView()->setZoomScale(100);
 
-        $this->seal('A1', 48);
-        $this->merge('A1:M1', $this->title(), 14, true, 'center');
+        $signed = $this->longDate($this->form->submitted_at) ?: $this->longDate($this->form->created_at);
+
+        $this->merge('A1:M1', $this->title(), 14, true, 'center', 'bottom');
         $this->merge('A2:M2', $this->commitment(), 14, false, 'left', 'top');
-        $this->height(2, 36);
-
-        $this->merge('G3:M3', mb_strtoupper($this->form->owner?->name ?? $this->ratee()), 14, false, 'center', 'top');
+        $this->height(2, 32);
+        $this->merge('G3:M3', $this->partyName('ratee'), 14, false, 'center', 'top');
         $this->merge('G4:M4', 'Ratee', 14, false, 'center', 'top');
-        $this->merge('G5:M5', 'Date: '.$this->periodLabel(), 14, false, 'center', 'top');
+        $this->merge('G5:M5', 'Date: '.$signed, 14, false, 'center', 'top');
+        $this->outline('A1:M5');
         $this->underline('G3:M3');
 
         $this->merge('A6:C6', 'Reviewed by', 14, true, 'left', 'top');
-        $this->write('D6', 'Date', 14, true, 'center');
+        $this->write('D6', 'Date', 14, true, 'center', 'top');
         $this->merge('E6:K6', 'Approved by', 14, true, 'left', 'top');
-        $this->merge('L6:M6', 'Date', 14, true, 'center');
+        $this->merge('L6:M6', 'Date', 14, true, 'center', 'top');
 
-        $this->merge('A9:C9', $this->form->headReviewer?->name ?? $this->form->reviewed_by_name ?? '', 14, true, 'center');
-        $this->write('D9', $this->form->reviewed_at?->format('F d, Y') ?? '', 14, false, 'center');
-        $this->merge('E9:K9', $this->form->vpReviewer?->name ?? $this->form->vp_reviewed_by_name ?? '', 14, true, 'center');
-        $this->merge('L9:M9', $this->form->vp_reviewed_at?->format('F d, Y') ?? '', 14, false, 'center');
-        $this->merge('A10:C10', $this->form->headReviewer?->position_title ?? 'Immediate Supervisor', 14, true, 'center');
-        $this->merge('E10:K10', $this->form->vpReviewer?->position_title ?? 'Head of Office', 14, true, 'center');
-        $this->box('A6:M10');
+        $this->merge('A7:C8', '', 14);
+        $this->merge('D7:D9', $this->longDate($this->form->reviewed_at), 14, false, 'center', 'center');
+        $this->merge('E7:K8', '', 14);
+        $this->merge('L7:M9', $this->longDate($this->form->vp_reviewed_at), 14, false, 'center', 'center');
+
+        $this->merge('A9:C9', $this->partyName('reviewer'), 14, true, 'center', 'top');
+        $this->merge('E9:K9', $this->partyName('approver'), 14, true, 'center', 'center');
+        $this->merge('A10:C10', 'Immediate Supervisor', 14, true, 'center', 'top');
+        $this->merge('E10:K10', 'Head of Office', 14, true, 'center', 'top');
+        $this->merge('L10:M10', '', 14);
+
+        $this->outline('A6:M10');
+        $this->edge('A6:M6', 'bottom');
+        $this->edge('C6:C10', 'right');
+        $this->edge('D6:D10', 'right');
+        $this->edge('K6:K10', 'right');
+        $this->edge('A8:C8', 'bottom');
+        $this->edge('A9:C9', 'bottom');
+        $this->edge('E9:K9', 'bottom');
+
+        $this->merge('A11:M11', '', 14);
+        $this->outline('A11:M11');
 
         $this->headerRow(12);
         $this->writeBody(14);
@@ -260,61 +326,30 @@ class PcrFormExcel
                 $row++;
             }
 
-            $row++;
-            $this->merge("A{$row}:B{$row}", 'Assessed by:', $size, true);
-            $this->merge("C{$row}:D{$row}", 'Date', $size, true, 'center');
-            $this->merge("H{$row}:L{$row}", 'Final Rating by:', $size, true);
-            $this->merge("M{$row}:N{$row}", 'Date', $size, true, 'center');
-            $this->box("A{$row}:{$last}{$row}");
-            $row += 3;
-
-            $this->merge("A{$row}:B{$row}", $this->form->rated_by_name ?? '', $size, true, 'center');
-            $this->merge("E{$row}:F{$row}", $this->form->vpReviewer?->name ?? '', $size, true, 'center');
-            $this->merge("H{$row}:L{$row}", $this->officeHead?->name ?? $this->ratee(), $size, true, 'center');
-            $row++;
-            $this->merge("A{$row}:B{$row}", "Mun. Planning & Dev't Coordinator", $size, false, 'center');
-            $this->merge("E{$row}:F{$row}", 'Municipal Administrator - PMT Chairperson', $size, false, 'center');
-            $this->merge("H{$row}:L{$row}", $this->officeHead?->position_title ?? 'Head of Agency', $size, false, 'center');
-            $this->box('A'.($row - 4).":{$last}{$row}");
-            $row += 2;
+            $row = $this->opcrSignOff($row);
         } else {
             foreach ([
-                ['Final Average Rating', $score($this->summary?->final_average)],
-                ['Adjectival Rating:', $this->summary?->adjectival ?? ''],
-            ] as [$label, $value]) {
-                $this->merge("A{$row}:A{$row}", $label, $size, false);
-                $this->merge("B{$row}:{$last}{$row}", $value, $size, true, 'center');
+                ['Final Average Rating', $score($this->summary?->final_average), false],
+                ['Adjectival Rating:', $this->summary?->adjectival ?? '', true],
+            ] as [$label, $value, $bold]) {
+                $this->merge("A{$row}:A{$row}", $label, $size, false, 'left', 'top');
+                $this->merge("B{$row}:{$last}{$row}", $value, $size, $bold, 'center', 'top');
                 $this->box("A{$row}:{$last}{$row}");
+                $this->height($row, 15.75);
                 $row++;
             }
 
-            $this->merge("A{$row}:{$last}{$row}", 'Comments and Recommendations for Development Purposes:', $size);
-            $row++;
-            $this->merge("A{$row}:{$last}{$row}", Html::toText($this->form->header_note), $size, false, 'left', 'top');
-            $this->height($row, 36);
-            $this->box('A'.($row - 1).":{$last}{$row}");
-            $row += 2;
-
-            $this->merge("A{$row}:B{$row}", 'Discussed with', $size, true, 'center');
-            $this->write("C{$row}", 'Date', $size, true, 'center');
-            $this->merge("D{$row}:F{$row}", 'Assessed by', $size, true, 'center');
-            $this->write("G{$row}", 'Date', $size, true, 'center');
-            $this->merge("H{$row}:L{$row}", 'Final Rating by', $size, true, 'center');
-            $this->write("M{$row}", 'Date', $size, true, 'center');
+            $this->merge("A{$row}:{$last}{$row}", 'Comments and Recommendations for Development Purposes:', $size, false, 'left', 'top');
             $this->box("A{$row}:{$last}{$row}");
-            $head = $row;
+            $this->height($row, 15.75);
             $row++;
-            $this->merge("D{$row}:F".($row + 1), 'I certify that I discussed my assessment of the performance with the employee', $size, false, 'center', 'top');
-            $row += 2;
-            $this->merge("A{$row}:B{$row}", $this->form->owner?->name ?? '', $size, false, 'center');
-            $this->merge("D{$row}:F{$row}", $this->form->headReviewer?->name ?? $this->form->reviewed_by_name ?? '', $size, false, 'center');
-            $this->merge("H{$row}:L{$row}", $this->form->rated_by_name ?? $this->form->vpReviewer?->name ?? '', $size, false, 'center');
+            $note = Html::toText($this->form->header_note);
+            $this->merge("A{$row}:{$last}{$row}", $note, $size, false, 'left', 'top');
+            $this->box("A{$row}:{$last}{$row}");
+            $this->height($row, max(15.75, $this->rowHeight($note)));
             $row++;
-            $this->merge("A{$row}:B{$row}", 'Employee', $size, false, 'center');
-            $this->merge("D{$row}:F{$row}", 'Supervisor', $size, false, 'center');
-            $this->merge("H{$row}:L{$row}", 'Head of Office', $size, false, 'center');
-            $this->box("A{$head}:{$last}{$row}");
-            $row += 2;
+
+            $row = $this->ipcrSignOff($row);
         }
 
         $this->merge(
@@ -323,12 +358,144 @@ class PcrFormExcel
             $this->isOpcr ? 10 : 14,
             $this->isOpcr,
             'left',
-            'center'
+            $this->isOpcr ? 'center' : 'top'
         );
-        $this->sheet->getStyle("A{$row}")->getFont()->setItalic(true);
         $this->box("A{$row}:{$last}{$row}");
 
-        $this->sheet->getPageSetup()->setPrintArea("A1:{$last}{$row}");
+        $printCol = $this->isOpcr ? 'O' : $last;
+        $this->sheet->getPageSetup()->setPrintArea("A1:{$printCol}{$row}");
+    }
+
+    /**
+     * The OPCR sign-off grid from the revised V3 sheet.
+     *
+     * Row 0 of the block is Date | Final Rating by | Date.
+     * Assessed by and its Date start on the next row.
+     * Names sit four rows down, titles under the names, and each Date
+     * column is one tall merged cell left blank for the wet signature.
+     */
+    private function opcrSignOff(int $row): int
+    {
+        $s    = $row;
+        $size = 12;
+
+        $this->height($s, 19.5);
+        $this->height($s + 1, 27.75);
+        $this->height($s + 2, 16.5);
+        $this->height($s + 3, 15);
+        $this->height($s + 4, 30);
+        $this->height($s + 5, 15);
+        $this->height($s + 6, 12);
+
+        $this->edge("A{$s}:F{$s}", 'top');
+        $this->edge("A{$s}:F{$s}", 'bottom');
+        $this->edge("A{$s}", 'left');
+        $this->write("G{$s}", 'Date', $size, true, 'center');
+        $this->outline("G{$s}");
+        $this->merge("H{$s}:K{$s}", 'Final Rating by:', $size, true, 'left', 'center');
+        $this->outline("H{$s}:L{$s}");
+        $this->merge("M{$s}:N{$s}", 'Date', $size, true, 'center');
+        $this->outline("M{$s}:N{$s}");
+
+        $this->merge('A'.($s + 1).':B'.($s + 1), 'Assessed by:', $size, true, 'left');
+        $this->outline('A'.($s + 1).':B'.($s + 1));
+        $this->merge('C'.($s + 1).':D'.($s + 1), 'Date', $size, true, 'center');
+        $this->outline('C'.($s + 1).':D'.($s + 1));
+
+        $this->merge('G'.($s + 1).':G'.($s + 5), '', 10, false, 'center');
+        $this->outline('G'.($s + 1).':G'.($s + 5));
+        $this->outline('G'.($s + 6));
+
+        $this->merge('M'.($s + 1).':N'.($s + 5), '', 10, false, 'center');
+        $this->outline('M'.($s + 1).':N'.($s + 5));
+        $this->merge('M'.($s + 6).':N'.($s + 6), '', $size);
+        $this->outline('M'.($s + 6).':N'.($s + 6));
+
+        foreach ([1, 2, 3, 6] as $offset) {
+            $line = $s + $offset;
+            $this->merge("H{$line}:L{$line}", '', $size);
+            $this->outline("H{$line}:L{$line}");
+        }
+
+        foreach ([2, 3, 6] as $offset) {
+            $this->merge('A'.($s + $offset).':B'.($s + $offset), '', $size);
+        }
+        $this->outline('A'.($s + 2).':B'.($s + 6));
+
+        $this->merge('C'.($s + 2).':D'.($s + 6), '', $size, true, 'center');
+        $this->outline('C'.($s + 2).':D'.($s + 6));
+        $this->outline('E'.($s + 1).':F'.($s + 6));
+
+        $this->edge('A'.($s + 3).':B'.($s + 3), 'bottom');
+        $this->edge('E'.($s + 3).':F'.($s + 3), 'bottom');
+        $this->edge('H'.($s + 3).':L'.($s + 3), 'bottom');
+
+        $this->merge('A'.($s + 4).':B'.($s + 4), $this->upper($this->form->rated_by_name), $size, true, 'center', 'bottom');
+        $this->merge('E'.($s + 4).':F'.($s + 4), $this->upper($this->form->vpReviewer?->name), $size, true, 'center', 'center');
+        $this->merge('H'.($s + 4).':L'.($s + 4), $this->upper($this->officeHead?->name), $size, true, 'center', 'top');
+
+        $this->merge('A'.($s + 5).':B'.($s + 5), "Mun. Planning & Dev't Coordinator", $size, false, 'center', 'center');
+        $this->merge('E'.($s + 5).':F'.($s + 5), 'Municipal Administrator - PMT Chairperson', $size, false, 'center', 'center');
+        $this->merge('H'.($s + 5).':L'.($s + 5), 'Head of Agency', $size, false, 'center', 'top');
+
+        return $s + 7;
+    }
+
+    /**
+     * The IPCR sign-off from the Madriaga sheet.
+     * Discussed with shows the ratee. Final Rating by shows the approver.
+     * Assessed by holds the certification, then the word Supervisor.
+     * Only the Discussed-with date is one merged cell (column C).
+     */
+    private function ipcrSignOff(int $row): int
+    {
+        $s    = $row;
+        $size = 14;
+
+        foreach (range(0, 3) as $offset) {
+            $this->height($s + $offset, 15.75);
+        }
+
+        $this->merge("A{$s}:B{$s}", 'Discussed with', $size, true, 'center', 'top');
+        $this->write("C{$s}", 'Date', $size, true, 'center', 'top');
+        $this->merge("D{$s}:F{$s}", 'Assessed by', $size, true, 'center', 'top');
+        $this->write("G{$s}", 'Date', $size, true, 'center', 'top');
+        $this->merge("H{$s}:L{$s}", 'Final Rating by', $size, true, 'center', 'top');
+        $this->write("M{$s}", 'Date', $size, true, 'center', 'top');
+
+        $this->merge('A'.($s + 1).':B'.($s + 1), '', $size);
+        $this->merge('C'.($s + 1).':C'.($s + 3), $this->longDate($this->form->submitted_at), $size, false, 'center', 'center');
+        $this->merge(
+            'D'.($s + 1).':F'.($s + 2),
+            'I certify that I discussed my assessment of the performance with the employee',
+            $size,
+            false,
+            'center',
+            'top'
+        );
+        $this->merge('H'.($s + 1).':L'.($s + 1), '', $size);
+
+        $this->merge('A'.($s + 2).':B'.($s + 2), $this->partyName('ratee'), $size, false, 'center', 'top');
+        $this->write('G'.($s + 2), $this->longDate($this->form->reviewed_at), $size, false, 'center', 'center');
+        $this->merge('H'.($s + 2).':L'.($s + 2), $this->partyName('approver'), $size, false, 'center', 'bottom');
+        $this->write('M'.($s + 2), $this->longDate($this->form->vp_reviewed_at ?: $this->form->rated_at), $size, false, 'center', 'center');
+
+        $this->merge('A'.($s + 3).':B'.($s + 3), 'Employee', $size, false, 'center', 'top');
+        $this->merge('D'.($s + 3).':F'.($s + 3), 'Supervisor', $size, false, 'center', 'top');
+        $this->merge('H'.($s + 3).':L'.($s + 3), 'Head of Office', $size, false, 'center', 'bottom');
+
+        $this->outline("A{$s}:M".($s + 3));
+        $this->edge("A{$s}:M{$s}", 'bottom');
+        $this->edge('B'.$s.':B'.($s + 3), 'right');
+        $this->edge('C'.$s.':C'.($s + 3), 'right');
+        $this->edge('F'.$s.':F'.($s + 3), 'right');
+        $this->edge('G'.$s.':G'.($s + 3), 'right');
+        $this->edge('L'.$s.':L'.($s + 3), 'right');
+        $this->edge('A'.($s + 2).':B'.($s + 2), 'bottom');
+        $this->edge('D'.($s + 2).':F'.($s + 2), 'bottom');
+        $this->edge('H'.($s + 2).':L'.($s + 2), 'bottom');
+
+        return $s + 4;
     }
 
     private function bodyRows(): array
@@ -457,7 +624,7 @@ class PcrFormExcel
         }
     }
 
-    private function seal(string $cell, int $height): void
+    private function seal(string $cell, int $height, int $offsetX = 4, int $offsetY = 2): void
     {
         $path = PcrPrint::sealPath();
 
@@ -469,9 +636,73 @@ class PcrFormExcel
         $drawing->setPath($path);
         $drawing->setHeight($height);
         $drawing->setCoordinates($cell);
-        $drawing->setOffsetX(4);
-        $drawing->setOffsetY(2);
+        $drawing->setOffsetX($offsetX);
+        $drawing->setOffsetY($offsetY);
         $drawing->setWorksheet($this->sheet);
+    }
+
+    private function fill(string $range, string $rgb): void
+    {
+        $this->sheet->getStyle($range)->getFill()
+            ->setFillType(Fill::FILL_SOLID)
+            ->getStartColor()->setRGB($rgb);
+    }
+
+    private function outline(string $range): void
+    {
+        $this->border($range, 'outline');
+    }
+
+    private function edge(string $range, string $side): void
+    {
+        $this->border($range, $side);
+    }
+
+    private function border(string $range, string $side): void
+    {
+        $this->sheet->getStyle($range)->applyFromArray([
+            'borders' => [
+                $side => [
+                    'borderStyle' => Border::BORDER_THIN,
+                    'color'       => ['rgb' => '000000'],
+                ],
+            ],
+        ]);
+    }
+
+    private function upper(?string $name): string
+    {
+        $name = trim((string) $name);
+
+        return $name === '' ? '' : mb_strtoupper($name);
+    }
+
+    private function partyName(string $who): string
+    {
+        $name = match ($who) {
+            'reviewer' => $this->form->headReviewer?->name ?? $this->form->reviewed_by_name,
+            'approver' => $this->form->vpReviewer?->name ?? $this->form->vp_reviewed_by_name,
+            default    => $this->form->owner?->name ?? $this->ratee(),
+        };
+
+        return $this->upper($name);
+    }
+
+    private function longDate(mixed $value): string
+    {
+        if ($value === null || $value === '') {
+            return '';
+        }
+
+        if (! $value instanceof \DateTimeInterface) {
+            try {
+                $value = \Illuminate\Support\Carbon::parse($value);
+            } catch (\Throwable) {
+                return '';
+            }
+        }
+
+        return $value->format('j F Y');
     }
 
     private function write(string $cell, mixed $value, float $size, bool $bold = false, string $h = 'left', string $v = 'center'): void

@@ -202,8 +202,9 @@ class PcrCascadeTest extends PmsTestCase
 
     public function test_a_heading_can_be_handed_out_once_per_period(): void
     {
-        ['target' => $target, 'head' => $head, 'period' => $period, 'year' => $year] = $this->office();
+        ['target' => $target, 'head' => $head, 'period' => $period, 'year' => $year, 'opcr' => $opcr] = $this->office();
 
+        $opcr->update(['status' => 'draft']);
         $period2 = $this->makePeriod($year, 2);
 
         $this->actingAsRole('admin');
@@ -225,10 +226,22 @@ class PcrCascadeTest extends PmsTestCase
         ])->assertStatus(201)->assertJsonPath('assigned', 1);
     }
 
+    public function test_a_published_opcr_refuses_a_new_accountable_person(): void
+    {
+        ['target' => $target, 'head' => $head] = $this->office();
+
+        $this->actingAsRole('president');
+
+        $this->postJson("/api/pcr-indicators/{$target->id}/assign", ['user_ids' => [$head->id]])
+            ->assertStatus(409)
+            ->assertJsonPath('message', 'This OPCR is already published. Accountable people can no longer be assigned.');
+    }
+
     public function test_a_line_cannot_be_assigned_to_the_same_person_twice(): void
     {
         ['target' => $target, 'head' => $head, 'opcr' => $opcr] = $this->office();
 
+        $opcr->update(['status' => 'draft']);
         $this->actingAsRole('admin');
 
         $this->postJson("/api/pcr-indicators/{$target->id}/assign", ['user_ids' => [$head->id]])

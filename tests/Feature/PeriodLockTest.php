@@ -178,4 +178,61 @@ class PeriodLockTest extends PmsTestCase
             'description' => 'Corrected after the cut-off.',
         ])->assertSuccessful();
     }
+
+    public function test_one_locked_semester_does_not_close_a_whole_year_opcr(): void
+    {
+        $this->makeOrganization();
+        $unit   = $this->makeUnit();
+        $year   = $this->makeSchoolYear(['label' => '2025']);
+        $first  = $this->makePeriod($year, 1, 'closed');
+        $second = $this->makePeriod($year, 2, 'open');
+        $first->update(['is_locked' => true, 'is_active' => false]);
+        $second->update(['is_active' => false]);
+
+        $president = User::factory()->create(['role' => 'president', 'org_unit_id' => $unit->id]);
+        $form      = $this->makeForm([
+            'type' => 'opcr', 'org_unit_id' => $unit->id, 'school_year_id' => $year->id, 'user_id' => null,
+        ]);
+        $indicator = $this->makeIndicator($form, 'strategic');
+
+        $this->actingAsUser($president);
+
+        $this->postJson('/api/pcr-accomplishments', [
+            'indicator_id'          => $indicator->id,
+            'rating_period_id'      => $first->id,
+            'actual_accomplishment' => 'Still the college year.',
+        ])->assertSuccessful();
+
+        $this->postJson('/api/pcr-indicators', [
+            'id'          => $indicator->id,
+            'output_id'   => $indicator->output_id,
+            'description' => 'Still the college year.',
+        ])->assertSuccessful();
+    }
+
+    public function test_an_opcr_closes_only_when_every_period_of_the_year_is_locked(): void
+    {
+        $this->makeOrganization();
+        $unit   = $this->makeUnit();
+        $year   = $this->makeSchoolYear(['label' => '2025']);
+        $first  = $this->makePeriod($year, 1);
+        $second = $this->makePeriod($year, 2);
+        $first->update(['is_locked' => true]);
+        $second->update(['is_locked' => true]);
+
+        $president = User::factory()->create(['role' => 'president', 'org_unit_id' => $unit->id]);
+        $form      = $this->makeForm([
+            'type' => 'opcr', 'org_unit_id' => $unit->id, 'school_year_id' => $year->id, 'user_id' => null,
+        ]);
+        $indicator = $this->makeIndicator($form, 'strategic');
+
+        $this->actingAsUser($president);
+
+        $this->postJson('/api/pcr-indicators', [
+            'id'          => $indicator->id,
+            'output_id'   => $indicator->output_id,
+            'description' => 'The year is already closed.',
+        ])->assertStatus(409)
+            ->assertJsonPath('message', '2025 is closed. It is view-only now — ask an administrator to unlock a review period.');
+    }
 }

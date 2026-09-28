@@ -175,7 +175,8 @@ class ReportInsightsTest extends PmsTestCase
     {
         ['president' => $president, 'year' => $year, 'staff' => $staff, 'unit' => $unit] = $this->college();
 
-        $unit->update(['head_user_id' => $staff->id]);
+        $vp = User::factory()->create(['role' => 'vp', 'org_unit_id' => $unit->id, 'name' => 'College VP']);
+        $unit->update(['head_user_id' => $staff->id, 'vp_user_id' => $vp->id]);
 
         $this->actingAsUser($president);
 
@@ -195,6 +196,11 @@ class ReportInsightsTest extends PmsTestCase
         $this->assertSame($staff->name, $head['head']);
         $this->assertSame(60, $head['progress_pct']);
         $this->assertSame(1, $head['overdue']);
+
+        $listed = collect($data['vps'])->firstWhere('id', $unit->id);
+
+        $this->assertSame('College VP', $listed['vp']);
+        $this->assertSame(60, $listed['progress_pct']);
     }
 
     public function test_everyone_gets_their_own_counts(): void

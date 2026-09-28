@@ -195,7 +195,7 @@ class OpcrSheetTest extends PmsTestCase
             'actual_accomplishment' => '<p>Attended every meeting.</p>',
         ])->assertSuccessful();
 
-        $this->assertSame(0, (int) $line->fresh()->progress_pct);
+        $this->assertSame(30, (int) $line->fresh()->progress_pct);
         $this->assertSame('ongoing', $line->fresh()->progress_status);
 
         $this->post('/api/pcr-attachments', [
@@ -207,5 +207,19 @@ class OpcrSheetTest extends PmsTestCase
         $this->getJson("/api/pcr-forms/{$opcr->id}")
             ->assertJsonPath('outputs.0.indicators.0.progress_status', 'completed')
             ->assertJsonPath('outputs.0.indicators.0.progress_pct', 100);
+
+        $fileOnly = PcrIndicator::create([
+            'output_id'   => $output->id,
+            'description' => '<p>Submitted the attendance sheet.</p>',
+        ]);
+
+        $this->post('/api/pcr-attachments', [
+            'indicator_id'     => $fileOnly->id,
+            'rating_period_id' => $period->id,
+            'file'             => UploadedFile::fake()->image('sheet.jpg'),
+        ], ['Accept' => 'application/json'])->assertStatus(201);
+
+        $this->assertSame(70, (int) $fileOnly->fresh()->progress_pct);
+        $this->assertSame('ongoing', $fileOnly->fresh()->progress_status);
     }
 }

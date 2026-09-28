@@ -18,7 +18,18 @@ export default function ProgressCell({
     editable = false,
     saving = false,
     onSave,
+    unavailable = false,
 }) {
+    if (unavailable) {
+        return (
+            <div className="pms-progress" data-unlinked="yes">
+                <span className="pms-progress-label" style={{ color: "#8c8c8c" }}>
+                    N/A · No Linked Commitment
+                </span>
+            </div>
+        );
+    }
+
     const value = Math.max(0, Math.min(100, Number(pct ?? 0)));
     const meta = PROGRESS_META[status] ?? PROGRESS_META.not_started;
     const tone = progressTone(status, value);

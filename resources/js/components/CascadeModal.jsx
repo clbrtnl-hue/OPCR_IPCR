@@ -1,9 +1,11 @@
 import React from "react";
-import { Alert, Checkbox, Divider, Empty, Modal, Select, Space, Tag, Typography, message } from "antd";
+import { Button, Checkbox, Drawer, Empty, Input, Tag, Typography, message } from "antd";
+import { CheckOutlined, SearchOutlined } from "@ant-design/icons";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import api from "~/utils/api";
 import { toPlainText } from "~/components/RichTextView";
 import { SECTION_LABELS } from "~/utils/constants";
+import UserAvatar from "~/components/UserAvatar";
 
 const SECTIONS = ["strategic", "core", "support"];
 
@@ -11,6 +13,8 @@ export default function CascadeModal({ form, periodId, open, onClose }) {
     const queryClient = useQueryClient();
     const [picked, setPicked] = React.useState([]);
     const [lines, setLines] = React.useState([]);
+    const [personQuery, setPersonQuery] = React.useState("");
+    const [lineQuery, setLineQuery] = React.useState("");
 
     const { data: people = [] } = useQuery({
         queryKey: ["assignable-users"],
@@ -42,11 +46,13 @@ export default function CascadeModal({ form, periodId, open, onClose }) {
     );
 
     React.useEffect(() => {
-        if (open) {
-            setLines(everyLine);
-            setPicked([]);
-        }
-    }, [open, everyLine.length]);
+        if (!open) return;
+
+        setLines([]);
+        setPicked([]);
+        setPersonQuery("");
+        setLineQuery("");
+    }, [open]);
 
     const cascade = useMutation({
         mutationFn: () =>
@@ -70,6 +76,12 @@ export default function CascadeModal({ form, periodId, open, onClose }) {
         },
     });
 
+    const togglePerson = (id) => {
+        setPicked((current) =>
+            current.includes(id) ? current.filter((value) => value !== id) : [...current, id]
+        );
+    };
+
     const toggleOutput = (rows, checked) => {
         const ids = rows.map((r) => r.id);
 
@@ -80,106 +92,187 @@ export default function CascadeModal({ form, periodId, open, onClose }) {
         );
     };
 
+    const personNeedle = personQuery.trim().toLowerCase();
+    const shownPeople = people.filter((person) => {
+        const hay = `${person.name} ${person.position_title ?? ""}`.toLowerCase();
+
+        return hay.includes(personNeedle);
+    });
+
+    const lineNeedle = lineQuery.trim().toLowerCase();
+    const visibleGroups = groups
+        .map((group) => ({
+            ...group,
+            outputs: group.outputs
+                .map((output) => {
+                    const title = (output.title ?? "").toLowerCase();
+                    const rows = lineNeedle
+                        ? output.rows.filter(
+                              (row) =>
+                                  title.includes(lineNeedle) ||
+                                  toPlainText(row.description).toLowerCase().includes(lineNeedle)
+                          )
+                        : output.rows;
+
+                    return { ...output, visible: rows };
+                })
+                .filter((output) => output.visible.length > 0),
+        }))
+        .filter((group) => group.outputs.length > 0);
+
+    const ready = picked.length > 0 && lines.length > 0;
+
     return (
-        <Modal
+        <Drawer
             open={open}
-            onCancel={onClose}
-            width={720}
-            title="Cascade these targets to the people accountable"
-            okText={`Hand out ${lines.length} × ${picked.length || 0}`}
-            okButtonProps={{
-                disabled: picked.length === 0 || lines.length === 0,
-                loading: cascade.isPending,
-            }}
-            onOk={() => cascade.mutate()}
+            onClose={onClose}
+            placement="right"
+            width={480}
+            className="pms-cascade-drawer"
+            title="Hand these out"
+            footer={
+                <div className="pms-cascade-foot">
+                    <div>
+                        <strong>
+                            {lines.length === 0
+                                ? "No targets selected"
+                                : `${lines.length} target${lines.length === 1 ? "" : "s"}`}
+                        </strong>
+                        <span>
+                            {picked.length === 0
+                                ? "Choose who receives them"
+                                : `for ${picked.length} ${picked.length === 1 ? "person" : "people"}`}
+                        </span>
+                    </div>
+                    <div className="pms-cascade-foot-actions">
+                        <Button onClick={onClose}>Cancel</Button>
+                        <Button
+                            type="primary"
+                            disabled={!ready}
+                            loading={cascade.isPending}
+                            onClick={() => cascade.mutate()}
+                        >
+                            Hand out
+                        </Button>
+                    </div>
+                </div>
+            }
         >
-            <Typography.Paragraph type="secondary">
-                Each person named below is made accountable for every ticked office target.
-                Their IPCR opens so they can write their own commitments against those targets.
-                The college wording is not copied. Anything they already hold is left alone.
-            </Typography.Paragraph>
+            <p className="pms-cascade-lead">
+                Tick the people and the targets. Each person writes their own wording on their IPCR.
+                Anything they already hold is left alone.
+            </p>
 
-            <Select
-                mode="multiple"
-                style={{ width: "100%" }}
-                placeholder="Search for the people accountable"
-                value={picked}
-                onChange={setPicked}
-                optionFilterProp="label"
-                options={people.map((p) => ({
-                    value: p.id,
-                    label: p.position_title ? `${p.name} — ${p.position_title}` : p.name,
-                }))}
+            <span className="pms-cascade-label">Who</span>
+            <Input
+                allowClear
+                prefix={<SearchOutlined />}
+                placeholder="Search people"
+                value={personQuery}
+                onChange={(event) => setPersonQuery(event.target.value)}
             />
+            {people.length === 0 ? (
+                <Empty
+                    image={Empty.PRESENTED_IMAGE_SIMPLE}
+                    description="No one on your team can receive a target yet."
+                    style={{ margin: "16px 0" }}
+                />
+            ) : shownPeople.length === 0 ? (
+                <Empty
+                    image={Empty.PRESENTED_IMAGE_SIMPLE}
+                    description="No one matches that search."
+                    style={{ margin: "16px 0" }}
+                />
+            ) : (
+                <div className="pms-cascade-people">
+                    {shownPeople.map((person) => {
+                        const on = picked.includes(person.id);
 
-            <Divider orientation="left" style={{ marginBottom: 8 }}>
+                        return (
+                            <button
+                                key={person.id}
+                                type="button"
+                                className={on ? "pms-cascade-person is-on" : "pms-cascade-person"}
+                                onClick={() => togglePerson(person.id)}
+                            >
+                                <UserAvatar user={person} size={36} showTooltip={false} />
+                                <span className="pms-cascade-person-text">
+                                    <strong>{person.name}</strong>
+                                    {person.position_title && <span>{person.position_title}</span>}
+                                </span>
+                                {on && <CheckOutlined className="pms-cascade-check" />}
+                            </button>
+                        );
+                    })}
+                </div>
+            )}
+
+            <span className="pms-cascade-label">
+                Targets
                 <Typography.Text type="secondary">
-                    Lines to hand out — {lines.length} of {everyLine.length}
+                    {lines.length} of {everyLine.length}
                 </Typography.Text>
-            </Divider>
+            </span>
+            <Input
+                allowClear
+                prefix={<SearchOutlined />}
+                placeholder="Search targets"
+                value={lineQuery}
+                onChange={(event) => setLineQuery(event.target.value)}
+                style={{ marginBottom: 10 }}
+            />
 
             {groups.length === 0 ? (
                 <Empty
                     image={Empty.PRESENTED_IMAGE_SIMPLE}
                     description="This form has no success indicators to hand out yet."
                 />
+            ) : visibleGroups.length === 0 ? (
+                <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="No target matches that search." />
             ) : (
-                <div style={{ maxHeight: 320, overflowY: "auto" }}>
-                    {groups.map((group) => (
-                        <div key={group.section} style={{ marginBottom: 12 }}>
-                            <Tag color="blue">{SECTION_LABELS[group.section] ?? group.section}</Tag>
-                            {group.outputs.map((output) => {
-                                const ids = output.rows.map((r) => r.id);
-                                const on = ids.filter((id) => lines.includes(id));
+                visibleGroups.map((group) => (
+                    <div key={group.section} className="pms-cascade-group">
+                        <Tag color="blue">{SECTION_LABELS[group.section] ?? group.section}</Tag>
+                        {group.outputs.map((output) => {
+                            const ids = output.visible.map((row) => row.id);
+                            const on = ids.filter((id) => lines.includes(id));
 
-                                return (
-                                    <div key={output.id} style={{ margin: "8px 0 8px 4px" }}>
-                                        <Checkbox
-                                            checked={on.length === ids.length}
-                                            indeterminate={on.length > 0 && on.length < ids.length}
-                                            onChange={(e) => toggleOutput(output.rows, e.target.checked)}
-                                        >
-                                            <Typography.Text strong>
-                                                {output.outline_number
-                                                    ? `${output.outline_number}. ${output.title}`
-                                                    : output.title}
-                                            </Typography.Text>
-                                        </Checkbox>
-                                        <Space direction="vertical" size={2} style={{ marginLeft: 24, display: "flex" }}>
-                                            {output.rows.map((row) => (
-                                                <Checkbox
-                                                    key={row.id}
-                                                    checked={lines.includes(row.id)}
-                                                    onChange={(e) =>
-                                                        setLines((current) =>
-                                                            e.target.checked
-                                                                ? [...current, row.id]
-                                                                : current.filter((id) => id !== row.id)
-                                                        )
-                                                    }
-                                                >
-                                                    <Typography.Text ellipsis style={{ maxWidth: 520 }}>
-                                                        {toPlainText(row.description)}
-                                                    </Typography.Text>
-                                                </Checkbox>
-                                            ))}
-                                        </Space>
+                            return (
+                                <div key={output.id} className="pms-cascade-output">
+                                    <Checkbox
+                                        checked={on.length === ids.length && ids.length > 0}
+                                        indeterminate={on.length > 0 && on.length < ids.length}
+                                        onChange={(event) => toggleOutput(output.visible, event.target.checked)}
+                                    >
+                                        <Typography.Text strong>
+                                            {output.outline_number
+                                                ? `${output.outline_number}. ${output.title}`
+                                                : output.title}
+                                        </Typography.Text>
+                                    </Checkbox>
+                                    <div className="pms-cascade-lines">
+                                        {output.visible.map((row) => (
+                                            <Checkbox
+                                                key={row.id}
+                                                checked={lines.includes(row.id)}
+                                                onChange={(event) =>
+                                                    setLines((current) =>
+                                                        event.target.checked
+                                                            ? [...current, row.id]
+                                                            : current.filter((id) => id !== row.id)
+                                                    )
+                                                }
+                                            >
+                                                {toPlainText(row.description)}
+                                            </Checkbox>
+                                        ))}
                                     </div>
-                                );
-                            })}
-                        </div>
-                    ))}
-                </div>
+                                </div>
+                            );
+                        })}
+                    </div>
+                ))
             )}
-
-            {picked.length > 1 && lines.length > 1 && (
-                <Alert
-                    type="info"
-                    showIcon
-                    style={{ marginTop: 12 }}
-                    message={`That is ${lines.length * picked.length} commitments in one go — each person gets their own copy to reword.`}
-                />
-            )}
-        </Modal>
+        </Drawer>
     );
 }

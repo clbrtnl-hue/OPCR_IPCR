@@ -34,7 +34,7 @@ class PcrOutputController extends Controller
             ], 409);
         }
 
-        if ($message = PcrWorkflow::lockMessage($request->user(), PcrWorkflow::periodForWrite($form))) {
+        if ($message = PcrWorkflow::formLockMessage($request->user(), $form)) {
             return response()->json(['message' => $message], 409);
         }
 
@@ -125,7 +125,7 @@ class PcrOutputController extends Controller
             ], 409);
         }
 
-        if ($message = PcrWorkflow::lockMessage($request->user(), PcrWorkflow::periodForWrite($output->form))) {
+        if ($message = PcrWorkflow::formLockMessage($request->user(), $output->form)) {
             return response()->json(['message' => $message], 409);
         }
 

@@ -29,6 +29,7 @@ import {
     CheckCircleOutlined,
     CheckOutlined,
     ClockCircleOutlined,
+    DownOutlined,
     EditOutlined,
     ExpandOutlined,
     FileExcelOutlined,
@@ -89,6 +90,16 @@ const HISTORY_META = {
 };
 
 
+function sheetName(form) {
+    if (!form) return "";
+
+    if (form.type === "opcr") {
+        return form.office_head?.name || form.owner?.name || form.org_unit?.name;
+    }
+
+    return form.owner?.name || form.org_unit?.name;
+}
+
 const WHOLE_YEAR_LABEL = "January to December";
 
 /** A line the writer reports themselves is done only with a narrative and a file. */
@@ -124,6 +135,28 @@ function writeUpGaps(form) {
     }
 
     return gaps;
+}
+
+function ExportMenu({ excelBusy, onPrint, onExcel }) {
+    return (
+        <Dropdown
+            menu={{
+                items: [
+                    { key: "print", icon: <PrinterOutlined />, label: "Print" },
+                    { key: "excel", icon: <FileExcelOutlined />, label: "Excel", disabled: excelBusy },
+                ],
+                onClick: ({ key }) => {
+                    if (key === "print") onPrint();
+                    if (key === "excel" && !excelBusy) onExcel();
+                },
+            }}
+        >
+            <Button icon={<PrinterOutlined />} aria-label="Print or Excel">
+                <span className="pms-btn-text">Print</span>
+                <DownOutlined />
+            </Button>
+        </Dropdown>
+    );
 }
 
 const IPCR_CHAIN = ["draft", "head_review", "vp_review", "qa_rating", "rated", "final"];
@@ -206,7 +239,7 @@ export default function FormEditorPage({ formId = null }) {
         try {
             await downloadFile(
                 `pcr-forms/${form.id}/xlsx?rating_period_id=${activePeriodId ?? ""}`,
-                `${form.type.toUpperCase()} - ${form.owner?.name ?? form.org_unit?.name}.xlsx`,
+                `${form.type.toUpperCase()} - ${sheetName(form)}.xlsx`,
                 "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             );
         } catch {
@@ -267,11 +300,19 @@ export default function FormEditorPage({ formId = null }) {
     }
 
     const viewedPeriod = periods.find((p) => p.id === activePeriodId);
-    const periodLocked = user.role !== "admin" && Boolean(viewedPeriod?.is_locked);
+    // An IPCR belongs to one review period. The OPCR covers the whole year, so
+    // one locked semester does not close it — only a year whose every period
+    // is locked does.
+    const yearClosed =
+        form.type === "opcr" &&
+        user.role !== "admin" &&
+        periods.length > 0 &&
+        periods.every((period) => period.is_locked);
+    const periodLocked =
+        form.type === "opcr" ? yearClosed : user.role !== "admin" && Boolean(viewedPeriod?.is_locked);
     const canEditCommitment = isOwner && ["draft", "returned"].includes(form.status) && !periodLocked;
     const canRecordProgress = isOwner && !["rated", "final"].includes(form.status) && !periodLocked;
-    // Handing part of a commitment to someone else is not editing its wording,
-    // so it stays available once the form is published and in flight.
+    // On an OPCR, naming an accountable person and cascading both stop at publish.
     // Offer only what the server would accept: the organization decides which
     // roles hand work out, and terminal roles deliver their own commitments.
     const canAssignHeadings =
@@ -279,6 +320,9 @@ export default function FormEditorPage({ formId = null }) {
     const canAssign =
         isOwner && !["rated", "final"].includes(form.status) && Boolean(user.capabilities?.assign_indicators) && !periodLocked;
     const isOpcr = form.type === "opcr";
+    const opcrHandoutClosed = isOpcr && ["published", "qa_rating", "rated", "final"].includes(form.status);
+    const canNameAccountable = (canAssignHeadings || canAssign) && !opcrHandoutClosed;
+    const canCascade = canAssign && !opcrHandoutClosed;
 
     const isAdmin = user.role === "admin";
     const samePerson = (left, right) => Number(left) === Number(right);
@@ -301,6 +345,13 @@ export default function FormEditorPage({ formId = null }) {
             (form.status === "vp_review" && samePerson(form.vp_reviewer_id, user.id)) ||
             (user.role === "qa" && form.status === "qa_rating") ||
             (user.role === "admin" && form.status === "qa_rating"));
+    // Q, E, T and A stay off the working sheet until someone is actually rating.
+    // They stay once the rating is done. The printed form always includes them.
+    const showScores = (
+        isOpcr
+            ? ["qa_rating", "rated", "final"]
+            : ["head_review", "vp_review", "qa_rating", "rated", "final"]
+    ).includes(form.status);
 
     const nextStatus = form.status === "head_review" ? "vp_review" : "qa_rating";
 
@@ -365,7 +416,7 @@ export default function FormEditorPage({ formId = null }) {
     return (
         <>
             <PageHeader
-                title={`${form.type.toUpperCase()} — ${form.owner?.name ?? form.org_unit?.name}`}
+                title={`${form.type.toUpperCase()} — ${sheetName(form)}`}
                 subtitle={[
                     form.school_year?.label,
                     form.org_unit?.name,
@@ -387,21 +438,11 @@ export default function FormEditorPage({ formId = null }) {
                                     Remarks &amp; history
                                 </Button>
                             </Badge>
-                            <Button
-                                icon={<PrinterOutlined />}
-                                aria-label="Print"
-                                onClick={() => setPdfOpen(true)}
-                            >
-                                <span className="pms-btn-text">Print</span>
-                            </Button>
-                            <Button
-                                icon={<FileExcelOutlined />}
-                                aria-label="Excel"
-                                loading={excelBusy}
-                                onClick={exportExcel}
-                            >
-                                <span className="pms-btn-text">Excel</span>
-                            </Button>
+                            <ExportMenu
+                                excelBusy={excelBusy}
+                                onPrint={() => setPdfOpen(true)}
+                                onExcel={exportExcel}
+                            />
                             {canEditCommitment && !isOpcr && (
                                 <Button
                                     type="primary"
@@ -547,8 +588,16 @@ export default function FormEditorPage({ formId = null }) {
                     type="warning"
                     showIcon
                     style={{ marginBottom: 16 }}
-                    message={`${viewedPeriod.label} is locked`}
-                    description="This period is finished. It is view-only now — ask an administrator to unlock it."
+                    message={
+                        form.type === "opcr"
+                            ? `${form.school_year?.label || "This school year"} is closed`
+                            : `${viewedPeriod.label} is locked`
+                    }
+                    description={
+                        form.type === "opcr"
+                            ? "This school year is finished. The OPCR is view-only now — ask an administrator to unlock a review period."
+                            : "This period is finished. It is view-only now — ask an administrator to unlock it."
+                    }
                 />
             )}
 
@@ -601,7 +650,9 @@ export default function FormEditorPage({ formId = null }) {
                             // head" when the form already knows who that is.
                             description: skipped
                                 ? "Skipped — nobody fills this stage"
-                                : whoIsAt(status) ?? STATUS_META[status].who,
+                                : here
+                                  ? whoIsAt(status) ?? STATUS_META[status].who
+                                  : undefined,
                             status: skipped ? "finish" : undefined,
                             icon: (
                                 <span
@@ -677,7 +728,7 @@ export default function FormEditorPage({ formId = null }) {
                                         Insert template
                                     </Button>
                                 )}
-                                {canAssign && form.outputs.length > 0 && (
+                                {canCascade && form.outputs.length > 0 && (
                                     <Button
                                         className="pms-commit-text"
                                         size="small"
@@ -725,8 +776,9 @@ export default function FormEditorPage({ formId = null }) {
                                 form={form}
                                 periodId={activePeriodId}
                                 canEdit={canEditCommitment}
-                                canAssign={canAssignHeadings || canAssign}
+                                canAssign={canNameAccountable}
                                 canRecordProgress={canRecordProgress}
+                                showScores={showScores}
                                 summary={summary}
                                 focusLineId={focusLineId}
                             />
@@ -741,6 +793,7 @@ export default function FormEditorPage({ formId = null }) {
                                 canAssign={canAssign}
                                 canAssignHeadings={canAssignHeadings}
                                 canScore={canScore}
+                                showScores={showScores}
                                 opcrTargets={opcrTargets}
                                 summary={summary}
                                 focusLineId={focusLineId}
@@ -765,7 +818,7 @@ export default function FormEditorPage({ formId = null }) {
                 title={
                     <Space size={12} wrap>
                         <span>
-                            {form.type.toUpperCase()} — {form.owner?.name ?? form.org_unit?.name}
+                            {form.type.toUpperCase()} — {sheetName(form)}
                         </span>
                         <Tag color={STATUS_META[form.status].color}>
                             {STATUS_META[form.status].label}
@@ -803,17 +856,11 @@ export default function FormEditorPage({ formId = null }) {
                             )}
                         </div>
                         <div className="pms-sheet-drawer-actions">
-                            <Button icon={<PrinterOutlined />} aria-label="Print" onClick={() => setPdfOpen(true)}>
-                                <span className="pms-btn-text">Print</span>
-                            </Button>
-                            <Button
-                                icon={<FileExcelOutlined />}
-                                aria-label="Excel"
-                                loading={excelBusy}
-                                onClick={exportExcel}
-                            >
-                                <span className="pms-btn-text">Excel</span>
-                            </Button>
+                            <ExportMenu
+                                excelBusy={excelBusy}
+                                onPrint={() => setPdfOpen(true)}
+                                onExcel={exportExcel}
+                            />
                             <Button onClick={() => setSheetFull(false)}>Close</Button>
                         </div>
                     </div>
@@ -824,8 +871,9 @@ export default function FormEditorPage({ formId = null }) {
                         form={form}
                         periodId={activePeriodId}
                         canEdit={canEditCommitment}
-                        canAssign={canAssignHeadings || canAssign}
+                        canAssign={canNameAccountable}
                         canRecordProgress={canRecordProgress}
+                        showScores={showScores}
                         summary={summary}
                     />
                 ) : (
@@ -837,6 +885,7 @@ export default function FormEditorPage({ formId = null }) {
                         canAssign={canAssign}
                         canAssignHeadings={canAssignHeadings}
                         canScore={canScore}
+                        showScores={showScores}
                         opcrTargets={opcrTargets}
                         summary={summary}
                         onAddOutput={(section) => {
@@ -915,8 +964,8 @@ export default function FormEditorPage({ formId = null }) {
                 open={pdfOpen}
                 onClose={() => setPdfOpen(false)}
                 url={`pcr-forms/${form.id}/pdf?rating_period_id=${activePeriodId}`}
-                filename={`${form.type.toUpperCase()} - ${form.owner?.name ?? form.org_unit?.name}.pdf`}
-                title={`${form.type.toUpperCase()} — ${form.owner?.name ?? form.org_unit?.name}`}
+                filename={`${form.type.toUpperCase()} - ${sheetName(form)}.pdf`}
+                title={`${form.type.toUpperCase()} — ${sheetName(form)}`}
             />
 
             <Drawer
@@ -966,7 +1015,8 @@ export default function FormEditorPage({ formId = null }) {
             </Drawer>
 
             <Modal
-                title="Add output (MFO/PPA)"
+                title={isOpcr ? "Add output (MFO/PPA)" : "Add MFO/PPA"}
+                okText={isOpcr ? "OK" : "Add"}
                 open={outputModal}
                 onCancel={() => setOutputModal(false)}
                 onOk={() => outputForm.submit()}
@@ -980,9 +1030,16 @@ export default function FormEditorPage({ formId = null }) {
                     onFinish={(v) => addOutput.mutate(v)}
                 >
                     <Form.Item name="section" label="Section" rules={[{ required: true }]}>
-                        <Select
-                            options={sections.map((value) => ({ value, label: SECTION_LABELS[value] }))}
-                        />
+                        {isOpcr ? (
+                            <Select
+                                options={sections.map((value) => ({ value, label: SECTION_LABELS[value] }))}
+                            />
+                        ) : (
+                            <Segmented
+                                block
+                                options={sections.map((value) => ({ value, label: SECTION_LABELS[value] }))}
+                            />
+                        )}
                     </Form.Item>
                     <Form.Item noStyle shouldUpdate={(a, b) => a.section !== b.section}>
                         {({ getFieldValue }) => {
@@ -999,9 +1056,7 @@ export default function FormEditorPage({ formId = null }) {
                                     extra={
                                         isOpcr
                                             ? "The MFO/PPA column — for example “Research” or “1.1 Entrance Exam”."
-                                            : section === "support"
-                                              ? "Support Functions are your own — for example “Submission of DTR”."
-                                              : "Type your own MFO/PPA. Success indicators under it can be picked from the college OPCR."
+                                            : undefined
                                     }
                                 >
                                     <Input.TextArea

@@ -11,12 +11,13 @@ import {
     Space,
     Switch,
     Table,
+    Tabs,
     Tag,
     Tooltip,
     Typography,
     message,
 } from "antd";
-import { DownOutlined, FileExcelOutlined, FilePdfOutlined } from "@ant-design/icons";
+import { DownOutlined, FileExcelOutlined, FilePdfOutlined, PrinterOutlined } from "@ant-design/icons";
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import dayjs from "dayjs";
@@ -28,6 +29,7 @@ import PageHeader from "~/components/PageHeader";
 const TABS = [
     { value: "units", label: "By unit" },
     { value: "heads", label: "By head" },
+    { value: "vps", label: "By VP" },
     { value: "people", label: "By individual" },
     { value: "forms", label: "Forms" },
     { value: "commitments", label: "Commitments" },
@@ -35,6 +37,38 @@ const TABS = [
 ];
 
 const score = (value) => (value == null ? "—" : Number(value).toFixed(2));
+
+function progressBar(value, done = false) {
+    if (value == null) return "—";
+
+    return (
+        <Progress
+            percent={value}
+            size="small"
+            style={{ width: 110 }}
+            strokeColor={done || value >= 100 ? VIZ.good : VIZ.series[0]}
+        />
+    );
+}
+
+function ReportExport({ busy, onDownload }) {
+    return (
+        <Dropdown
+            menu={{
+                items: [
+                    { key: "pdf", icon: <FilePdfOutlined />, label: "PDF" },
+                    { key: "xlsx", icon: <FileExcelOutlined />, label: "Excel", disabled: busy },
+                ],
+                onClick: ({ key }) => onDownload(key),
+            }}
+        >
+            <Button icon={<PrinterOutlined />} loading={busy} aria-label="PDF or Excel">
+                <span className="pms-btn-text">Print</span>
+                <DownOutlined />
+            </Button>
+        </Dropdown>
+    );
+}
 
 function ReportFilters({ search, onSearch, tab, lateOnly, onLateOnly }) {
     return (
@@ -69,13 +103,15 @@ function ReportCards({ tab, rows, onOpen }) {
                         ? row.name
                         : tab === "heads"
                           ? row.head || "No head"
-                          : tab === "commitments"
-                            ? row.description || "Untitled"
-                            : row.name || row.owner || "—";
+                          : tab === "vps"
+                            ? row.vp || "No VP"
+                            : tab === "commitments"
+                              ? row.description || "Untitled"
+                              : row.name || row.owner || "—";
                 const meta =
                     tab === "units"
                         ? [row.code, row.type].filter(Boolean).join(" · ")
-                        : tab === "heads"
+                        : tab === "heads" || tab === "vps"
                           ? [row.position, row.unit].filter(Boolean).join(" · ")
                           : [row.position, row.unit, row.owner].filter(Boolean).join(" · ");
                 const pct = row.progress_pct;
@@ -174,6 +210,8 @@ export default function ReportsPage() {
 
         if (tab === "heads") return data.heads.filter((row) => matches(row, ["head", "unit", "unit_code", "position"]));
 
+        if (tab === "vps") return (data.vps ?? []).filter((row) => matches(row, ["vp", "unit", "unit_code", "position"]));
+
         if (tab === "people")
             return data.people.filter((row) => matches(row, ["name", "unit", "position", "adjectival"]));
 
@@ -259,17 +297,7 @@ export default function ReportsPage() {
             title: "Progress",
             dataIndex: "progress_pct",
             sorter: (a, b) => (a.progress_pct ?? 0) - (b.progress_pct ?? 0),
-            render: (value) =>
-                value == null ? (
-                    "—"
-                ) : (
-                    <Progress
-                        percent={value}
-                        size="small"
-                        style={{ width: 120 }}
-                        strokeColor={value >= 100 ? VIZ.good : VIZ.series[0]}
-                    />
-                ),
+            render: (value) => progressBar(value),
         },
         {
             title: "Overdue",
@@ -317,17 +345,7 @@ export default function ReportsPage() {
             title: "Progress",
             dataIndex: "progress_pct",
             sorter: (a, b) => (a.progress_pct ?? 0) - (b.progress_pct ?? 0),
-            render: (value) =>
-                value == null ? (
-                    "—"
-                ) : (
-                    <Progress
-                        percent={value}
-                        size="small"
-                        style={{ width: 110 }}
-                        strokeColor={value >= 100 ? VIZ.good : VIZ.series[0]}
-                    />
-                ),
+            render: (value) => progressBar(value),
         },
         {
             title: "Overdue",
@@ -359,8 +377,12 @@ export default function ReportsPage() {
         },
     ];
 
-    const headColumns = [
-        { title: "Head", dataIndex: "head", sorter: (a, b) => (a.head ?? "").localeCompare(b.head ?? "") },
+    const leaderColumns = (title, field) => [
+        {
+            title,
+            dataIndex: field,
+            sorter: (a, b) => (a[field] ?? "").localeCompare(b[field] ?? ""),
+        },
         { title: "Position", dataIndex: "position", render: (v) => v || "—" },
         { title: "Unit", dataIndex: "unit" },
         { title: "Forms", dataIndex: "forms", align: "right" },
@@ -375,17 +397,7 @@ export default function ReportsPage() {
             title: "Progress",
             dataIndex: "progress_pct",
             sorter: (a, b) => (a.progress_pct ?? 0) - (b.progress_pct ?? 0),
-            render: (value) =>
-                value == null ? (
-                    "—"
-                ) : (
-                    <Progress
-                        percent={value}
-                        size="small"
-                        style={{ width: 110 }}
-                        strokeColor={value >= 100 ? VIZ.good : VIZ.series[0]}
-                    />
-                ),
+            render: (value) => progressBar(value),
         },
         {
             title: "Overdue",
@@ -408,6 +420,9 @@ export default function ReportsPage() {
                 value ? <Tag color={ADJECTIVAL_COLORS[value]}>{value}</Tag> : <Tag>Not yet rated</Tag>,
         },
     ];
+
+    const headColumns = leaderColumns("Head", "head");
+    const vpColumns = leaderColumns("VP", "vp");
 
     const formColumns = [
         {
@@ -444,17 +459,7 @@ export default function ReportsPage() {
             title: "Progress",
             dataIndex: "progress_pct",
             sorter: (a, b) => (a.progress_pct ?? 0) - (b.progress_pct ?? 0),
-            render: (value) =>
-                value == null ? (
-                    "—"
-                ) : (
-                    <Progress
-                        percent={value}
-                        size="small"
-                        style={{ width: 110 }}
-                        strokeColor={value >= 100 ? VIZ.good : VIZ.series[0]}
-                    />
-                ),
+            render: (value) => progressBar(value),
         },
         {
             title: "Overdue",
@@ -536,14 +541,7 @@ export default function ReportsPage() {
             title: "Progress",
             dataIndex: "progress_pct",
             sorter: (a, b) => a.progress_pct - b.progress_pct,
-            render: (value, row) => (
-                <Progress
-                    percent={value}
-                    size="small"
-                    style={{ width: 110 }}
-                    strokeColor={row.progress_status === "completed" ? VIZ.good : VIZ.series[0]}
-                />
-            ),
+            render: (value, row) => progressBar(value, row.progress_status === "completed"),
         },
         {
             title: "Standing",
@@ -564,6 +562,7 @@ export default function ReportsPage() {
     const table = {
         units: { columns: unitColumns, rowKey: "id", scroll: 1500 },
         heads: { columns: headColumns, rowKey: "id", scroll: 1300 },
+        vps: { columns: vpColumns, rowKey: "id", scroll: 1300 },
         people: { columns: peopleColumns, rowKey: "id", scroll: 1200 },
         forms: { columns: formColumns, rowKey: "id", scroll: 1300 },
         ratings: { columns: ratingColumns, rowKey: "id", scroll: 1000 },
@@ -610,18 +609,17 @@ export default function ReportsPage() {
             ) : (
                 <>
                     <div className="pms-desktop-only">
-                    <Card
-                        title={
-                            <Segmented
-                                value={tab}
+                    <Card>
+                        <div className="pms-report-bar">
+                            <Tabs
+                                className="pms-line-tabs"
+                                activeKey={tab}
                                 onChange={(value) => {
                                     setTab(value);
                                     setSearch("");
                                 }}
-                                options={TABS}
+                                items={TABS.map((item) => ({ key: item.value, label: item.label }))}
                             />
-                        }
-                        extra={
                             <Space wrap>
                                 <Input.Search
                                     allowClear
@@ -636,24 +634,10 @@ export default function ReportsPage() {
                                         <Typography.Text type="secondary">Late only</Typography.Text>
                                     </Space>
                                 )}
-                                <Dropdown.Button
-                                    icon={<DownOutlined />}
-                                    loading={busy}
-                                    onClick={() => download("xlsx")}
-                                    menu={{
-                                        items: [{ key: "csv", label: "Download as CSV" }],
-                                        onClick: () => download("csv"),
-                                    }}
-                                >
-                                    <FileExcelOutlined /> Excel
-                                </Dropdown.Button>
-                                <Button icon={<FilePdfOutlined />} loading={busy} onClick={() => download("pdf")}>
-                                    PDF
-                                </Button>
+                                <ReportExport busy={busy} onDownload={download} />
                             </Space>
-                        }
-                    >
-                        <Typography.Paragraph type="secondary" style={{ marginTop: -4 }}>
+                        </div>
+                        <Typography.Paragraph type="secondary" style={{ marginTop: 0 }}>
                             {year?.label} · {period?.label ?? "whole year"} — {totals.forms} forms, {totals.submitted}{" "}
                             submitted, {totals.rated} rated · {totals.commitments} commitments at{" "}
                             {totals.progress_pct ?? 0}% · {totals.overdue} overdue
@@ -684,30 +668,18 @@ export default function ReportsPage() {
                         </Typography.Paragraph>
 
                         <div className="pms-report-actions">
-                            <Dropdown.Button
-                                icon={<DownOutlined />}
-                                loading={busy}
-                                onClick={() => download("xlsx")}
-                                menu={{
-                                    items: [{ key: "csv", label: "Download as CSV" }],
-                                    onClick: () => download("csv"),
-                                }}
-                            >
-                                <FileExcelOutlined /> Excel
-                            </Dropdown.Button>
-                            <Button icon={<FilePdfOutlined />} loading={busy} onClick={() => download("pdf")}>
-                                PDF
-                            </Button>
+                            <ReportExport busy={busy} onDownload={download} />
                         </div>
 
                         <div className="pms-report-tabs">
-                            <Segmented
-                                value={tab}
+                            <Tabs
+                                className="pms-line-tabs"
+                                activeKey={tab}
                                 onChange={(value) => {
                                     setTab(value);
                                     setSearch("");
                                 }}
-                                options={TABS}
+                                items={TABS.map((item) => ({ key: item.value, label: item.label }))}
                             />
                         </div>
 

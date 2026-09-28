@@ -9,8 +9,8 @@ use App\Models\User;
 use Tests\PmsTestCase;
 
 /**
- * One finished commitment out of four is 25% for that person, and that whole
- * figure — not only the line a head assigned — is what the head and the VP see.
+ * A person's overall progress is the average of the commitments they wrote.
+ * An office target moves only with the commitments linked to that target.
  */
 class WholeIpcrProgressTest extends PmsTestCase
 {
@@ -75,7 +75,7 @@ class WholeIpcrProgressTest extends PmsTestCase
         $this->getJson("/api/pcr-forms/{$ipcr->id}")->assertSuccessful();
     }
 
-    public function test_an_extra_line_counts_toward_every_target_assigned_to_that_person(): void
+    public function test_an_unlinked_line_stays_on_the_person_and_off_the_target(): void
     {
         $this->makeOrganization();
 
@@ -109,8 +109,9 @@ class WholeIpcrProgressTest extends PmsTestCase
         app(\App\Services\IndicatorProgressService::class)
             ->shareAcrossAssignedTargets($form);
 
-        // Two commitments, one finished: the assigned target reads 50%, same as the person.
-        $this->assertSame(50, (int) $headLine->fresh()->progress_pct);
+        // The linked commitment is finished, so the target reads 100%.
+        // The extra line keeps the person's overall at 50% and does not move the target.
+        $this->assertSame(100, (int) $headLine->fresh()->progress_pct);
         $this->assertSame(0, (int) $own->fresh()->progress_pct);
 
         $president = User::factory()->create(['role' => 'president', 'org_unit_id' => $unit->id]);
@@ -124,7 +125,7 @@ class WholeIpcrProgressTest extends PmsTestCase
         $this->assertSame(50, $person['progress_pct']);
     }
 
-    public function test_three_assigned_targets_share_the_commitments_the_person_wrote(): void
+    public function test_each_target_follows_only_the_commitment_linked_to_it(): void
     {
         $this->makeOrganization();
 
@@ -153,16 +154,19 @@ class WholeIpcrProgressTest extends PmsTestCase
         $lines = $targets->take(2)->map(fn ($target) => $this->commitAgainst($target, $head));
         $this->documentLine($lines->first());
 
-        foreach ($targets as $target) {
-            $this->assertSame(50, (int) $target->fresh()->progress_pct);
-            $this->assertSame('ongoing', $target->fresh()->progress_status);
-        }
+        $this->assertSame(100, (int) $targets[0]->fresh()->progress_pct);
+        $this->assertSame('completed', $targets[0]->fresh()->progress_status);
+        $this->assertSame(0, (int) $targets[1]->fresh()->progress_pct);
+        $this->assertSame('not_started', $targets[1]->fresh()->progress_status);
+        $this->assertSame(0, (int) $targets[2]->fresh()->progress_pct);
+        $this->assertFalse($targets[2]->fresh()->children()->exists());
 
         $this->documentLine($lines->last());
 
-        foreach ($targets as $target) {
-            $this->assertSame(100, (int) $target->fresh()->progress_pct);
-            $this->assertSame('completed', $target->fresh()->progress_status);
-        }
+        $this->assertSame(100, (int) $targets[0]->fresh()->progress_pct);
+        $this->assertSame(100, (int) $targets[1]->fresh()->progress_pct);
+        $this->assertSame('completed', $targets[1]->fresh()->progress_status);
+        $this->assertSame(0, (int) $targets[2]->fresh()->progress_pct);
+        $this->assertFalse($targets[2]->fresh()->children()->exists());
     }
 }

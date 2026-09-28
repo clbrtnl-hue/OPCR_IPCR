@@ -11,7 +11,9 @@ import {
 } from "@ant-design/icons";
 import dayjs from "dayjs";
 import BarRows from "~/components/charts/BarRows";
-import StackedBars from "~/components/charts/StackedBars";
+import ColumnChart from "~/components/charts/ColumnChart";
+import Donut from "~/components/charts/Donut";
+import StackedColumns from "~/components/charts/StackedColumns";
 import TrendLine from "~/components/charts/TrendLine";
 import StatTile, { Meter } from "~/components/charts/StatTile";
 import { ADJECTIVAL_COLORS, RATING_LEGEND, SECTION_LABELS, STATUS_META, VIZ } from "~/utils/constants";
@@ -21,6 +23,27 @@ const STAGES = [
     { key: "submitted", label: "Submitted", color: VIZ.ordinal[2] },
     { key: "rated", label: "Rated", color: VIZ.ordinal[4] },
 ];
+
+const BAND_FILL = {
+    Outstanding: VIZ.good,
+    "Very Satisfactory": VIZ.series[2],
+    Satisfactory: VIZ.series[0],
+    Unsatisfactory: VIZ.warning,
+    Poor: VIZ.critical,
+};
+
+const STATUS_FILL = {
+    draft: VIZ.ordinal[1],
+    returned: VIZ.critical,
+    head_review: VIZ.ordinal[0],
+    vp_review: VIZ.series[0],
+    qa_approval: VIZ.warning,
+    approved: VIZ.series[2],
+    published: VIZ.good,
+    qa_rating: VIZ.series[1],
+    rated: VIZ.ordinal[4],
+    final: VIZ.ink,
+};
 
 export default function InsightsBoard({ data }) {
     const totals = data?.totals;
@@ -36,14 +59,15 @@ export default function InsightsBoard({ data }) {
             key: status,
             label: STATUS_META[status]?.label ?? status,
             value: count,
+            color: STATUS_FILL[status] ?? VIZ.series[0],
             hint: `${count} form${count === 1 ? "" : "s"} — ${STATUS_META[status]?.who ?? ""}`,
         }));
 
     const bands = RATING_LEGEND.map((band) => ({
         key: band.label,
-        label: `${band.value} — ${band.label}`,
+        label: band.label,
         value: data.adjectival?.[band.label] ?? 0,
-        color: VIZ.ordinal[band.value - 1],
+        color: BAND_FILL[band.label] ?? VIZ.ordinal[band.value - 1],
         hint: `${data.adjectival?.[band.label] ?? 0} form(s) rated ${band.label} (${band.range})`,
     }));
 
@@ -268,7 +292,7 @@ export default function InsightsBoard({ data }) {
                 }
                 value={data.evidence?.awaiting_file ?? 0}
                 tone={(data.evidence?.awaiting_file ?? 0) > 0 ? VIZ.serious : VIZ.good}
-                hint="A line stays at 0% until the accomplishment is written and a file is attached."
+                hint="A narrative counts as 30%. Attaching a file adds the other 70%."
             />
             <StatTile
                 label={
@@ -402,7 +426,7 @@ export default function InsightsBoard({ data }) {
                 </Typography.Text>
             }
         >
-            <BarRows data={monthly} emptyText="Nothing has been submitted yet." />
+            <ColumnChart data={monthly} emptyText="Nothing has been submitted yet." />
         </Card>
     );
 
@@ -508,7 +532,7 @@ export default function InsightsBoard({ data }) {
                 </Col>
                 <Col xs={24} lg={12}>
                     <Card title="Rating spread" className="viz-card">
-                        <BarRows data={bands} emptyText="Nothing has been rated yet." />
+                        <Donut data={bands} emptyText="Nothing has been rated yet." />
                     </Card>
                 </Col>
             </Row>
@@ -516,13 +540,14 @@ export default function InsightsBoard({ data }) {
             <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
                 <Col xs={24} lg={12}>
                     <Card title="Where the forms are" className="viz-card">
-                        <BarRows data={pipeline} emptyText="No forms in this cycle yet." />
+                        <Donut data={pipeline} emptyText="No forms in this cycle yet." />
                     </Card>
                 </Col>
                 <Col xs={24} lg={12}>
                     <Card className="viz-card" title="Forms submitted through the year" extra={<Typography.Text type="secondary">Running total</Typography.Text>}>
                         <TrendLine
                             points={submissions}
+                            filled
                             format={(value) => Math.round(value)}
                             emptyText="Nothing has been submitted yet."
                         />
@@ -533,7 +558,7 @@ export default function InsightsBoard({ data }) {
             <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
                 <Col xs={24} lg={14}>
                     <Card title="How each unit is tracking" className="viz-card">
-                        <StackedBars rows={unitRows} series={STAGES} emptyText="No unit has opened a form yet." />
+                        <StackedColumns rows={unitRows} series={STAGES} emptyText="No unit has opened a form yet." />
                     </Card>
                 </Col>
                 <Col xs={24} lg={10}>

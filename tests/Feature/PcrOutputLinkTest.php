@@ -53,7 +53,7 @@ class PcrOutputLinkTest extends PmsTestCase
         $this->getJson("/api/pcr-forms/{$ipcr->id}/opcr-outputs")->assertSuccessful()->assertJsonCount(0);
     }
 
-    public function test_a_core_heading_takes_its_wording_from_the_college(): void
+    public function test_a_linked_heading_keeps_the_ratees_wording(): void
     {
         ['employee' => $employee, 'ipcr' => $ipcr, 'collegeOutput' => $collegeOutput] = $this->college();
 
@@ -68,8 +68,26 @@ class PcrOutputLinkTest extends PmsTestCase
 
         $output = PcrOutput::find($response->json('output.id'));
 
-        $this->assertSame('Research', $output->title);
+        $this->assertSame('Something the ratee typed instead', $output->title);
         $this->assertSame('core', $output->section);
+        $this->assertSame($collegeOutput->id, (int) $output->parent_output_id);
+    }
+
+    public function test_a_linked_heading_with_no_title_copies_the_college(): void
+    {
+        ['employee' => $employee, 'ipcr' => $ipcr, 'collegeOutput' => $collegeOutput] = $this->college();
+
+        $this->actingAsUser($employee);
+
+        $response = $this->postJson('/api/pcr-outputs', [
+            'form_id'          => $ipcr->id,
+            'section'          => 'core',
+            'parent_output_id' => $collegeOutput->id,
+        ])->assertStatus(201);
+
+        $output = PcrOutput::find($response->json('output.id'));
+
+        $this->assertSame('Research', $output->title);
         $this->assertSame($collegeOutput->id, (int) $output->parent_output_id);
     }
 
@@ -109,7 +127,7 @@ class PcrOutputLinkTest extends PmsTestCase
         $this->assertNull($output->parent_output_id);
     }
 
-    public function test_an_unassigned_linked_heading_is_unlinked_when_renamed(): void
+    public function test_renaming_a_linked_heading_keeps_the_college_link(): void
     {
         ['employee' => $employee, 'ipcr' => $ipcr, 'collegeOutput' => $collegeOutput] = $this->college();
 
@@ -126,7 +144,7 @@ class PcrOutputLinkTest extends PmsTestCase
 
         $mine->refresh();
         $this->assertSame('Thesis advising', $mine->title);
-        $this->assertNull($mine->parent_output_id);
+        $this->assertSame($collegeOutput->id, (int) $mine->parent_output_id);
 
         $this->deleteJson("/api/pcr-outputs/{$mine->id}")->assertStatus(200);
     }

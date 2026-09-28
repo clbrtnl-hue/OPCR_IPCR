@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { Badge, Button, Empty, Popover, Typography } from "antd";
-import { BellOutlined } from "@ant-design/icons";
+import NavIcon from "~/components/NavIcon";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import dayjs from "dayjs";
@@ -113,7 +113,7 @@ export default function NotificationBell() {
             styles={{ body: { padding: 0 } }}
         >
             <Badge count={unread} size="small" offset={[-2, 2]}>
-                <Button type="text" icon={<BellOutlined style={{ fontSize: 18 }} />} />
+                <Button type="text" className="pms-bell-btn" icon={<NavIcon name="bell" />} />
             </Badge>
         </Popover>
     );

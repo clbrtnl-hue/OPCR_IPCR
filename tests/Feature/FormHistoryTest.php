@@ -40,7 +40,9 @@ class FormHistoryTest extends PmsTestCase
 
         PcrStatusLog::record($opcr->id, 'approved', 'published', 'Targets published');
 
-        app(PcrAssignmentService::class)->assignIndicator($target, $staff, $president);
+        // Naming someone on a target is an assignment row. History records a
+        // delegation when a heading is handed down onto their IPCR.
+        app(PcrAssignmentService::class)->assignOutput($target->output, $staff, $president);
 
         $target->update(['progress_status' => 'completed', 'progress_pct' => 100, 'completed_on' => now()->toDateString()]);
 

@@ -22,7 +22,7 @@ function Score({ label, value }) {
     );
 }
 
-export default function LineCards({ form, periodId, onOpen }) {
+export default function LineCards({ form, periodId, showScores = false, onOpen }) {
     const sections = SECTIONS.map((section) => ({
         section,
         lines: (form.outputs ?? [])
@@ -50,6 +50,8 @@ export default function LineCards({ form, periodId, onOpen }) {
                             (row) => row.rating_period_id === periodId
                         );
                         const rating = (line.ratings ?? []).find((row) => row.rating_period_id === periodId);
+                        const unlinked =
+                            (line.assignments ?? []).length > 0 && (line.children ?? []).length === 0;
                         const pct = Math.max(0, Math.min(100, Number(line.progress_pct ?? 0)));
                         const status = line.progress_status ?? "not_started";
                         const meta = PROGRESS_META[status] ?? PROGRESS_META.not_started;
@@ -66,22 +68,30 @@ export default function LineCards({ form, periodId, onOpen }) {
                                 {outputTitle && <span className="pms-line-output">{outputTitle}</span>}
                                 <span className="pms-line-title">{toPlainText(line.description) || "Untitled line"}</span>
                                 <span className="pms-line-progress">
-                                    <Progress
-                                        percent={pct}
-                                        size="small"
-                                        strokeColor={progressTone(status, pct)}
-                                        format={() => meta.label}
-                                    />
+                                    {unlinked ? (
+                                        <span className="pms-progress-label" style={{ color: "#8c8c8c" }}>
+                                            N/A · No Linked Commitment
+                                        </span>
+                                    ) : (
+                                        <Progress
+                                            percent={pct}
+                                            size="small"
+                                            strokeColor={progressTone(status, pct)}
+                                            format={() => meta.label}
+                                        />
+                                    )}
                                 </span>
                                 <span className="pms-line-body">
                                     {text || "No accomplishment yet"}
                                 </span>
-                                <span className="pms-line-scores">
-                                    <Score label="Q" value={rating?.q} />
-                                    <Score label="E" value={rating?.e} />
-                                    <Score label="T" value={rating?.t} />
-                                    <Score label="Avg" value={averageOf(rating)} />
-                                </span>
+                                {showScores && (
+                                    <span className="pms-line-scores">
+                                        <Score label="Q" value={rating?.q} />
+                                        <Score label="E" value={rating?.e} />
+                                        <Score label="T" value={rating?.t} />
+                                        <Score label="Avg" value={averageOf(rating)} />
+                                    </span>
+                                )}
                                 {line.target_date && <Tag>{line.target_date}</Tag>}
                             </button>
                         );

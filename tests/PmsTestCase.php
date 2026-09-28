@@ -139,8 +139,8 @@ abstract class PmsTestCase extends TestCase
     }
 
     /**
-     * A line is finished only by a narrative and a file. Pass $withFile false
-     * to leave it written but not counted.
+     * A line is finished by a narrative (30%) and a file (70%). Pass $withFile
+     * false to leave it at the narrative's 30.
      */
     protected function documentLine(PcrIndicator $line, bool $withFile = true, ?string $text = '<p>Done.</p>'): PcrIndicator
     {

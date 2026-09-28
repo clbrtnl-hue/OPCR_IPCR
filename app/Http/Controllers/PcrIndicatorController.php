@@ -71,10 +71,7 @@ class PcrIndicatorController extends Controller
             }
         }
 
-        if ($message = PcrWorkflow::lockMessage(
-            $request->user(),
-            PcrWorkflow::periodForWrite($output->form, $periodId)
-        )) {
+        if ($message = PcrWorkflow::formLockMessage($request->user(), $output->form, $periodId)) {
             return response()->json(['message' => $message], 409);
         }
 
@@ -159,10 +156,7 @@ class PcrIndicatorController extends Controller
             return response()->json(['message' => 'This form has been rated and can no longer be changed.'], 409);
         }
 
-        if ($message = PcrWorkflow::lockMessage(
-            $user,
-            PcrWorkflow::periodForWrite($form, $indicator->rating_period_id)
-        )) {
+        if ($message = PcrWorkflow::formLockMessage($user, $form, $indicator->rating_period_id)) {
             return response()->json(['message' => $message], 409);
         }
 
@@ -173,7 +167,7 @@ class PcrIndicatorController extends Controller
         }
 
         return response()->json([
-            'message' => 'Progress follows the accomplishment. A line reaches 100% when the actual accomplishment is written and a file is attached.',
+            'message' => 'Progress follows the accomplishment. The narrative counts as 30% and a file as 70%. Both together reach 100%.',
         ], 409);
     }
 
@@ -187,9 +181,10 @@ class PcrIndicatorController extends Controller
             ], 409);
         }
 
-        if ($message = PcrWorkflow::lockMessage(
+        if ($message = PcrWorkflow::formLockMessage(
             $request->user(),
-            PcrWorkflow::periodForWrite($indicator->output->form, $indicator->rating_period_id)
+            $indicator->output->form,
+            $indicator->rating_period_id
         )) {
             return response()->json(['message' => $message], 409);
         }

@@ -113,9 +113,10 @@ class PcrAccomplishmentController extends Controller
             return response()->json(['message' => 'This form has been rated and can no longer be changed.'], 409);
         }
 
-        if ($message = PcrWorkflow::lockMessage(
+        if ($message = PcrWorkflow::formLockMessage(
             $user,
-            PcrWorkflow::periodForWrite($form, $attachment->accomplishment->rating_period_id)
+            $form,
+            $attachment->accomplishment->rating_period_id
         )) {
             return response()->json(['message' => $message], 409);
         }
@@ -157,13 +158,17 @@ class PcrAccomplishmentController extends Controller
 
         $period = RatingPeriod::findOrFail($periodId);
 
-        if ($period->isLockedFor($user)) {
+        if ($form->type === 'opcr') {
+            if ($message = PcrWorkflow::formLockMessage($user, $form)) {
+                return response()->json(['message' => $message], 409);
+            }
+        } elseif ($period->isLockedFor($user)) {
             return response()->json([
                 'message' => "{$period->label} is locked. It is view-only now — ask an administrator to unlock it.",
             ], 409);
         }
 
-        if (! $user->isAdmin() && ! $period->isOpen()) {
+        if ($form->type !== 'opcr' && ! $user->isAdmin() && ! $period->isOpen()) {
             return response()->json([
                 'message' => "{$period->label} is not open. Ask an administrator to open it.",
             ], 409);
