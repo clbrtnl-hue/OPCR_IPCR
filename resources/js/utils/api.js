@@ -66,6 +66,12 @@ api.interceptors.response.use(
             return Promise.reject(error);
         }
 
+        // A background refresh hitting the rate limit should not toast.
+        // Saving and other writes still report the failure.
+        if (status === 429 && method === "get") {
+            return Promise.reject(error);
+        }
+
         message.error(errorText(error));
 
         return Promise.reject(error);

@@ -18,6 +18,8 @@ export default function NotificationBell() {
     const { data } = useQuery({
         queryKey: ["notifications", "bell"],
         queryFn: () => api.get("notifications?limit=6").then((r) => r.data),
+        refetchInterval: 4000,
+        refetchIntervalInBackground: true,
     });
 
     const items = data?.items ?? [];

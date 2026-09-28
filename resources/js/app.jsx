@@ -12,11 +12,14 @@ const queryClient = new QueryClient({
     defaultOptions: {
         queries: {
             refetchOnWindowFocus: true,
-            retry: 1,
-            // Every open screen asks again, including a window left beside
-            // another browser, so progress and comments arrive with the bell.
-            refetchInterval: 4000,
-            refetchIntervalInBackground: true,
+            // A 429 is the API limit, not a blip. Retrying it fills the next
+            // minute and keeps the "Too Many Attempts" toast on screen.
+            retry: (failureCount, error) =>
+                error?.response?.status !== 429 && failureCount < 1,
+            // Open screens still refresh, but slowly. Polling every query
+            // every 4s crosses the 120-per-minute API limit.
+            refetchInterval: 30_000,
+            refetchIntervalInBackground: false,
         },
     },
 });
