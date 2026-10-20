@@ -652,7 +652,7 @@ export default function ReportsPage() {
                             scroll={{ x: table.scroll }}
                             onRow={(row) =>
                                 tab === "forms" || tab === "ratings"
-                                    ? { style: { cursor: "pointer" }, onClick: () => navigate(`/forms/${row.id}`) }
+                                    ? { style: { cursor: "pointer" }, onClick: () => navigate(`/forms/${row.id}`, { state: { from: "/reports" } }) }
                                     : {}
                             }
                         />
@@ -693,7 +693,7 @@ export default function ReportsPage() {
                             />
                         </div>
 
-                        <ReportCards tab={tab} rows={rows} onOpen={(id) => navigate(`/forms/${id}`)} />
+                        <ReportCards tab={tab} rows={rows} onOpen={(id) => navigate(`/forms/${id}`, { state: { from: "/reports" } })} />
                     </Card>
                     </div>
                 </>

@@ -34,7 +34,12 @@ export default function BulkIpcrModal({ open, onClose }) {
 
     const mine = can("admin")
         ? units
-        : units.filter((u) => u.head_user_id === user?.id || u.vp_user_id === user?.id);
+        : units.filter(
+              (u) =>
+                  u.head_user_id === user?.id ||
+                  u.dean_user_id === user?.id ||
+                  u.vp_user_id === user?.id
+          );
 
     const members = people.filter((p) => p.org_unit_id === unitId && p.role !== "admin");
 

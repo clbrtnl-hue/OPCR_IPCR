@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState } from "react";
 import {
     Alert,
     Button,
@@ -6,6 +6,7 @@ import {
     Checkbox,
     Col,
     Divider,
+    Input,
     InputNumber,
     Popconfirm,
     Row,
@@ -32,6 +33,7 @@ const KEY_LABELS = {
 
 export default function WorkflowPage() {
     const queryClient = useQueryClient();
+    const [stepName, setStepName] = useState("");
 
     const { data, isLoading } = useQuery({
         queryKey: ["workflow-settings"],
@@ -96,6 +98,35 @@ export default function WorkflowPage() {
         put("review_stages", next);
     };
 
+    const addStage = () => {
+        const name = stepName.trim();
+
+        if (!name) return;
+
+        const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "") || "step";
+        const status = `step_${slug}_${Date.now().toString(36)}`;
+        const stage = {
+            status,
+            label: /^with /i.test(name) ? name : `With ${name}`,
+            source: "unit_slot",
+            slot: status,
+            skippable: true,
+        };
+        const next = [...stages];
+        next.splice(Math.max(stages.length - 1, 0), 0, stage);
+        setStepName("");
+        put("review_stages", next);
+    };
+
+    const removeStage = (index) => {
+        put(
+            "review_stages",
+            stages.filter((_, i) => i !== index)
+        );
+    };
+
+    const last = stages.length - 1;
+
     return (
         <>
             <PageHeader
@@ -118,17 +149,39 @@ export default function WorkflowPage() {
                 <Typography.Paragraph type="secondary">
                     An IPCR walks these stages in order. A skippable stage nobody fills is
                     passed over — which is how a head's own form skips the head stage,
-                    and a VP's goes straight to QA. The last stage can never be skipped.
+                    a unit with no dean or director skips that stage, and a VP's goes straight to QA.
+                    The last stage stays QA and can never be skipped. Name the person for a new step
+                    on Setup → Hierarchy.
                 </Typography.Paragraph>
+
+                <Space.Compact style={{ marginBottom: 12, width: "100%", maxWidth: 420 }}>
+                    <Input
+                        placeholder="New step, for example Coordinator"
+                        value={stepName}
+                        onChange={(e) => setStepName(e.target.value)}
+                        onPressEnter={addStage}
+                    />
+                    <Button type="primary" onClick={addStage} disabled={!stepName.trim() || save.isPending}>
+                        Add step
+                    </Button>
+                </Space.Compact>
 
                 <div className="pms-mobile-only pms-pds-cards">
                     {stages.map((stage, i) => (
                         <article key={stage.status} className="pms-pds-card">
                             <div className="pms-pds-line">
                                 <span>Stage</span>
-                                <strong>
-                                    {i + 1}. {stage.label}
-                                </strong>
+                                <Input
+                                    size="small"
+                                    style={{ width: 180 }}
+                                    defaultValue={stage.label}
+                                    key={`${stage.status}-${stage.label}`}
+                                    onBlur={(e) => {
+                                        const next = e.target.value.trim();
+                                        if (next && next !== stage.label) setStage(i, { label: next });
+                                    }}
+                                    onPressEnter={(e) => e.currentTarget.blur()}
+                                />
                             </div>
                             {stage.source === "role" ? (
                                 <Select
@@ -140,7 +193,11 @@ export default function WorkflowPage() {
                                 />
                             ) : (
                                 <Tag>
-                                    {stage.slot === "head_user_id" ? "The unit's head" : "The unit's VP"}
+                                    {{
+                                        head_user_id: "The unit's head",
+                                        dean_user_id: "The unit's dean or director",
+                                        vp_user_id: "The unit's VP",
+                                    }[stage.slot] ?? "The unit"}
                                 </Tag>
                             )}
                             <div className="pms-pds-actions">
@@ -148,21 +205,24 @@ export default function WorkflowPage() {
                                     <Switch
                                         size="small"
                                         checked={stage.skippable ?? true}
-                                        disabled={i === stages.length - 1}
+                                        disabled={i === last}
                                         onChange={(skippable) => setStage(i, { skippable })}
                                     />
                                     Skippable
                                 </span>
-                                <Button size="small" disabled={i === 0} onClick={() => moveStage(i, -1)}>
+                                <Button size="small" disabled={i === 0 || i === last} onClick={() => moveStage(i, -1)}>
                                     Up
                                 </Button>
-                                <Button
-                                    size="small"
-                                    disabled={i === stages.length - 1}
-                                    onClick={() => moveStage(i, 1)}
-                                >
+                                <Button size="small" disabled={i >= last - 1} onClick={() => moveStage(i, 1)}>
                                     Down
                                 </Button>
+                                {i !== last && (
+                                    <Popconfirm title="Remove this step?" onConfirm={() => removeStage(i)}>
+                                        <Button size="small" danger>
+                                            Remove
+                                        </Button>
+                                    </Popconfirm>
+                                )}
                             </div>
                         </article>
                     ))}
@@ -179,7 +239,21 @@ export default function WorkflowPage() {
                             render: (_, __, i) => i + 1,
                             width: 50,
                         },
-                        { title: "Stage", dataIndex: "label" },
+                        {
+                            title: "Stage",
+                            render: (_, stage, i) => (
+                                <Input
+                                    size="small"
+                                    defaultValue={stage.label}
+                                    key={`${stage.status}-${stage.label}`}
+                                    onBlur={(e) => {
+                                        const next = e.target.value.trim();
+                                        if (next && next !== stage.label) setStage(i, { label: next });
+                                    }}
+                                    onPressEnter={(e) => e.currentTarget.blur()}
+                                />
+                            ),
+                        },
                         {
                             title: "Filled by",
                             render: (_, stage, i) =>
@@ -193,9 +267,11 @@ export default function WorkflowPage() {
                                     />
                                 ) : (
                                     <Tag>
-                                        {stage.slot === "head_user_id"
-                                            ? "The unit's head"
-                                            : "The unit's VP"}
+                                        {{
+                                            head_user_id: "The unit's head",
+                                            dean_user_id: "The unit's dean or director",
+                                            vp_user_id: "The unit's VP",
+                                        }[stage.slot] ?? "The unit"}
                                     </Tag>
                                 ),
                         },
@@ -206,26 +282,29 @@ export default function WorkflowPage() {
                                 <Switch
                                     size="small"
                                     checked={stage.skippable ?? true}
-                                    disabled={i === stages.length - 1}
+                                    disabled={i === last}
                                     onChange={(skippable) => setStage(i, { skippable })}
                                 />
                             ),
                         },
                         {
                             title: "",
-                            width: 120,
+                            width: 180,
                             render: (_, __, i) => (
                                 <Space size={4}>
-                                    <Button size="small" disabled={i === 0} onClick={() => moveStage(i, -1)}>
+                                    <Button size="small" disabled={i === 0 || i === last} onClick={() => moveStage(i, -1)}>
                                         ↑
                                     </Button>
-                                    <Button
-                                        size="small"
-                                        disabled={i === stages.length - 1}
-                                        onClick={() => moveStage(i, 1)}
-                                    >
+                                    <Button size="small" disabled={i >= last - 1} onClick={() => moveStage(i, 1)}>
                                         ↓
                                     </Button>
+                                    {i !== last && (
+                                        <Popconfirm title="Remove this step?" onConfirm={() => removeStage(i)}>
+                                            <Button size="small" danger>
+                                                Remove
+                                            </Button>
+                                        </Popconfirm>
+                                    )}
                                 </Space>
                             ),
                         },

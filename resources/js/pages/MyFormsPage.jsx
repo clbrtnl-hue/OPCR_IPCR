@@ -4,7 +4,7 @@ import { PlusOutlined /* , TeamOutlined */ } from "@ant-design/icons";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import api from "~/utils/api";
-import { STATUS_META } from "~/utils/constants";
+import { statusMeta } from "~/utils/constants";
 import PageHeader from "~/components/PageHeader";
 import FormCards from "~/components/FormCards";
 import { useAuth } from "~/hooks/useAuth";
@@ -41,7 +41,7 @@ export default function MyFormsPage() {
             queryClient.invalidateQueries({ queryKey: ["pcr-forms"] });
             setOpen(false);
             form.resetFields();
-            navigate(`/forms/${data.form.id}`);
+            navigate(`/forms/${data.form.id}`, { state: { from: "/my-forms" } });
         },
     });
 
@@ -73,8 +73,8 @@ export default function MyFormsPage() {
         {
             title: "Status",
             dataIndex: "status",
-            render: (status) => {
-                const meta = STATUS_META[status];
+            render: (status, record) => {
+                const meta = statusMeta(status, record);
                 return <Tag color={meta.color}>{meta.label}</Tag>;
             },
         },
@@ -83,7 +83,7 @@ export default function MyFormsPage() {
             key: "actions",
             render: (_, record) => (
                 <Space>
-                    <Button size="small" type="primary" onClick={() => navigate(`/forms/${record.id}`)}>
+                    <Button size="small" type="primary" onClick={() => navigate(`/forms/${record.id}`, { state: { from: "/my-forms" } })}>
                         {viewOnly ? "View" : "Open"}
                     </Button>
                     <Button size="small" onClick={() => window.open(`/forms/${record.id}/print`, "_blank")}>
@@ -150,7 +150,7 @@ export default function MyFormsPage() {
                             <FormCards
                                 forms={forms}
                                 actionLabel={viewOnly ? () => "View" : undefined}
-                                onOpen={(record) => navigate(`/forms/${record.id}`)}
+                                onOpen={(record) => navigate(`/forms/${record.id}`, { state: { from: "/my-forms" } })}
                             />
                         </div>
                         <div className="pms-desktop-only">

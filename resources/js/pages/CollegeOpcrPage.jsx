@@ -45,7 +45,7 @@ export default function CollegeOpcrPage() {
         onSuccess: ({ data }) => {
             message.success("OPCR opened. Add the college's MFO/PPAs, then send it to QA.");
             queryClient.invalidateQueries({ queryKey: ["opcr"] });
-            navigate(`/forms/${data.form.id}`);
+            navigate(`/forms/${data.form.id}`, { state: { from: "/college-opcr" } });
         },
     });
 

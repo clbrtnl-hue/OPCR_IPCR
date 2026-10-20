@@ -159,6 +159,21 @@ class PcrWorkflowTest extends PmsTestCase
         $this->assertSame($head->name, $log->performed_by_name);
     }
 
+    public function test_qa_can_return_a_form_that_is_waiting_for_a_rating(): void
+    {
+        ['form' => $form, 'qa' => $qa] = $this->scenario();
+
+        $form->update(['status' => 'qa_rating']);
+
+        $this->move($qa, $form, 'returned')->assertStatus(422);
+
+        $this->move($qa, $form, 'returned', 'The accomplishment does not match the target.')->assertOk();
+
+        $form->refresh();
+        $this->assertSame('returned', $form->status);
+        $this->assertTrue($form->isEditable());
+    }
+
     public function test_a_returned_form_can_be_resubmitted(): void
     {
         ['form' => $form, 'employee' => $employee, 'head' => $head] = $this->scenario();

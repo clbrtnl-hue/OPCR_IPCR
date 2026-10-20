@@ -12,9 +12,10 @@ import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import dayjs from "dayjs";
 import api from "~/utils/api";
-import { ADJECTIVAL_COLORS, STATUS_META, VIZ } from "~/utils/constants";
+import { ADJECTIVAL_COLORS, VIZ, statusMeta } from "~/utils/constants";
 import { useAuth } from "~/hooks/useAuth";
 import InsightsBoard from "~/components/InsightsBoard";
+import PresidentGlance from "~/components/PresidentGlance";
 import StatTile from "~/components/charts/StatTile";
 
 function greeting() {
@@ -61,6 +62,7 @@ export default function DashboardPage() {
     const activeYear = years.find((y) => y.is_active);
     const activePeriod = activeYear?.periods?.find((p) => p.is_active);
     const shownYear = years.find((y) => y.id === yearId) ?? activeYear;
+    const isPresident = user?.role === "president";
     const leadsTheCollege = ["admin", "president", "qa"].includes(user?.role);
 
     const periods = [...(shownYear?.periods ?? [])].sort((a, b) => a.seq - b.seq);
@@ -91,7 +93,7 @@ export default function DashboardPage() {
                     },
                 })
                 .then((r) => r.data),
-        enabled: Boolean(shownYear?.id),
+        enabled: Boolean(shownYear?.id) && !isPresident,
     });
 
     const mine = forms.filter(
@@ -175,7 +177,19 @@ export default function DashboardPage() {
                 />
             )}
 
-            {leadsTheCollege && insights?.totals && (
+            {isPresident && insights?.totals && (
+                <>
+                    <div className="pms-board-head">
+                        <Typography.Title level={5} style={{ margin: 0 }}>
+                            Offices and programs — {shownYear?.label}
+                        </Typography.Title>
+                        <a onClick={() => navigate("/reports")}>Open the report tables</a>
+                    </div>
+                    <PresidentGlance data={insights} />
+                </>
+            )}
+
+            {leadsTheCollege && !isPresident && insights?.totals && (
                 <>
                     <div className="pms-board-head">
                         <Typography.Title level={5} style={{ margin: 0 }}>
@@ -187,6 +201,8 @@ export default function DashboardPage() {
                 </>
             )}
 
+            {!isPresident && (
+            <>
             <Typography.Title level={5} className="pms-section-title" style={{ margin: "4px 0 12px" }}>
                 My cycle{shownYear ? ` — ${shownYear.label}` : ""}
             </Typography.Title>
@@ -316,10 +332,10 @@ export default function DashboardPage() {
                                 renderItem={(form) => (
                                     <List.Item
                                         style={{ cursor: "pointer" }}
-                                        onClick={() => navigate(`/forms/${form.id}`)}
+                                        onClick={() => navigate(`/forms/${form.id}`, { state: { from: "/" } })}
                                         actions={[
-                                            <Tag key="s" color={STATUS_META[form.status].color}>
-                                                {STATUS_META[form.status].label}
+                                            <Tag key="s" color={statusMeta(form.status, form).color}>
+                                                {statusMeta(form.status, form).label}
                                             </Tag>,
                                         ]}
                                     >
@@ -353,7 +369,7 @@ export default function DashboardPage() {
                                     renderItem={(form) => (
                                         <List.Item
                                             style={{ cursor: "pointer" }}
-                                            onClick={() => navigate(`/forms/${form.id}`)}
+                                            onClick={() => navigate(`/forms/${form.id}`, { state: { from: "/" } })}
                                         >
                                             <List.Item.Meta
                                                 title={`${form.type.toUpperCase()} — ${
@@ -373,6 +389,8 @@ export default function DashboardPage() {
                     </Col>
                 )}
             </Row>
+            </>
+            )}
         </>
     );
 }

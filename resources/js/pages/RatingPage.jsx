@@ -3,6 +3,7 @@ import {
     Alert,
     Button,
     Card,
+    Modal,
     Divider,
     Drawer,
     Empty,
@@ -22,7 +23,8 @@ import {
     ADJECTIVAL_COLORS,
     RATING_LEGEND,
     SECTION_LABELS,
-    STATUS_META,
+    nextReviewStop,
+    statusMeta,
 } from "~/utils/constants";
 import PageHeader from "~/components/PageHeader";
 import RichText from "~/components/RichText";
@@ -43,6 +45,7 @@ function samePerson(left, right) {
 function scoreable(form, user) {
     if (!form || !user || user.role === "admin") return false;
     if (form.status === "head_review" && samePerson(form.head_reviewer_id, user.id)) return true;
+    if (form.status === "dean_review" && samePerson(form.dean_reviewer_id, user.id)) return true;
     if (form.status === "vp_review" && samePerson(form.vp_reviewer_id, user.id)) return true;
     if (user.role === "qa" && form.status === "qa_rating") return true;
 
@@ -57,6 +60,8 @@ export default function RatingPage() {
     const [periodId, setPeriodId] = useState(null);
     const [scores, setScores] = useState({});
     const [openLineId, setOpenLineId] = useState(null);
+    const [returnModal, setReturnModal] = useState(false);
+    const [returnNote, setReturnNote] = useState("");
     const dirtyScores = useRef(new Set());
 
     const { data: queue = [], isLoading } = useQuery({
@@ -148,12 +153,26 @@ export default function RatingPage() {
     const sendOn = useMutation({
         mutationFn: () =>
             api.post(`pcr-forms/${form.id}/status`, {
-                status: form.status === "head_review" ? "vp_review" : "qa_rating",
+                status: nextReviewStop(form).status,
             }),
         onSuccess: () => {
-            message.success(form.status === "head_review" ? "Sent to the VP." : "Sent to QA.");
+            message.success(`Sent to ${nextReviewStop(form).label}.`);
             queryClient.invalidateQueries({ queryKey: ["qa-queue"] });
             queryClient.invalidateQueries({ queryKey: ["review-queue"] });
+            setSelectedId(null);
+        },
+    });
+
+    const returnForm = useMutation({
+        mutationFn: (note) =>
+            api.post(`pcr-forms/${form.id}/status`, { status: "returned", note }),
+        onSuccess: () => {
+            message.success("Form returned.");
+            setReturnModal(false);
+            setReturnNote("");
+            queryClient.invalidateQueries({ queryKey: ["qa-queue"] });
+            queryClient.invalidateQueries({ queryKey: ["review-queue"] });
+            queryClient.invalidateQueries({ queryKey: ["pcr-form", String(selectedId)] });
             setSelectedId(null);
         },
     });
@@ -341,8 +360,8 @@ export default function RatingPage() {
                                     <span>
                                         {form.type.toUpperCase()} — {form.owner?.name ?? form.org_unit?.name}
                                     </span>
-                                    <Tag color={STATUS_META[form.status].color}>
-                                        {STATUS_META[form.status].label}
+                                    <Tag color={statusMeta(form.status, form).color}>
+                                        {statusMeta(form.status, form).label}
                                     </Tag>
                                 </Space>
                             }
@@ -353,14 +372,19 @@ export default function RatingPage() {
                                             Save progress
                                         </Button>
                                         {closesHere ? (
-                                            <Button
-                                                type="primary"
-                                                disabled={unrated > 0}
-                                                loading={finalize.isPending}
-                                                onClick={() => save.mutateAsync().then(() => finalize.mutate())}
-                                            >
-                                                Finalize rating
-                                            </Button>
+                                            <>
+                                                <Button danger onClick={() => setReturnModal(true)}>
+                                                    Return
+                                                </Button>
+                                                <Button
+                                                    type="primary"
+                                                    disabled={unrated > 0}
+                                                    loading={finalize.isPending}
+                                                    onClick={() => save.mutateAsync().then(() => finalize.mutate())}
+                                                >
+                                                    Finalize rating
+                                                </Button>
+                                            </>
                                         ) : (
                                             <Button
                                                 type="primary"
@@ -368,7 +392,7 @@ export default function RatingPage() {
                                                 loading={sendOn.isPending}
                                                 onClick={() => save.mutateAsync().then(() => sendOn.mutate())}
                                             >
-                                                {form.status === "head_review" ? "Send to the VP" : "Send to QA"}
+                                                {`Send to ${nextReviewStop(form).label}`}
                                             </Button>
                                         )}
                                     </Space>
@@ -445,6 +469,26 @@ export default function RatingPage() {
                                 />
                             )}
                         </Drawer>
+
+                        <Modal
+                            title="Return this form"
+                            open={returnModal}
+                            onCancel={() => setReturnModal(false)}
+                            okText="Return"
+                            okButtonProps={{ danger: true, disabled: !returnNote.trim() }}
+                            confirmLoading={returnForm.isPending}
+                            onOk={() => returnForm.mutate(returnNote)}
+                        >
+                            <Typography.Paragraph>
+                                Say what needs fixing. The writer sees this remark and can correct the form and resubmit.
+                            </Typography.Paragraph>
+                            <RichText
+                                rows={4}
+                                value={returnNote}
+                                onChange={setReturnNote}
+                                placeholder="The evidence attached does not match the stated target."
+                            />
+                        </Modal>
                     </>
                 )
             )}

@@ -28,6 +28,7 @@ class UserProfileAccess
         return PcrForm::where('user_id', $subject->id)
             ->where(function ($query) use ($viewer) {
                 $query->where('head_reviewer_id', $viewer->id)
+                    ->orWhere('dean_reviewer_id', $viewer->id)
                     ->orWhere('vp_reviewer_id', $viewer->id);
             })
             ->exists();

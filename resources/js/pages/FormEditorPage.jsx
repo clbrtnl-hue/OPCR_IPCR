@@ -54,7 +54,7 @@ import dayjs from "dayjs";
 import relativeTime from "dayjs/plugin/relativeTime";
 import api from "~/utils/api";
 import { downloadFile } from "~/utils/download";
-import { ADJECTIVAL_COLORS, NARRATIVE_MAX, SECTION_LABELS, STATUS_META } from "~/utils/constants";
+import { ADJECTIVAL_COLORS, NARRATIVE_MAX, SECTION_LABELS, nextReviewStop, statusMeta } from "~/utils/constants";
 import { useAuth } from "~/hooks/useAuth";
 import PageHeader from "~/components/PageHeader";
 import { toPlainText } from "~/components/RichTextView";
@@ -79,6 +79,7 @@ import FormHistory from "~/components/FormHistory";
 const HISTORY_META = {
     draft:       { icon: <EditOutlined />,           color: "#8c8c8c" },
     head_review: { icon: <SendOutlined />,           color: "#1677ff" },
+    dean_review: { icon: <SendOutlined />,           color: "#1d4ed8" },
     vp_review:   { icon: <SendOutlined />,           color: "#2f54eb" },
     qa_approval: { icon: <SafetyCertificateOutlined />, color: "#d48806" },
     approved:    { icon: <CheckCircleOutlined />,    color: "#7cb305" },
@@ -160,7 +161,7 @@ function ExportMenu({ excelBusy, onPrint, onExcel }) {
     );
 }
 
-const IPCR_CHAIN = ["draft", "head_review", "vp_review", "qa_rating", "rated", "final"];
+const IPCR_CHAIN = ["draft", "head_review", "dean_review", "vp_review", "qa_rating", "rated", "final"];
 // An OPCR is planned and published first; it is rated later on the same document.
 const OPCR_CHAIN = ["draft", "qa_approval", "approved", "published", "qa_rating", "rated", "final"];
 
@@ -335,15 +336,19 @@ export default function FormEditorPage({ formId = null }) {
     const isMyReviewStep =
         !isOpcr &&
         ((form.status === "head_review" && samePerson(form.head_reviewer_id, user.id)) ||
+            (form.status === "dean_review" && samePerson(form.dean_reviewer_id, user.id)) ||
             (form.status === "vp_review" && samePerson(form.vp_reviewer_id, user.id)));
 
     const qaRatesStaff =
-        user.role === "qa" && form.status === "head_review" && samePerson(form.head_reviewer_id, user.id);
+        user.role === "qa" &&
+        ((form.status === "head_review" && samePerson(form.head_reviewer_id, user.id)) ||
+            (form.status === "dean_review" && samePerson(form.dean_reviewer_id, user.id)));
 
     const canScore =
         !periodLocked &&
         !isOpcr &&
         ((form.status === "head_review" && samePerson(form.head_reviewer_id, user.id)) ||
+            (form.status === "dean_review" && samePerson(form.dean_reviewer_id, user.id)) ||
             (form.status === "vp_review" && samePerson(form.vp_reviewer_id, user.id)) ||
             (user.role === "qa" && form.status === "qa_rating"));
     // Q, E, T and A stay off the working sheet until someone is actually rating.
@@ -351,28 +356,38 @@ export default function FormEditorPage({ formId = null }) {
     const showScores = (
         isOpcr
             ? ["qa_rating", "rated", "final"]
-            : ["head_review", "vp_review", "qa_rating", "rated", "final"]
+            : ["head_review", "dean_review", "vp_review", "qa_rating", "rated", "final"]
     ).includes(form.status);
 
-    const nextStatus = form.status === "head_review" ? "vp_review" : "qa_rating";
+    const nextStop = nextReviewStop(form);
+    const nextStatus = nextStop.status;
 
     // The OPCR's planning lane: the president sends the targets to QA, QA
     // approves them, and the president publishes them.
     const drivesOpcr = user.role === "president";
 
+    const returnedFromRating =
+        form.status === "returned" &&
+        [...(form.status_logs ?? [])]
+            .sort((a, b) => b.id - a.id)
+            .find((log) => log.to_status === "returned")?.from_status === "qa_rating";
+
     const opcrAction = !isOpcr
         ? null
-        : drivesOpcr && ["draft", "returned"].includes(form.status)
-          ? { status: "qa_approval", label: "Send to QA for approval" }
-          : user.role === "qa" && form.status === "qa_approval"
-            ? { status: "approved", label: "Approve targets" }
-            : drivesOpcr && form.status === "approved"
-              ? { status: "published", label: "Publish" }
-              : null;
+        : drivesOpcr && form.status === "returned" && returnedFromRating
+          ? { status: "qa_rating", label: "Send for rating", short: "For rating" }
+          : drivesOpcr && ["draft", "returned"].includes(form.status)
+            ? { status: "qa_approval", label: "Send to QA for approval", short: "Send to QA" }
+            : user.role === "qa" && form.status === "qa_approval"
+              ? { status: "approved", label: "Approve targets" }
+              : drivesOpcr && form.status === "approved"
+                ? { status: "published", label: "Publish" }
+                : null;
 
     const canUnpublish = isOpcr && drivesOpcr && form.status === "published";
     const canClose = form.status === "rated" && ["qa", "president"].includes(user.role);
     const canReturnOpcr = isOpcr && user.role === "qa" && form.status === "qa_approval";
+    const canReturnFromRating = user.role === "qa" && form.status === "qa_rating";
 
     const sections = ["strategic", "core", "support"].filter(
         (section) => !(isOpcr === false && section === "strategic")
@@ -391,24 +406,40 @@ export default function FormEditorPage({ formId = null }) {
     );
 
     const summary = form.summaries?.find((s) => s.rating_period_id === activePeriodId);
-    const chain = isOpcr ? OPCR_CHAIN : IPCR_CHAIN;
+    const reviewSteps = form.review_steps ?? [];
+    const chain = isOpcr
+        ? OPCR_CHAIN
+        : reviewSteps.length
+          ? ["draft", ...reviewSteps.map((step) => step.status), "rated", "final"]
+          : IPCR_CHAIN;
 
     // A stage with nobody to fill it is passed over rather than stranding the
     // form, so the tracker should say so instead of implying a wait.
     const skippedStages = isOpcr
         ? []
-        : [
-              !form.head_reviewer_id && "head_review",
-              !form.vp_reviewer_id && "vp_review",
-          ].filter(Boolean);
+        : reviewSteps.length
+          ? reviewSteps.filter((step) => !step.filled).map((step) => step.status)
+          : [
+                !form.head_reviewer_id && "head_review",
+                !form.dean_reviewer_id && "dean_review",
+                !form.vp_reviewer_id && "vp_review",
+            ].filter(Boolean);
+
+    const metaFor = (status) => statusMeta(status, form);
 
     const whoIsAt = (status) => {
+        const step = reviewSteps.find((item) => item.status === status);
+
+        if (step) return step.reviewer?.name ?? null;
+
         const person =
             status === "head_review"
                 ? form.head_reviewer
-                : status === "vp_review"
-                  ? form.vp_reviewer
-                  : null;
+                : status === "dean_review"
+                  ? form.dean_reviewer
+                  : status === "vp_review"
+                    ? form.vp_reviewer
+                    : null;
 
         return person?.name ?? null;
     };
@@ -429,7 +460,7 @@ export default function FormEditorPage({ formId = null }) {
                     .join(" · ")}
                 extra={
                     <div className="pms-form-head">
-                        <Tag color={STATUS_META[form.status].color}>{STATUS_META[form.status].label}</Tag>
+                        <Tag color={metaFor(form.status).color}>{metaFor(form.status).label}</Tag>
                         <Space wrap={false} className="pms-form-tools" size={8}>
                             <Badge count={(form.comments_count ?? 0) || 0} size="small" offset={[-4, 4]}>
                                 <Button
@@ -493,7 +524,7 @@ export default function FormEditorPage({ formId = null }) {
                                 >
                                     <span className="pms-btn-long">{opcrAction.label}</span>
                                     <span className="pms-btn-short">
-                                        {opcrAction.status === "qa_approval" ? "Send to QA" : opcrAction.label}
+                                        {opcrAction.short ?? opcrAction.label}
                                     </span>
                                 </Button>
                             )}
@@ -539,6 +570,11 @@ export default function FormEditorPage({ formId = null }) {
                                 </Button>
                             </Popconfirm>
                         )}
+                        {canReturnFromRating && (
+                            <Button danger onClick={() => setReturnModal(true)}>
+                                Return
+                            </Button>
+                        )}
                         {canScore && user.role === "qa" && (
                             <Button
                                 type="primary"
@@ -560,10 +596,10 @@ export default function FormEditorPage({ formId = null }) {
                                         onClick={() => move.mutate({ status: nextStatus })}
                                     >
                                         <span className="pms-btn-long">
-                                            {form.status === "head_review" ? "Send to the VP" : "Send to QA"}
+                                            {`Send to ${nextStop.label}`}
                                         </span>
                                         <span className="pms-btn-short">
-                                            {form.status === "head_review" ? "To the VP" : "To QA"}
+                                            {`To ${nextStop.short}`}
                                         </span>
                                     </Button>
                                 )}
@@ -628,12 +664,13 @@ export default function FormEditorPage({ formId = null }) {
                         return {
                             title: (
                                 <>
-                                    <span className="pms-chain-long">{STATUS_META[status].label}</span>
+                                    <span className="pms-chain-long">{metaFor(status).label}</span>
                                     <span className="pms-chain-short">
                                         {
                                             {
                                                 draft: "Draft",
                                                 head_review: "Head",
+                                                dean_review: "Dean / Director",
                                                 vp_review: "VP",
                                                 qa_approval: "QA",
                                                 approved: "Approved",
@@ -642,7 +679,7 @@ export default function FormEditorPage({ formId = null }) {
                                                 rated: "Rated",
                                                 final: "Final",
                                                 returned: "Returned",
-                                            }[status] ?? STATUS_META[status].label
+                                            }[status] ?? metaFor(status).label.replace(/^With /i, "")
                                         }
                                     </span>
                                 </>
@@ -652,7 +689,7 @@ export default function FormEditorPage({ formId = null }) {
                             description: skipped
                                 ? "Skipped — nobody fills this stage"
                                 : here
-                                  ? whoIsAt(status) ?? STATUS_META[status].who
+                                  ? whoIsAt(status) ?? metaFor(status).who
                                   : undefined,
                             status: skipped ? "finish" : undefined,
                             icon: (
@@ -832,8 +869,8 @@ export default function FormEditorPage({ formId = null }) {
                         <span>
                             {form.type.toUpperCase()} — {sheetName(form)}
                         </span>
-                        <Tag color={STATUS_META[form.status].color}>
-                            {STATUS_META[form.status].label}
+                        <Tag color={metaFor(form.status).color}>
+                            {metaFor(form.status).label}
                         </Tag>
                         <Typography.Text type="secondary" style={{ fontSize: 12, fontWeight: 400 }}>
                             {form.school_year?.label} · {lineCount} commitment

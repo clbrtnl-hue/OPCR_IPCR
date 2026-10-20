@@ -42,7 +42,7 @@ class WorkflowSettingsTest extends PmsTestCase
         $settings = app(WorkflowSettings::class);
 
         $this->assertSame(
-            ['head_review', 'vp_review', 'qa_rating'],
+            ['head_review', 'dean_review', 'vp_review', 'qa_rating'],
             array_column($settings->reviewStages(), 'status')
         );
         $this->assertTrue($settings->isTerminalRole('employee'));

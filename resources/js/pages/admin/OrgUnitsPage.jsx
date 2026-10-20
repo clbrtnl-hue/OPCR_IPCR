@@ -112,6 +112,19 @@ export default function OrgUnitsPage() {
         queryFn: () => api.get("users/options").then((r) => r.data),
     });
 
+    const { data: workflow } = useQuery({
+        queryKey: ["workflow-settings"],
+        queryFn: () => api.get("workflow-settings").then((r) => r.data),
+    });
+
+    const extraStages = (workflow?.settings?.review_stages ?? []).filter(
+        (stage) =>
+            (stage.source ?? "unit_slot") === "unit_slot" &&
+            !["head_user_id", "dean_user_id", "vp_user_id"].includes(stage.slot)
+    );
+
+    const personFor = (record, slot) => record.reviewers?.find((row) => row.slot === slot)?.user?.name;
+
     const heads = people.filter((p) => ["program_head", "admin", "vp", "qa"].includes(p.role));
     const vps = people.filter((p) => ["vp", "admin"].includes(p.role));
     const tree = useMemo(() => nestUnits(units), [units]);
@@ -146,7 +159,8 @@ export default function OrgUnitsPage() {
     const openDrawer = (record) => {
         setEditing(record ?? null);
         setOpen(true);
-        form.setFieldsValue(record ?? { type: "program" });
+        const reviewers = Object.fromEntries((record?.reviewers ?? []).map((row) => [row.slot, row.user_id]));
+        form.setFieldsValue(record ? { ...record, reviewers } : { type: "program" });
     };
 
     const close = () => {
@@ -169,11 +183,25 @@ export default function OrgUnitsPage() {
             render: (v) => v || <Tag color="orange">Not set</Tag>,
         },
         {
+            title: "Dean / Director",
+            dataIndex: ["dean", "name"],
+            render: (v) => v || "—",
+        },
+        {
             title: "Reports to VP",
             dataIndex: ["vp", "name"],
             render: (v) => v || <Tag color="orange">Not set</Tag>,
         },
-        { title: "People", dataIndex: "members_count" },
+        ...extraStages.map((stage) => ({
+            title: String(stage.label || "Step").replace(/^With /i, ""),
+            key: stage.slot,
+            render: (_, record) => personFor(record, stage.slot) || "—",
+        })),
+        {
+            title: "People",
+            dataIndex: "members_count",
+            render: (count) => count ?? 0,
+        },
         {
             title: "",
             key: "actions",
@@ -196,7 +224,7 @@ export default function OrgUnitsPage() {
         <>
             <PageHeader
                 title="Hierarchy"
-                subtitle="Set who reviews whom. A form goes to the unit's head first, then to the VP that unit reports to."
+                subtitle="Set who reviews whom. A form walks the steps in Setup → Workflow. Leave a step empty to skip it."
                 extra={
                     <Button type="primary" icon={<PlusOutlined />} onClick={() => openDrawer(null)}>
                         New unit
@@ -209,7 +237,7 @@ export default function OrgUnitsPage() {
                 showIcon
                 style={{ marginBottom: 16 }}
                 message="Review order"
-                description="Employee submits → Head reviews → VP reviews → QA rates → President reads the reports. QA and the President are college-wide, so they see every unit."
+                description="Employee submits → Head → Dean or Director, when the unit has one → VP → any extra step you added → QA. An empty step is skipped. A person's own form skips the step they themselves would fill."
             />
 
             <Card>
@@ -236,8 +264,22 @@ export default function OrgUnitsPage() {
                                     <strong>{record.head?.name || "Not set"}</strong>
                                 </div>
                                 <div className="pms-pds-line">
+                                    <span>Dean / Director</span>
+                                    <strong>{record.dean?.name || "None"}</strong>
+                                </div>
+                                <div className="pms-pds-line">
                                     <span>VP</span>
                                     <strong>{record.vp?.name || "Not set"}</strong>
+                                </div>
+                                {extraStages.map((stage) => (
+                                    <div className="pms-pds-line" key={stage.slot}>
+                                        <span>{String(stage.label || "Step").replace(/^With /i, "")}</span>
+                                        <strong>{personFor(record, stage.slot) || "None"}</strong>
+                                    </div>
+                                ))}
+                                <div className="pms-pds-line">
+                                    <span>People</span>
+                                    <strong>{record.members_count ?? 0}</strong>
                                 </div>
                                 <div className="pms-pds-actions">
                                     <Button size="small" onClick={() => openDrawer(record)}>
@@ -311,7 +353,7 @@ export default function OrgUnitsPage() {
                     <Form.Item
                         name="head_user_id"
                         label="Head"
-                        extra="First reviewer of every form written in this unit."
+                        extra="First reviewer. A program head reviews that program's faculty."
                     >
                         <Select
                             allowClear
@@ -322,9 +364,22 @@ export default function OrgUnitsPage() {
                         />
                     </Form.Item>
                     <Form.Item
+                        name="dean_user_id"
+                        label="Dean / Director"
+                        extra="Reviews after the head and before the VP. A dean in an academic unit, a director in another office. Leave empty when this unit has neither."
+                    >
+                        <Select
+                            allowClear
+                            showSearch
+                            optionFilterProp="label"
+                            placeholder="Select the dean or director"
+                            options={heads.map((p) => ({ value: p.id, label: p.name }))}
+                        />
+                    </Form.Item>
+                    <Form.Item
                         name="vp_user_id"
                         label="Reports to VP"
-                        extra="Second reviewer, after the head endorses."
+                        extra="Reviews after the dean or director. That person's own form comes here, then goes to QA."
                     >
                         <Select
                             allowClear
@@ -334,6 +389,22 @@ export default function OrgUnitsPage() {
                             options={vps.map((p) => ({ value: p.id, label: p.name }))}
                         />
                     </Form.Item>
+                    {extraStages.map((stage) => (
+                        <Form.Item
+                            key={stage.slot}
+                            name={["reviewers", stage.slot]}
+                            label={String(stage.label || "Step").replace(/^With /i, "")}
+                            extra="Leave empty to skip this step for this unit."
+                        >
+                            <Select
+                                allowClear
+                                showSearch
+                                optionFilterProp="label"
+                                placeholder="Select who reviews this step"
+                                options={heads.map((p) => ({ value: p.id, label: p.name }))}
+                            />
+                        </Form.Item>
+                    ))}
                 </Form>
             </Drawer>
         </>

@@ -553,6 +553,7 @@ class ReportController extends Controller
         return array_map(function (array $person) use ($rolled, $orgUnits, $byId) {
             $overseen = $orgUnits->filter(
                 fn ($unit) => (int) $unit->head_user_id === (int) $person['id']
+                    || (int) $unit->dean_user_id === (int) $person['id']
                     || (int) $unit->vp_user_id === (int) $person['id']
             );
 
@@ -746,15 +747,17 @@ class ReportController extends Controller
     }
 
     private const TURNAROUND_STAGES = [
-        ['key' => 'submitted_to_head', 'label' => 'Submitted → Head', 'ends' => 'reviewed_at',     'reviewer' => 'head_reviewer_id', 'stage' => 'head'],
-        ['key' => 'head_to_vp',        'label' => 'Head → VP',        'ends' => 'vp_reviewed_at',  'reviewer' => 'vp_reviewer_id',   'stage' => 'vp'],
+        ['key' => 'submitted_to_head', 'label' => 'Submitted → Head', 'ends' => 'reviewed_at',      'reviewer' => 'head_reviewer_id', 'stage' => 'head'],
+        ['key' => 'head_to_dean',      'label' => 'Head → Dean / Director', 'ends' => 'dean_reviewed_at', 'reviewer' => 'dean_reviewer_id', 'stage' => 'dean'],
+        ['key' => 'head_to_vp',        'label' => 'Head → VP',        'ends' => 'vp_reviewed_at',   'reviewer' => 'vp_reviewer_id',   'stage' => 'vp'],
         ['key' => 'vp_to_qa',          'label' => 'VP → QA',          'ends' => 'rated_at',        'reviewer' => null,               'stage' => 'qa'],
     ];
 
-    private const TURNAROUND_LADDER = ['submitted_at', 'reviewed_at', 'vp_reviewed_at', 'rated_at'];
+    private const TURNAROUND_LADDER = ['submitted_at', 'reviewed_at', 'dean_reviewed_at', 'vp_reviewed_at', 'rated_at'];
 
     private const WAITING_STATUSES = [
         'head_review' => 'With Head',
+        'dean_review' => 'With Dean / Director',
         'vp_review'   => 'With VP',
         'qa_rating'   => 'With QA',
     ];
@@ -882,6 +885,7 @@ class ReportController extends Controller
         foreach ($forms as $form) {
             $column = match ($form->status) {
                 'head_review' => 'head_reviewer_id',
+                'dean_review' => 'dean_reviewer_id',
                 'vp_review'   => 'vp_reviewer_id',
                 default       => null,
             };
@@ -890,8 +894,17 @@ class ReportController extends Controller
                 continue;
             }
 
-            $stage = $column === 'head_reviewer_id' ? 'head' : 'vp';
-            $age   = $this->gapDays($this->spanStart($form, $stage === 'head' ? 'reviewed_at' : 'vp_reviewed_at'), now());
+            $stage = match ($column) {
+                'head_reviewer_id' => 'head',
+                'dean_reviewer_id' => 'dean',
+                default            => 'vp',
+            };
+            $ends = match ($stage) {
+                'head'  => 'reviewed_at',
+                'dean'  => 'dean_reviewed_at',
+                default => 'vp_reviewed_at',
+            };
+            $age = $this->gapDays($this->spanStart($form, $ends), now());
 
             $pending[$stage][$form->{$column}][] = $age ?? 0;
         }
@@ -903,12 +916,16 @@ class ReportController extends Controller
                 $snapshots[$form->head_reviewer_id] = $form->reviewed_by_name;
             }
 
+            if ($form->dean_reviewer_id && $form->dean_reviewed_by === $form->dean_reviewer_id) {
+                $snapshots[$form->dean_reviewer_id] = $form->dean_reviewed_by_name;
+            }
+
             if ($form->vp_reviewer_id && $form->vp_reviewed_by === $form->vp_reviewer_id) {
                 $snapshots[$form->vp_reviewer_id] = $form->vp_reviewed_by_name;
             }
         }
 
-        $ids = collect(['head', 'vp'])
+        $ids = collect(['head', 'dean', 'vp'])
             ->flatMap(fn ($stage) => array_merge(
                 array_keys($reviewers[$stage] ?? []),
                 array_keys($pending[$stage] ?? [])
@@ -918,7 +935,7 @@ class ReportController extends Controller
         $names = User::whereIn('id', $ids)->pluck('name', 'id');
         $rows  = [];
 
-        foreach (['head', 'vp'] as $stage) {
+        foreach (['head', 'dean', 'vp'] as $stage) {
             foreach (array_keys(($reviewers[$stage] ?? []) + ($pending[$stage] ?? [])) as $id) {
                 $gaps  = $reviewers[$stage][$id]['gaps'] ?? [];
                 $waits = $pending[$stage][$id] ?? [];
@@ -949,6 +966,7 @@ class ReportController extends Controller
         foreach (self::WAITING_STATUSES as $status => $label) {
             $ends = match ($status) {
                 'head_review' => 'reviewed_at',
+                'dean_review' => 'dean_reviewed_at',
                 'vp_review'   => 'vp_reviewed_at',
                 default       => 'rated_at',
             };

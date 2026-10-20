@@ -36,6 +36,7 @@ const STATUS_FILL = {
     draft: VIZ.ordinal[1],
     returned: VIZ.critical,
     head_review: VIZ.ordinal[0],
+    dean_review: VIZ.ordinal[2],
     vp_review: VIZ.series[0],
     qa_approval: VIZ.warning,
     approved: VIZ.series[2],

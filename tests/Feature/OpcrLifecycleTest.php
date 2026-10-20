@@ -284,4 +284,59 @@ class OpcrLifecycleTest extends PmsTestCase
                 ->value('rating_period_id')
         );
     }
+
+    public function test_an_opcr_returned_from_rating_goes_back_to_rating(): void
+    {
+        [$unit, $year] = $this->setUpOffice();
+
+        $opcr = $this->makeForm([
+            'type' => 'opcr', 'org_unit_id' => $unit->id,
+            'school_year_id' => $year->id, 'status' => 'qa_rating',
+        ]);
+        $this->makeIndicator($opcr, 'core');
+
+        $this->actingAsRole('qa', ['org_unit_id' => $unit->id]);
+        $this->postJson("/api/pcr-forms/{$opcr->id}/status", [
+            'status' => 'returned',
+            'note'   => 'The rating narrative needs a source.',
+        ])->assertOk();
+
+        $this->assertSame('returned', $opcr->fresh()->status);
+
+        $head = User::factory()->create(['role' => 'program_head', 'org_unit_id' => $unit->id]);
+        $ipcr = $this->makeForm([
+            'type' => 'ipcr', 'org_unit_id' => $unit->id,
+            'school_year_id' => $year->id, 'user_id' => $head->id,
+        ]);
+
+        $this->actingAsUser($head);
+        $this->getJson("/api/pcr-forms/{$ipcr->id}/opcr-targets")->assertOk()->assertJsonCount(1);
+
+        $this->actingAsRole('president', ['org_unit_id' => $unit->id]);
+        $this->postJson("/api/pcr-forms/{$opcr->id}/status", ['status' => 'qa_approval'])->assertOk();
+
+        $this->assertSame('qa_rating', $opcr->fresh()->status);
+    }
+
+    public function test_an_opcr_returned_from_approval_goes_back_to_approval(): void
+    {
+        [$unit, $year] = $this->setUpOffice();
+
+        $opcr = $this->makeForm([
+            'type' => 'opcr', 'org_unit_id' => $unit->id,
+            'school_year_id' => $year->id, 'status' => 'qa_approval',
+        ]);
+        $this->makeIndicator($opcr, 'core');
+
+        $this->actingAsRole('qa', ['org_unit_id' => $unit->id]);
+        $this->postJson("/api/pcr-forms/{$opcr->id}/status", [
+            'status' => 'returned',
+            'note'   => 'Name the measure on each target.',
+        ])->assertOk();
+
+        $this->actingAsRole('president', ['org_unit_id' => $unit->id]);
+        $this->postJson("/api/pcr-forms/{$opcr->id}/status", ['status' => 'qa_rating'])->assertOk();
+
+        $this->assertSame('qa_approval', $opcr->fresh()->status);
+    }
 }

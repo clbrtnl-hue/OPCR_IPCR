@@ -131,8 +131,8 @@
             </tr>
             <tr>
                 <td class="center">
-                    <strong>{{ $form->headReviewer?->name ?? $form->reviewed_by_name }}</strong><br>
-                    <span class="muted">{{ $form->headReviewer?->position_title ?? 'Immediate Supervisor' }}</span>
+                    <strong>{{ $form->headReviewer?->name ?? $form->reviewed_by_name ?? $form->deanReviewer?->name }}</strong><br>
+                    <span class="muted">{{ $form->headReviewer?->position_title ?? $form->deanReviewer?->position_title ?? 'Immediate Supervisor' }}</span>
                 </td>
                 <td class="center">{{ $form->reviewed_at ? $form->reviewed_at->format('F d, Y') : '' }}</td>
                 <td class="center">

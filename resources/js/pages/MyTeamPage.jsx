@@ -4,7 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import dayjs from "dayjs";
 import api from "~/utils/api";
-import { ADJECTIVAL_COLORS, STATUS_META } from "~/utils/constants";
+import { ADJECTIVAL_COLORS, statusMeta } from "~/utils/constants";
 import PageHeader from "~/components/PageHeader";
 import UserAvatar from "~/components/UserAvatar";
 
@@ -43,7 +43,9 @@ export default function MyTeamPage() {
     const members = data?.members ?? [];
     const units = data?.units ?? [];
     const notStarted = members.filter((m) => !m.form || m.form.outputs_count === 0).length;
-    const withMe = members.filter((m) => m.form?.status === "head_review" || m.form?.status === "vp_review").length;
+    const withMe = members.filter((m) =>
+        ["head_review", "dean_review", "vp_review"].includes(m.form?.status)
+    ).length;
     const done = members.filter((m) => ["rated", "final"].includes(m.form?.status)).length;
 
     const columns = [
@@ -86,7 +88,7 @@ export default function MyTeamPage() {
                     return <Tag color="red">No IPCR yet</Tag>;
                 }
 
-                const meta = STATUS_META[status];
+                const meta = statusMeta(status, record.form);
 
                 return (
                     <Space size={4}>
@@ -124,7 +126,9 @@ export default function MyTeamPage() {
             key: "actions",
             render: (_, record) =>
                 record.form ? (
-                    <a onClick={() => navigate(`/forms/${record.form.id}`)}>Open</a>
+                    <a onClick={() => navigate(`/forms/${record.form.id}`, { state: { from: "/my-team" } })}>
+                        Open
+                    </a>
                 ) : (
                     <Typography.Text type="secondary">—</Typography.Text>
                 ),

@@ -184,7 +184,7 @@ class PcrRatingController extends Controller
         $form->loadMissing('orgUnit');
 
         Notification::sendMany(
-            [$form->user_id, $form->orgUnit?->head_user_id, $form->orgUnit?->vp_user_id],
+            [$form->user_id, $form->orgUnit?->head_user_id, $form->orgUnit?->dean_user_id, $form->orgUnit?->vp_user_id],
             'rated',
             strtoupper($form->type) . ' rating is out',
             "{$period->label}: {$summary['final_average']} — {$summary['adjectival']}",

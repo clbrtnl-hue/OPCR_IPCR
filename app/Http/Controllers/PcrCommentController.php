@@ -52,6 +52,7 @@ class PcrCommentController extends Controller
         $ids = [
             $form->user_id,
             $form->orgUnit?->head_user_id,
+            $form->orgUnit?->dean_user_id,
             $form->orgUnit?->vp_user_id,
         ];
 
@@ -195,6 +196,7 @@ class PcrCommentController extends Controller
         $watchers = [
             $form->user_id,
             $form->orgUnit?->head_user_id,
+            $form->orgUnit?->dean_user_id,
             $form->orgUnit?->vp_user_id,
         ];
 

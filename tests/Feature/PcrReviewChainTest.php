@@ -325,7 +325,7 @@ class PcrReviewChainTest extends PmsTestCase
         $this->actingAsUser($qa);
         $this->postJson("/api/pcr-forms/{$form->id}/status", ['status' => 'vp_review'])
             ->assertStatus(409)
-            ->assertJsonPath('message', 'Rate this IPCR and finalize it. It is not sent on to a VP or the president.');
+            ->assertJsonPath('message', 'Rate this IPCR and finalize it. It is not sent on to a dean or director, a VP, or the president.');
 
         $this->postJson('/api/pcr-ratings', [
             'form_id' => $form->id, 'rating_period_id' => $period->id,
@@ -339,5 +339,80 @@ class PcrReviewChainTest extends PmsTestCase
 
         $this->actingAsUser($president);
         $this->assertSame([], $this->getJson('/api/pcr-forms?queue=1')->assertSuccessful()->json());
+    }
+
+    public function test_faculty_go_to_the_dean_before_the_vp(): void
+    {
+        ['college' => $college, 'year' => $year, 'period' => $period, 'vp' => $vp] = $this->college();
+
+        $dean = User::factory()->create(['role' => 'program_head', 'position_title' => 'Dean']);
+        $head = User::factory()->create(['role' => 'program_head', 'position_title' => 'Program Head, BSIT']);
+        $program = $this->makeUnit([
+            'name' => 'Information Technology', 'code' => 'BSIT', 'type' => 'program',
+            'parent_id' => $college->id,
+            'head_user_id' => $head->id,
+            'dean_user_id' => $dean->id,
+            'vp_user_id' => $vp->id,
+        ]);
+        $head->update(['org_unit_id' => $program->id]);
+        $faculty = User::factory()->create(['role' => 'employee', 'org_unit_id' => $program->id]);
+
+        $form = $this->makeForm([
+            'org_unit_id' => $program->id, 'school_year_id' => $year->id, 'user_id' => $faculty->id,
+        ]);
+        $this->submit($faculty, $form);
+        $this->assertSame('head_review', $form->fresh()->status);
+
+        $indicator = $form->indicators()->first();
+        $this->actingAsUser($head);
+        $this->postJson('/api/pcr-ratings', [
+            'form_id' => $form->id, 'rating_period_id' => $period->id,
+            'ratings' => [['indicator_id' => $indicator->id, 'q' => 5, 'e' => 4, 't' => 4]],
+        ])->assertOk();
+        $this->postJson("/api/pcr-forms/{$form->id}/status", ['status' => 'vp_review'])->assertSuccessful();
+        $this->assertSame('dean_review', $form->fresh()->status);
+
+        $this->actingAsUser($vp);
+        $this->assertNotContains($form->id, array_column($this->getJson('/api/pcr-forms?queue=1')->json(), 'id'));
+
+        $this->actingAsUser($dean);
+        $queue = $this->getJson('/api/pcr-forms?queue=1')->assertSuccessful()->json();
+        $this->assertSame([$form->id], array_column($queue, 'id'));
+        $this->postJson("/api/pcr-forms/{$form->id}/status", ['status' => 'qa_rating'])->assertSuccessful();
+        $this->assertSame('vp_review', $form->fresh()->status);
+
+        $this->actingAsUser($vp);
+        $this->postJson("/api/pcr-forms/{$form->id}/status", ['status' => 'qa_rating'])->assertSuccessful();
+        $this->assertSame('qa_rating', $form->fresh()->status);
+    }
+
+    public function test_a_deans_own_ipcr_goes_to_the_vp_before_qa(): void
+    {
+        ['college' => $college, 'year' => $year, 'vp' => $vp] = $this->college();
+
+        $dean = User::factory()->create([
+            'role' => 'program_head', 'position_title' => 'Dean, Academic Affairs',
+        ]);
+        $affairs = $this->makeUnit([
+            'name' => 'Academic Affairs and Services', 'code' => 'AAS', 'type' => 'office',
+            'parent_id' => $college->id,
+            'head_user_id' => $dean->id,
+            'vp_user_id' => $vp->id,
+        ]);
+        $dean->update(['org_unit_id' => $affairs->id]);
+
+        $form = $this->makeForm([
+            'org_unit_id' => $affairs->id, 'school_year_id' => $year->id, 'user_id' => $dean->id,
+        ]);
+        $this->submit($dean, $form);
+
+        $fresh = $form->fresh();
+        $this->assertSame('vp_review', $fresh->status);
+        $this->assertNull($fresh->head_reviewer_id);
+        $this->assertNull($fresh->dean_reviewer_id);
+        $this->assertSame($vp->id, $fresh->vp_reviewer_id);
+
+        $this->actingAsUser($dean);
+        $this->assertNotContains($form->id, array_column($this->getJson('/api/pcr-forms?queue=1')->json(), 'id'));
     }
 }

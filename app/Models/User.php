@@ -71,6 +71,11 @@ class User extends Authenticatable
         return $this->hasMany(OrgUnit::class, 'head_user_id');
     }
 
+    public function deanedUnits()
+    {
+        return $this->hasMany(OrgUnit::class, 'dean_user_id');
+    }
+
     public function overseenUnits()
     {
         return $this->hasMany(OrgUnit::class, 'vp_user_id');

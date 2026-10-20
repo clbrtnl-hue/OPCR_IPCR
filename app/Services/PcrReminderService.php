@@ -269,6 +269,7 @@ class PcrReminderService
     {
         $ids = match ($form->status) {
             'head_review' => [$form->head_reviewer_id],
+            'dean_review' => [$form->dean_reviewer_id],
             'vp_review'   => [$form->vp_reviewer_id],
             'qa_rating', 'qa_approval' => User::query()
                 ->where('role', 'qa')

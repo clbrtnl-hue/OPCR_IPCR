@@ -49,6 +49,7 @@ function Stages({ stages }) {
         { key: "submitted_at", label: "Submitted" },
         { key: "published_at", label: "Published" },
         { key: "reviewed_at", label: "Head" },
+        { key: "dean_reviewed_at", label: "Dean / Director" },
         { key: "vp_reviewed_at", label: "VP" },
         { key: "rated_at", label: "Rated" },
         { key: "closed_at", label: "Closed" },

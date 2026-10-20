@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\ActivityLog;
+use App\Models\PcrForm;
 use App\Models\User;
 use App\Services\WorkflowSettings;
 use Illuminate\Http\Request;
@@ -24,6 +25,7 @@ class WorkflowSettingController extends Controller
             'roles'    => User::ROLES,
             'statuses' => [
                 ['status' => 'head_review', 'label' => 'Head review', 'slot' => 'head_user_id'],
+                ['status' => 'dean_review', 'label' => 'Dean / Director review', 'slot' => 'dean_user_id'],
                 ['status' => 'vp_review', 'label' => 'VP review', 'slot' => 'vp_user_id'],
                 ['status' => 'qa_rating', 'label' => 'QA rating', 'slot' => null],
             ],
@@ -88,13 +90,44 @@ class WorkflowSettingController extends Controller
                 return 'The final stage cannot be skippable — something has to close the form.';
             }
 
+            $statuses = [];
+
             foreach ($value as $stage) {
+                $status = trim((string) ($stage['status'] ?? ''));
+                $label  = trim((string) ($stage['label'] ?? ''));
+
+                if ($status === '' || $label === '') {
+                    return 'Name every step.';
+                }
+
+                if (isset($statuses[$status])) {
+                    return 'Each step needs its own name.';
+                }
+
+                $statuses[$status] = true;
+
                 if (($stage['source'] ?? '') === 'unit_slot' && empty($stage['slot'])) {
                     return 'A stage filled from the org unit needs to say which slot fills it.';
                 }
 
                 if (($stage['source'] ?? '') === 'role' && empty($stage['role'])) {
                     return 'A stage filled by a role needs to say which role.';
+                }
+            }
+
+            $previous = app(WorkflowSettings::class)->reviewStages();
+
+            foreach ($previous as $stage) {
+                $status = $stage['status'] ?? '';
+
+                if ($status === '' || isset($statuses[$status])) {
+                    continue;
+                }
+
+                if (PcrForm::where('status', $status)->exists()) {
+                    $label = $stage['label'] ?? $status;
+
+                    return "A form is still at {$label}. Move it on before removing that step.";
                 }
             }
         }

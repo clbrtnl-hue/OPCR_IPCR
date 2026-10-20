@@ -11,15 +11,14 @@ use App\Models\PcrStatusLog;
 use App\Models\RatingPeriod;
 use App\Models\SchoolYear;
 use App\Models\User;
-use App\Support\PersonName;
 use App\Services\PcrAssignmentService;
 use App\Support\CurrentOrganization;
 use Illuminate\Database\Seeder;
 
 /**
- * Opol Community College as its own documents describe it: the people named in
- * the 2026 OPCR and the sample IPCRs, the offices they sit in, and the college's
- * actual commitments for the year.
+ * Opol Community College as the Hierarchy is set now: the college, the Office of
+ * the President, and the offices and programmes under it, with the people and
+ * the review slots named there. The 2026 OPCR commitments stay on the college.
  *
  * Everyone signs in with "password".
  */
@@ -59,51 +58,79 @@ class DatabaseSeeder extends Seeder
             'type' => 'college',
         ]);
 
-        foreach ([
-            'instruction' => ['Office of Instruction', 'INS'],
-            'research'    => ['Research and Extension Office', 'RES'],
-            'extension'   => ['Extension and Community Services', 'EXT'],
-            'library'     => ['Library', 'LIB'],
-            'bsit'        => ['BS Information Technology', 'BSIT'],
-            'registrar'   => ['Office of the Registrar', 'REG'],
-            'linkages'    => ['International Affairs and Linkages', 'IAL'],
-        ] as $key => [$name, $code]) {
-            $this->units[$key] = OrgUnit::create([
-                'name'      => $name,
-                'code'      => $code,
-                'type'      => $key === 'bsit' ? 'program' : 'office',
-                'parent_id' => $this->units['college']->id,
-            ]);
-        }
+        $this->unit('president_office', 'Office of the College President', 'OP', 'office', 'college');
+
+        $this->unit('aas', 'Academic Affairs and Services', 'AAS', 'office', 'president_office');
+        $this->unit('cte', 'College of Teacher Education', 'AAS-CTE', 'program', 'aas');
+        $this->unit('cit', 'College of Information Technology', 'AAS-BSIT', 'office', 'aas');
+        $this->unit('dit', 'Department of Information Technology', 'AAS-CIT-DIT', 'program', 'cit');
+        $this->unit('dis', 'Department of Information Systems', 'AAS-CIT-DIS', 'program', 'cit');
+        $this->unit('registrar', 'Registrar', 'REG', 'office', 'aas');
+        $this->unit('cba', 'College of Business Administration', 'AAS-BSBA', 'office', 'aas');
+        $this->unit('ccj', 'College of Criminology Justice', 'AAS-CCJ', 'program', 'aas');
+        $this->unit('gened', 'Department of General Education', 'AAS-GenEd', 'program', 'aas');
+        $this->unit('pe', 'Department of Physical Education', 'AAS-PE', 'program', 'aas');
+
+        $this->unit('sas', 'Student Affairs and Services', 'SAS', 'office', 'president_office');
+        $this->unit('sss', 'Student Support Services', 'SAS-SSS', 'office', 'sas');
+        $this->unit('isps', 'Institutional Student Programs and Services', 'SAS-ISPS', 'office', 'sas');
+
+        $this->unit('afs', 'Administrative and Finance Services', 'AFS', 'office', 'president_office');
+
+        $this->unit('rpces', 'Research, Publication and Community Extension Services', 'RPCES', 'office', 'president_office');
+        $this->unit('ecoo', 'Extension and Community Outreach Office', 'RPCES-ECOO', 'office', 'rpces');
+
+        $this->unit('ils', 'International and Linkages Services', 'ILS', 'office', 'president_office');
+        $this->unit('cict', 'Center for Information and Communication Technology', 'OP-CICT', 'office', 'president_office');
+        $this->unit('qaao', 'Quality Assurance and Accreditation Office', 'OP-QAAO', 'office', 'president_office');
+    }
+
+    private function unit(string $key, string $name, string $code, string $type, string $parent): void
+    {
+        $this->units[$key] = OrgUnit::create([
+            'name'      => $name,
+            'code'      => $code,
+            'type'      => $type,
+            'parent_id' => $this->units[$parent]->id,
+        ]);
     }
 
     private function accounts(): void
     {
-        // [key, name, email, role, position, unit]
+        // [key, prefix, first, middle, last, suffix, credentials, email, role, position, unit]
         $roster = [
-            ['admin', 'System Administrator', 'admin@occ.edu.ph', 'admin', 'System Administrator', 'college'],
-
-            ['bation', 'Neilson D. Bation, DM', 'president@occ.edu.ph', 'president', 'College President', 'college'],
-            ['canay', 'Dr. Wenie Rose D. Canay', 'qa@occ.edu.ph', 'qa', 'Director for Quality Assurance', 'college'],
-            ['gurrea', 'Dr. Alma T. Gurrea', 'vpial@occ.edu.ph', 'vp', 'Vice President for International Affairs and Linkages', 'college'],
-
-            ['pinto', 'Ronnel D. Pinto', 'research.head@occ.edu.ph', 'program_head', 'Research Coordinator', 'research'],
-            ['arao', 'Dr. Dolorita N. Arao', 'extension.head@occ.edu.ph', 'program_head', 'Extension Coordinator', 'extension'],
-            ['madriaga', 'Ruben Madriaga', 'bsit.head@occ.edu.ph', 'program_head', 'Program Head, BSIT', 'bsit'],
-            ['arancon', 'Dr. Rodelia T. Arancon', 'library.head@occ.edu.ph', 'program_head', 'College Librarian', 'library'],
-            ['nacua', 'Bernadeth T. Nacua', 'registrar@occ.edu.ph', 'program_head', 'College Registrar', 'registrar'],
-
-            ['demetrio', 'Juanito R. Demetrio', 'demetrio@occ.edu.ph', 'employee', 'Research Associate', 'research'],
-            ['verula', 'Annabelle T. Verula', 'verula@occ.edu.ph', 'employee', 'Guidance and Testing Officer', 'registrar'],
-            ['iyo', 'Gaudencio Iyo Jr.', 'iyo@occ.edu.ph', 'employee', 'Information Systems Officer', 'bsit'],
-            ['vacalares', 'Sophomore T. Vacalares', 'vacalares@occ.edu.ph', 'employee', 'Laboratory Head', 'bsit'],
-            ['pacana', 'Amabelle Pacana', 'pacana@occ.edu.ph', 'employee', 'Instructor I', 'instruction'],
-            ['magnetico', 'Daceil B. Magnetico', 'magnetico@occ.edu.ph', 'employee', 'Instructor I', 'instruction'],
-            ['puertos', 'John Rey Puertos', 'puertos@occ.edu.ph', 'employee', 'Job Placement Officer', 'instruction'],
+            ['admin', null, 'System', null, 'Administrator', null, null, 'admin@occ.edu.ph', 'admin', 'System Administrator', 'college'],
+            ['bation', null, 'Neilson', 'D.', 'Bation', null, 'DM', 'president@occ.edu.ph', 'president', 'College President', 'president_office'],
+            ['canay', 'Dr.', 'Wenie Rose', 'D.', 'Canay', null, null, 'vpaa@occ.edu.ph', 'vp', 'Vice President for Academic Affairs and Services', 'aas'],
+            ['gurrea', 'Dr.', 'Alma', 'T.', 'Gurrea', null, null, 'vpial@occ.edu.ph', 'vp', 'Vice President for International Affairs and Linkages', 'ils'],
+            ['vacalares', 'Mr.', 'Sophomore', null, 'Vacalares', null, null, 'vpaf@occ.edu.ph', 'vp', 'Vice President for Administration and Finance', 'afs'],
+            ['pinto', 'Mr.', 'Ronnel', null, 'Pinto', null, null, 'vprpe@occ.edu.ph', 'vp', 'Vice President for Research, Publication, and Extension', 'rpces'],
+            ['baculio', 'Mr.', 'Keith Lou', null, 'Baculio', null, null, 'vpsas@occ.edu.ph', 'vp', 'Vice President for Student Affairs and Services', 'sas'],
+            ['qa', 'Dr.', 'Jeziel', null, 'Alcover-Abuloc', null, null, 'qa.head@occ.edu.ph', 'qa', 'Head, Quality Assurance and Accreditation', 'qaao'],
+            ['madriaga', 'Mr.', 'Ruben', null, 'Madriaga', null, null, 'bsit.head@occ.edu.ph', 'program_head', 'Dean, College of Information Technology', 'cit'],
+            ['pacana', 'Dr.', 'Amabelle', null, 'Pacana', null, 'CPA', 'dean.cba@occ.edu.ph', 'program_head', 'Dean, College of Business Administration', 'cba'],
+            ['magnetico', 'Ms.', 'Daceil', null, 'Magnetico', null, null, 'dean.cte@occ.edu.ph', 'program_head', 'Dean, College of Teacher Education', 'cte'],
+            ['nacua', 'Ms.', 'Bernadeth', 'T.', 'Nacua', null, null, 'registrar@occ.edu.ph', 'program_head', 'College Registrar', 'registrar'],
+            ['iyo', 'Mr.', 'Gaudencio', null, 'Iyo', 'Jr.', null, 'iyo@occ.edu.ph', 'program_head', 'Director, Center for Information and Communication Technology', 'cict'],
+            ['verula', 'Ms.', 'Annabelle', 'T.', 'Verula', null, null, 'guidance@occ.edu.ph', 'program_head', 'Head, Guidance and Counseling Services', 'sss'],
+            ['arancon', 'Dr.', 'Rodelia', 'T.', 'Arancon', null, null, 'library@occ.edu.ph', 'program_head', 'Head, Library Services', 'sas'],
+            ['arao', 'Dr.', 'Dolorita', 'N.', 'Arao', null, null, 'comm@occ.edu.ph', 'program_head', 'Director, Community Extension', 'ecoo'],
+            ['gutierrez', 'Mr.', 'Richard', null, 'Gutierriez', null, null, 'pheadIT@occ.edu.ph', 'program_head', 'Program Head, Department of Information technology', 'dit'],
+            ['daculan', 'Ms.', 'Novelyn Joy', null, 'Daculan', null, null, 'faculty@occ.edu.ph', 'employee', 'Faculty', 'dis'],
+            ['linogao', 'Ms.', 'Maria Jessa', 'M.', 'Linogao', null, null, 'faculty2@occ.edu.ph', 'employee', 'Faculty', 'dit'],
+            ['dantes', 'Ms.', 'Rachel Ana', null, 'Dantes', null, null, 'faculty3@occ.edu.ph', 'employee', 'Faculty', 'dit'],
+            ['siangco', 'Mr.', 'Adrian Karlo', null, 'Siangco', null, null, 'faculty4@occ.edu.ph', 'employee', 'Faculty', 'dit'],
+            ['jangao', 'Mr', 'Jope Harold', null, 'Jangao', null, null, 'qaacad@occ.edu.ph', 'employee', 'QA Coordinator for Academic Services', 'qaao'],
         ];
 
-        foreach ($roster as [$key, $name, $email, $role, $position, $unit]) {
-            $this->people[$key] = User::create(PersonName::parse($name) + [
+        foreach ($roster as [$key, $prefix, $first, $middle, $last, $suffix, $credentials, $email, $role, $position, $unit]) {
+            $this->people[$key] = User::create([
+                'prefix'         => $prefix,
+                'first_name'     => $first,
+                'middle_initial' => $middle,
+                'last_name'      => $last,
+                'suffix'         => $suffix,
+                'credentials'    => $credentials,
                 'email'          => $email,
                 'password'       => 'password',
                 'role'           => $role,
@@ -113,22 +140,36 @@ class DatabaseSeeder extends Seeder
         }
     }
 
-    /** Who heads each office, and which VP it answers to. */
+    /** Who fills each review slot, copied from the live hierarchy. */
     private function wireHeads(): void
     {
-        $vp = $this->people['gurrea']->id;
+        $slots = [
+            'aas'       => ['vp' => 'canay'],
+            'cte'       => ['dean' => 'magnetico', 'vp' => 'canay'],
+            'cit'       => ['dean' => 'madriaga', 'vp' => 'canay'],
+            'dit'       => ['head' => 'gutierrez', 'dean' => 'madriaga', 'vp' => 'canay'],
+            'dis'       => ['dean' => 'madriaga', 'vp' => 'canay'],
+            'registrar' => ['head' => 'nacua', 'vp' => 'canay'],
+            'cba'       => ['dean' => 'pacana', 'vp' => 'canay'],
+            'ccj'       => ['vp' => 'canay'],
+            'gened'     => ['vp' => 'canay'],
+            'pe'        => ['vp' => 'canay'],
+            'sas'       => ['vp' => 'baculio'],
+            'sss'       => ['vp' => 'baculio'],
+            'isps'      => ['vp' => 'baculio'],
+            'afs'       => ['vp' => 'vacalares'],
+            'rpces'     => ['vp' => 'pinto'],
+            'ecoo'      => ['dean' => 'arao', 'vp' => 'pinto'],
+            'ils'       => ['vp' => 'gurrea'],
+            'cict'      => ['dean' => 'iyo'],
+            'qaao'      => ['head' => 'qa'],
+        ];
 
-        foreach ([
-            'research'    => 'pinto',
-            'extension'   => 'arao',
-            'bsit'        => 'madriaga',
-            'library'     => 'arancon',
-            'registrar'   => 'nacua',
-            'instruction' => 'madriaga',
-        ] as $unit => $head) {
+        foreach ($slots as $unit => $named) {
             $this->units[$unit]->update([
-                'head_user_id' => $this->people[$head]->id,
-                'vp_user_id'   => $vp,
+                'head_user_id' => isset($named['head']) ? $this->people[$named['head']]->id : null,
+                'dean_user_id' => isset($named['dean']) ? $this->people[$named['dean']]->id : null,
+                'vp_user_id'   => isset($named['vp']) ? $this->people[$named['vp']]->id : null,
             ]);
         }
     }
@@ -207,7 +248,7 @@ class DatabaseSeeder extends Seeder
                 ['70% of the total student population can access the online library system from January to December 2026.', ['bation', 'arancon']],
             ]],
             ['strategic', 'Employability Preparation', null, [
-                ['70% of the graduating students participate in the job fair programme hosted by OCC and/or other partner institutions.', ['puertos', 'verula']],
+                ['70% of the graduating students participate in the job fair programme hosted by OCC and/or other partner institutions.', ['verula']],
             ]],
             ['strategic', 'Modernization', null, []],
             ['strategic', 'Laboratories', 'Modernization', [
@@ -238,10 +279,10 @@ class DatabaseSeeder extends Seeder
             ]],
             ['core', 'Research', null, []],
             ['core', 'OCC Research and Journal Output', 'Research', [
-                ['Publish 25 peer-reviewed researches/journals/articles from January to December 2026.', ['pinto', 'demetrio']],
+                ['Publish 25 peer-reviewed researches/journals/articles from January to December 2026.', ['pinto']],
             ]],
             ['core', 'Research Conference', 'Research', [
-                ['Conduct 1 research conference from January to December 2026.', ['pinto', 'demetrio']],
+                ['Conduct 1 research conference from January to December 2026.', ['pinto']],
             ]],
             ['core', 'Extension', null, []],
             ['core', 'Linkages', 'Extension', []],

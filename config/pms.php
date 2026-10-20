@@ -24,6 +24,13 @@ return [
             'skippable' => true,
         ],
         [
+            'status'    => 'dean_review',
+            'label'     => 'With Dean / Director',
+            'source'    => 'unit_slot',
+            'slot'      => 'dean_user_id',
+            'skippable' => true,
+        ],
+        [
             'status'    => 'vp_review',
             'label'     => 'With VP',
             'source'    => 'unit_slot',

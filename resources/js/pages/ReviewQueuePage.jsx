@@ -4,7 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import dayjs from "dayjs";
 import api from "~/utils/api";
-import { STATUS_META } from "~/utils/constants";
+import { statusMeta } from "~/utils/constants";
 import PageHeader from "~/components/PageHeader";
 import FormCards from "~/components/FormCards";
 import { useAuth } from "~/hooks/useAuth";
@@ -53,13 +53,16 @@ export default function ReviewQueuePage() {
         {
             title: "Status",
             dataIndex: "status",
-            render: (status) => <Tag color={STATUS_META[status].color}>{STATUS_META[status].label}</Tag>,
+            render: (status, record) => {
+                const meta = statusMeta(status, record);
+                return <Tag color={meta.color}>{meta.label}</Tag>;
+            },
         },
         {
             title: "",
             key: "actions",
             render: (_, record) => (
-                <Button type="primary" size="small" onClick={() => navigate(`/forms/${record.id}`)}>
+                <Button type="primary" size="small" onClick={() => navigate(`/forms/${record.id}`, { state: { from: "/review-queue" } })}>
                     {viewOnly ? "View" : REVIEW_ACTION(record)}
                 </Button>
             ),
@@ -94,7 +97,7 @@ export default function ReviewQueuePage() {
                                 forms={queue}
                                 showSubmitted
                                 actionLabel={(record) => (viewOnly ? "View" : REVIEW_ACTION(record))}
-                                onOpen={(record) => navigate(`/forms/${record.id}`)}
+                                onOpen={(record) => navigate(`/forms/${record.id}`, { state: { from: "/review-queue" } })}
                             />
                         </div>
                         <div className="pms-desktop-only">

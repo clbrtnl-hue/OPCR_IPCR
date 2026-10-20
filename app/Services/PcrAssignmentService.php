@@ -115,11 +115,7 @@ class PcrAssignmentService
         );
     }
 
-    /**
-     * Withdrawing only makes sense while the assignee has not built on it —
-     * once there is a commitment or a score against the target, taking it away
-     * would destroy someone's record.
-     */
+   
     public function withdraw(PcrIndicator $child): bool
     {
         if ($child->accomplishments()->exists() || $child->ratings()->exists()) {

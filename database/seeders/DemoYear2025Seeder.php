@@ -186,7 +186,7 @@ class DemoYear2025Seeder extends Seeder
     private function collegeOpcr(): void
     {
         $president = $this->person('president@occ.edu.ph');
-        $qa        = $this->person('qa@occ.edu.ph');
+        $qa        = $this->person('qa.head@occ.edu.ph');
 
         $this->opcr = PcrForm::create([
             'type'           => 'opcr',
@@ -287,13 +287,13 @@ class DemoYear2025Seeder extends Seeder
         $byTitle = PcrOutput::where('form_id', $this->opcr->id)->get()->keyBy('title');
 
         $plan = [
-            'Digitalization'             => ['registrar@occ.edu.ph', 'iyo@occ.edu.ph', 'verula@occ.edu.ph'],
-            'Employability Preparation'  => ['puertos@occ.edu.ph', 'verula@occ.edu.ph'],
-            'Modernization'              => ['bsit.head@occ.edu.ph', 'vacalares@occ.edu.ph'],
-            'Instruction'                => ['bsit.head@occ.edu.ph', 'pacana@occ.edu.ph', 'magnetico@occ.edu.ph'],
-            'Research'                   => ['research.head@occ.edu.ph', 'demetrio@occ.edu.ph'],
-            'Extension'                  => ['extension.head@occ.edu.ph', 'vpial@occ.edu.ph'],
-            'Production'                 => ['bsit.head@occ.edu.ph', 'research.head@occ.edu.ph'],
+            'Digitalization'             => ['registrar@occ.edu.ph', 'iyo@occ.edu.ph', 'guidance@occ.edu.ph'],
+            'Employability Preparation'  => ['vpsas@occ.edu.ph', 'guidance@occ.edu.ph'],
+            'Modernization'              => ['bsit.head@occ.edu.ph', 'vpaf@occ.edu.ph'],
+            'Instruction'                => ['bsit.head@occ.edu.ph', 'dean.cba@occ.edu.ph', 'dean.cte@occ.edu.ph'],
+            'Research'                   => ['vprpe@occ.edu.ph'],
+            'Extension'                  => ['comm@occ.edu.ph', 'vpial@occ.edu.ph'],
+            'Production'                 => ['bsit.head@occ.edu.ph', 'vprpe@occ.edu.ph'],
         ];
 
         foreach ($plan as $title => $emails) {
@@ -509,7 +509,7 @@ class DemoYear2025Seeder extends Seeder
 
     private function rateAndClose(): void
     {
-        $qa = $this->person('qa@occ.edu.ph');
+        $qa = $this->person('qa.head@occ.edu.ph');
 
         $forms = PcrForm::where('school_year_id', $this->year->id)
             ->where('type', 'ipcr')
@@ -776,7 +776,7 @@ class DemoYear2025Seeder extends Seeder
     /** The conversation around each form: the writer, the reviewers and QA. */
     private function remarks(): void
     {
-        $qa = $this->person('qa@occ.edu.ph');
+        $qa = $this->person('qa.head@occ.edu.ph');
 
         $forms = PcrForm::with('owner', 'orgUnit')
             ->where('school_year_id', $this->year->id)
@@ -910,7 +910,7 @@ class DemoYear2025Seeder extends Seeder
     {
         $president = $this->person('president@occ.edu.ph');
         $admin     = $this->people['admin@occ.edu.ph'] ?? $president;
-        $qa        = $this->person('qa@occ.edu.ph');
+        $qa        = $this->person('qa.head@occ.edu.ph');
 
         $entries = [
             ['SchoolYear', $this->year->id, 'create', 'Opened the 2025 performance cycle', $admin, '2025-01-05 08:00:00'],
@@ -966,7 +966,7 @@ class DemoYear2025Seeder extends Seeder
             'actor_name' => $president->name,
         ]);
 
-        $qa = $this->person('qa@occ.edu.ph');
+        $qa = $this->person('qa.head@occ.edu.ph');
 
         foreach (PcrForm::whereIn('id', $formIds)->whereIn('status', ['rated', 'final'])->get() as $form) {
             if (! $form->user_id) {

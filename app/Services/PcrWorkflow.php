@@ -4,6 +4,8 @@ namespace App\Services;
 
 use App\Models\OrgUnit;
 use App\Models\PcrForm;
+use App\Models\PcrFormReviewer;
+use App\Models\PcrStatusLog;
 use App\Models\RatingPeriod;
 use App\Models\User;
 
@@ -17,11 +19,11 @@ class PcrWorkflow
      */
     public const TRANSITIONS = [
         'ipcr' => [
-            // A stage with no reviewer is skipped, so submitting may land on any
-            // of the first three; PcrWorkflow::nextStatusFor picks the real one.
-            'draft'       => ['head_review', 'vp_review', 'qa_rating'],
-            'returned'    => ['head_review', 'vp_review', 'qa_rating'],
-            'head_review' => ['vp_review', 'qa_rating', 'returned'],
+           
+            'draft'       => ['head_review', 'dean_review', 'vp_review', 'qa_rating'],
+            'returned'    => ['head_review', 'dean_review', 'vp_review', 'qa_rating'],
+            'head_review' => ['dean_review', 'vp_review', 'qa_rating', 'returned'],
+            'dean_review' => ['vp_review', 'qa_rating', 'returned'],
             'vp_review'   => ['qa_rating', 'returned'],
             'qa_rating'   => ['rated', 'returned'],
             'rated'       => ['final', 'qa_rating'],
@@ -29,7 +31,7 @@ class PcrWorkflow
         ],
         'opcr' => [
             'draft'       => ['qa_approval'],
-            'returned'    => ['qa_approval'],
+            'returned'    => ['qa_approval', 'qa_rating'],
             'qa_approval' => ['approved', 'returned'],
             'approved'    => ['published', 'draft'],
             'published'   => ['qa_rating', 'draft'],
@@ -42,6 +44,7 @@ class PcrWorkflow
     public const ACTOR_ROLES = [
         'ipcr' => [
             'head_review' => ['employee', 'program_head', 'vp'],
+            'dean_review' => ['employee', 'program_head', 'vp'],
             'vp_review'   => ['program_head'],
             'qa_rating'   => ['vp'],
             'rated'       => ['qa'],
@@ -63,6 +66,7 @@ class PcrWorkflow
     /** Which form column carries the reviewer resolved for each named stage. */
     public const REVIEWER_COLUMNS = [
         'head_review' => 'head_reviewer_id',
+        'dean_review' => 'dean_reviewer_id',
         'vp_review'   => 'vp_reviewer_id',
     ];
 
@@ -88,22 +92,102 @@ class PcrWorkflow
         };
 
         $resolved = [];
+        $map      = [];
 
         foreach (app(WorkflowSettings::class)->reviewStages() as $stage) {
-            $column = self::REVIEWER_COLUMNS[$stage['status']] ?? null;
+            $status = $stage['status'] ?? '';
+            $column = self::REVIEWER_COLUMNS[$status] ?? null;
+            $source = $stage['source'] ?? 'unit_slot';
 
-            if (! $column) {
-                continue;   // a stage held by a role, e.g. QA, needs no named reviewer
+            // QA is a role gate. It has no named reviewer on the form.
+            if ($source === 'role' && ! $column) {
+                continue;
             }
 
-            $resolved[$column] = ($stage['source'] ?? 'unit_slot') === 'unit_slot'
-                ? $notTheRatee($unit?->{$stage['slot'] ?? ''})
+            $id = $source === 'unit_slot'
+                ? $notTheRatee($unit?->reviewerIdForSlot($stage['slot'] ?? ''))
                 : $notTheRatee(
                     User::where('role', $stage['role'] ?? '')->where('status', 'active')->value('id')
                 );
+
+            $map[$status] = $id;
+
+            if ($column) {
+                $resolved[$column] = $id;
+            }
         }
 
-        return $resolved + ['head_reviewer_id' => null, 'vp_reviewer_id' => null];
+        $form->resolvedReviewerMap = $map;
+
+        if ($form->exists) {
+            PcrFormReviewer::sync($form, $map);
+        }
+
+        return $resolved + [
+            'head_reviewer_id' => null,
+            'dean_reviewer_id' => null,
+            'vp_reviewer_id'   => null,
+        ];
+    }
+
+    /** Statuses an IPCR can stop at, in the order Setup saved them. */
+    public static function stageStatuses(): array
+    {
+        return array_column(app(WorkflowSettings::class)->reviewStages(), 'status');
+    }
+
+    public static function isReviewDestination(string $status): bool
+    {
+        return in_array($status, self::stageStatuses(), true);
+    }
+
+    /** Who was resolved for this stage, including a step added after the built-in three. */
+    public static function reviewerId(PcrForm $form, string $status): ?int
+    {
+        $map = $form->resolvedReviewerMap;
+
+        if (array_key_exists($status, $map)) {
+            return $map[$status] ? (int) $map[$status] : null;
+        }
+
+        $column = self::REVIEWER_COLUMNS[$status] ?? null;
+
+        if ($column && $form->{$column}) {
+            return (int) $form->{$column};
+        }
+
+        $row = $form->relationLoaded('stageReviewers')
+            ? $form->stageReviewers->firstWhere('stage', $status)
+            : ($form->exists ? $form->stageReviewers()->where('stage', $status)->first() : null);
+
+        return $row?->reviewer_id ? (int) $row->reviewer_id : null;
+    }
+
+    public static function chainFor(PcrForm $form): array
+    {
+        $form->loadMissing('stageReviewers.reviewer:id,name,position_title');
+
+        return array_map(function (array $stage) use ($form) {
+            $status = $stage['status'];
+            $id     = self::reviewerId($form, $status);
+            $row    = $form->stageReviewers->firstWhere('stage', $status);
+            $person = $row?->reviewer;
+
+            if (! $person && $id) {
+                $person = User::query()->find($id, ['id', 'name', 'position_title']);
+            }
+
+            $named = ($stage['source'] ?? 'unit_slot') !== 'role'
+                || isset(self::REVIEWER_COLUMNS[$status]);
+
+            return [
+                'status'      => $status,
+                'label'       => $stage['label'] ?? $status,
+                'reviewer_id' => $id,
+                'reviewer'    => $person ? $person->only(['id', 'name', 'position_title']) : null,
+                'filled'      => $named ? (bool) $id : true,
+            ];
+        }, app(WorkflowSettings::class)->reviewStages());
     }
 
     /** The next status that actually has somebody to act on it. */
@@ -126,13 +210,7 @@ class PcrWorkflow
 
         // The first stage after here that somebody actually fills.
         foreach (array_slice($stages, $position + 1) as $stage) {
-            $column = self::REVIEWER_COLUMNS[$stage['status']] ?? null;
-
-            if (! $column || $form->{$column}) {
-                return $stage['status'];
-            }
-
-            if (! ($stage['skippable'] ?? true)) {
+            if (self::stageFilled($form, $stage) || ! ($stage['skippable'] ?? true)) {
                 return $stage['status'];
             }
         }
@@ -152,11 +230,7 @@ class PcrWorkflow
             return $form->status === 'qa_rating' && $user->role === 'qa';
         }
 
-        if ($form->status === 'head_review' && (int) $form->head_reviewer_id === (int) $user->id) {
-            return true;
-        }
-
-        if ($form->status === 'vp_review' && (int) $form->vp_reviewer_id === (int) $user->id) {
+        if ((int) self::reviewerId($form, $form->status) === (int) $user->id) {
             return true;
         }
 
@@ -174,22 +248,47 @@ class PcrWorkflow
             return true;
         }
 
-        return $form->status === 'head_review'
-            && (int) $form->head_reviewer_id === (int) $user->id;
+        return (int) self::reviewerId($form, $form->status) === (int) $user->id;
     }
 
     public static function isReviewerFor(User $user, PcrForm $form, string $status): bool
     {
-        return match ($status) {
-            'head_review' => (int) $form->head_reviewer_id === (int) $user->id,
-            'vp_review'   => (int) $form->vp_reviewer_id === (int) $user->id,
-            default       => false,
-        };
+        return (int) self::reviewerId($form, $status) === (int) $user->id;
     }
 
     public static function canTransition(string $type, string $from, string $to): bool
     {
-        return in_array($to, self::TRANSITIONS[$type][$from] ?? [], true);
+        if (in_array($to, self::TRANSITIONS[$type][$from] ?? [], true)) {
+            return true;
+        }
+
+        if ($type !== 'ipcr' || $to === $from) {
+            return false;
+        }
+
+        $stages = self::stageStatuses();
+
+        if ($to === 'returned' && in_array($from, $stages, true)) {
+            return true;
+        }
+
+        $fromPos = in_array($from, ['draft', 'returned'], true) ? -1 : array_search($from, $stages, true);
+        $toPos   = array_search($to, $stages, true);
+
+        return $fromPos !== false && $toPos !== false && $toPos > $fromPos;
+    }
+
+    /** A role gate such as QA is always filled. A named step is filled when somebody was resolved. */
+    private static function stageFilled(PcrForm $form, array $stage): bool
+    {
+        $status = $stage['status'] ?? '';
+        $source = $stage['source'] ?? 'unit_slot';
+
+        if ($source === 'role' && ! isset(self::REVIEWER_COLUMNS[$status])) {
+            return true;
+        }
+
+        return (bool) self::reviewerId($form, $status);
     }
 
     public static function actorMayMoveTo(User $user, string $type, string $to): bool
@@ -294,10 +393,34 @@ class PcrWorkflow
         return "{$label} is closed. It is view-only now — ask an administrator to unlock a review period.";
     }
 
-    /** Only a published OPCR is something other people's IPCRs may point at. */
+    /**
+     * A return from rating goes back to rating. A return from approval, or a
+     * return with no trail, goes back to approval.
+     */
+    public static function opcrResubmitStatus(PcrForm $form): string
+    {
+        return self::returnedFromRating($form) ? 'qa_rating' : 'qa_approval';
+    }
+
+    public static function returnedFromRating(PcrForm $form): bool
+    {
+        $logs = $form->relationLoaded('statusLogs')
+            ? $form->statusLogs
+            : PcrStatusLog::where('form_id', $form->id)->get();
+
+        $log = $logs->where('to_status', 'returned')->sortByDesc('id')->first();
+
+        return $log?->from_status === 'qa_rating';
+    }
+
+    /** A published OPCR, including one sent back from rating, stays available to IPCRs. */
     public static function opcrIsVisible(PcrForm $form): bool
     {
-        return in_array($form->status, self::OPCR_VISIBLE, true);
+        if (in_array($form->status, self::OPCR_VISIBLE, true)) {
+            return true;
+        }
+
+        return $form->status === 'returned' && self::returnedFromRating($form);
     }
 
     public static function owns(User $user, PcrForm $form): bool
@@ -328,6 +451,10 @@ class PcrWorkflow
         }
 
         if (self::owns($user, $form)) {
+            return true;
+        }
+
+        if (self::isReviewerFor($user, $form, $form->status)) {
             return true;
         }
 

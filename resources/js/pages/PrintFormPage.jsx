@@ -234,7 +234,10 @@ export default function PrintFormPage() {
                                 <tr>
                                     <td>
                                         <strong>
-                                            {form.head_reviewer?.name ?? form.reviewed_by_name ?? ""}
+                                            {form.head_reviewer?.name ??
+                                                form.reviewed_by_name ??
+                                                form.dean_reviewer?.name ??
+                                                ""}
                                         </strong>
                                         <div>
                                             {form.head_reviewer?.position_title ??

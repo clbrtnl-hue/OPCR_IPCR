@@ -107,14 +107,23 @@ export default function AppLayout({ children }) {
             .filter((item) => path === item.key || (item.key !== "/" && path.startsWith(item.key)))
             .sort((a, b) => b.key.length - a.key.length)[0];
 
-        // A form opened from a list still belongs to My Forms. The college
-        // OPCR itself stays on /college-opcr.
-        if (!match && path.startsWith("/forms/")) {
+        if (match) {
+            return match.key;
+        }
+
+        // Opening a form leaves the list URL. Keep the menu the person came
+        // from; a form reached any other way still belongs to My Forms.
+        if (path.startsWith("/forms/")) {
+            const from = location.state?.from;
+            if (typeof from === "string" && flat.some((item) => item.key === from)) {
+                return from;
+            }
+
             return "/my-forms";
         }
 
-        return match?.key ?? "/";
-    }, [location.pathname, items]);
+        return "/";
+    }, [location.pathname, location.state, items]);
 
     useEffect(() => {
         setNavOpen(false);
@@ -347,9 +356,11 @@ export default function AppLayout({ children }) {
                 <nav className="pms-tabbar" aria-label="Primary">
                     {tabs.map((tab) => {
                         const active =
-                            tab.key === "/"
+                            tab.key === selectedKey ||
+                            (tab.key === "/"
                                 ? location.pathname === "/"
-                                : location.pathname === tab.key || location.pathname.startsWith(`${tab.key}/`);
+                                : location.pathname === tab.key ||
+                                  location.pathname.startsWith(`${tab.key}/`));
 
                         return (
                             <button

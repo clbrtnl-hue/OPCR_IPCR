@@ -71,7 +71,11 @@ class TeamController extends Controller
                 'id'   => $unit->id,
                 'name' => $unit->name,
                 'code' => $unit->code,
-                'as'   => (int) $unit->head_user_id === (int) $user->id ? 'head' : 'vp',
+                'as'   => match (true) {
+                    (int) $unit->head_user_id === (int) $user->id => 'head',
+                    (int) $unit->dean_user_id === (int) $user->id => 'dean',
+                    default => 'vp',
+                },
             ])->values(),
             'members' => $members->map(function ($member) use ($forms, $summaries, $unitsById) {
                 $form    = $forms->get($member->id);
@@ -105,9 +109,10 @@ class TeamController extends Controller
         if (! $user->isAdmin()) {
             $query->where(fn ($q) => $q
                 ->where('head_user_id', $user->id)
+                ->orWhere('dean_user_id', $user->id)
                 ->orWhere('vp_user_id', $user->id));
         }
 
-        return $query->get(['id', 'name', 'code', 'head_user_id', 'vp_user_id']);
+        return $query->get(['id', 'name', 'code', 'head_user_id', 'dean_user_id', 'vp_user_id']);
     }
 }

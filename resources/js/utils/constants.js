@@ -10,6 +10,7 @@ export const ROLE_LABELS = {
 export const STATUS_META = {
     draft: { label: "Draft", color: "default", who: "With the writer" },
     head_review: { label: "With Head", color: "blue", who: "Waiting for the head" },
+    dean_review: { label: "With Dean / Director", color: "blue", who: "Waiting for the dean or director" },
     vp_review: { label: "With VP", color: "geekblue", who: "Waiting for the VP" },
     qa_approval: { label: "For QA approval", color: "gold", who: "Waiting for QA to approve the targets" },
     approved: { label: "Approved", color: "lime", who: "Approved — waiting to be published" },
@@ -72,6 +73,43 @@ export const PROGRESS_TONES = {
     completed: "#52c41a",
     deferred: "#faad14",
 };
+
+function stepName(label) {
+    return String(label || "next reviewer").replace(/^With /i, "");
+}
+
+/** The next person who actually reviews this IPCR. Empty slots are skipped. */
+export function nextReviewStop(form) {
+    if (form?.review_steps?.length) {
+        const here = form.review_steps.findIndex((step) => step.status === form.status);
+        const upcoming = form.review_steps.slice(here + 1).find((step) => step.filled || step.status === "qa_rating");
+
+        if (upcoming) {
+            const name = stepName(upcoming.label);
+
+            return { status: upcoming.status, label: `the ${name}`, short: name };
+        }
+    }
+
+    const stops = [
+        { status: "head_review", id: form.head_reviewer_id, label: "the Head", short: "Head" },
+        { status: "dean_review", id: form.dean_reviewer_id, label: "the dean or director", short: "Dean / Director" },
+        { status: "vp_review", id: form.vp_reviewer_id, label: "the VP", short: "VP" },
+        { status: "qa_rating", id: "qa", label: "QA", short: "QA" },
+    ];
+    const here = stops.findIndex((stop) => stop.status === form?.status);
+
+    return stops.slice(here + 1).find((stop) => stop.id) ?? stops[stops.length - 1];
+}
+
+export function statusMeta(status, form) {
+    if (STATUS_META[status]) return STATUS_META[status];
+
+    const step = form?.review_steps?.find((item) => item.status === status);
+    const label = step?.label || form?.status_label || String(status || "").replace(/_/g, " ");
+
+    return { label, color: "blue", who: label };
+}
 
 export function progressTone(status, pct) {
     if (status === "deferred") return PROGRESS_TONES.deferred;

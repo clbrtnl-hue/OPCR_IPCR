@@ -1730,6 +1730,96 @@ body::-webkit-scrollbar-thumb:hover {
     margin-bottom: 10px;
 }
 
+.pms-pace-list {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.pms-pace-split {
+    margin: 12px 6px 4px;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: #898781;
+}
+
+.pms-pace-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1.5fr) minmax(72px, 1fr) auto auto;
+    grid-template-areas: "name track value late";
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+    padding: 8px 6px;
+    border: 0;
+    border-radius: 8px;
+    background: transparent;
+    text-align: left;
+    cursor: pointer;
+    font: inherit;
+    color: inherit;
+}
+
+.pms-pace-row:hover {
+    background: #fafafa;
+}
+
+.pms-pace-name {
+    grid-area: name;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+}
+
+.pms-pace-name > span:first-child {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 13.5px;
+    font-weight: 600;
+    color: #0b0b0b;
+}
+
+.pms-pace-sub {
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 12px;
+}
+
+.pms-pace-track {
+    grid-area: track;
+}
+
+.pms-pace-row .viz-bar-value {
+    grid-area: value;
+}
+
+.pms-pace-late,
+.pms-pace-clear {
+    grid-area: late;
+    justify-self: end;
+}
+
+.pms-pace-clear {
+    font-size: 12px;
+    color: #898781;
+    white-space: nowrap;
+}
+
+@media (max-width: 575px) {
+    .pms-pace-row {
+        grid-template-columns: minmax(0, 1fr) auto auto;
+        grid-template-areas:
+            "name value late"
+            "track track track";
+    }
+}
+
 .pms-hero {
     position: relative;
     overflow: hidden;

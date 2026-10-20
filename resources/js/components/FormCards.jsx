@@ -1,13 +1,13 @@
 import React from "react";
 import { Button, Tag } from "antd";
 import dayjs from "dayjs";
-import { STATUS_META } from "~/utils/constants";
+import { statusMeta } from "~/utils/constants";
 
 export default function FormCards({ forms, onOpen, actionLabel, showSubmitted = false }) {
     return (
         <div className="pms-form-cards">
             {forms.map((form) => {
-                const meta = STATUS_META[form.status] ?? { label: form.status, color: "default" };
+                const meta = statusMeta(form.status, form);
                 const who = form.owner?.name || `${form.org_unit?.name ?? "Office"} (office)`;
 
                 return (

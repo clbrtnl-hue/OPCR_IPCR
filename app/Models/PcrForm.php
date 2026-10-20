@@ -13,15 +13,21 @@ class PcrForm extends Model
 
     protected $guarded = [];
 
+    protected $appends = ['status_label'];
+
+    /** Resolved this request only. Not a column. */
+    public array $resolvedReviewerMap = [];
+
     protected $casts = [
         'submitted_at'   => 'datetime',
-        'reviewed_at'    => 'datetime',
-        'vp_reviewed_at' => 'datetime',
+        'reviewed_at'      => 'datetime',
+        'dean_reviewed_at' => 'datetime',
+        'vp_reviewed_at'   => 'datetime',
         'rated_at'       => 'datetime',
     ];
 
     public const STATUSES = [
-        'draft', 'head_review', 'vp_review',
+        'draft', 'head_review', 'dean_review', 'vp_review',
         'qa_approval', 'approved', 'published',
         'qa_rating', 'rated', 'final', 'returned',
     ];
@@ -98,8 +104,41 @@ class PcrForm extends Model
         return $this->belongsTo(User::class, 'head_reviewer_id');
     }
 
+    public function deanReviewer()
+    {
+        return $this->belongsTo(User::class, 'dean_reviewer_id');
+    }
+
     public function vpReviewer()
     {
         return $this->belongsTo(User::class, 'vp_reviewer_id');
+    }
+
+    public function stageReviewers()
+    {
+        return $this->hasMany(PcrFormReviewer::class, 'form_id');
+    }
+
+    public function getStatusLabelAttribute(): string
+    {
+        foreach (app(\App\Services\WorkflowSettings::class)->reviewStages() as $stage) {
+            if (($stage['status'] ?? '') === $this->status && ! empty($stage['label'])) {
+                return $stage['label'];
+            }
+        }
+
+        return [
+            'draft'       => 'Draft',
+            'head_review' => 'With Head',
+            'dean_review' => 'With Dean / Director',
+            'vp_review'   => 'With VP',
+            'qa_approval' => 'For QA approval',
+            'approved'    => 'Approved',
+            'published'   => 'Published',
+            'qa_rating'   => 'With QA',
+            'rated'       => 'Rated',
+            'final'       => 'Final',
+            'returned'    => 'Returned',
+        ][$this->status] ?? (string) $this->status;
     }
 }
