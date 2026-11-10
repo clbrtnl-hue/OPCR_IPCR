@@ -276,7 +276,7 @@ class PcrReminderService
                 ->where('status', 'active')
                 ->pluck('id')
                 ->all(),
-            default => [],
+            default => $form->stageReviewers()->where('stage', $form->status)->pluck('reviewer_id')->all(),
         };
 
         return array_values(array_filter(array_map('intval', $ids)));

@@ -112,6 +112,7 @@ class PcrOpcrLinkTest extends PmsTestCase
         // The heading carries the link to the college OPCR (see PcrOutputLinkTest),
         // so an individual line need not name a specific office target as well.
         $this->documentLine($this->makeIndicator($ipcr, 'core'));
+        $this->approveCommitments($ipcr);
         $this->actingAsUser($employee);
 
         $this->postJson("/api/pcr-forms/{$ipcr->id}/status", ['status' => 'head_review'])
@@ -132,6 +133,7 @@ class PcrOpcrLinkTest extends PmsTestCase
             'school_year_id' => $year->id, 'user_id' => $employee->id,
         ]);
         $this->documentLine($this->makeIndicator($ipcr, 'core'));
+        $this->approveCommitments($ipcr);
 
         $this->actingAsUser($employee);
 
@@ -151,6 +153,7 @@ class PcrOpcrLinkTest extends PmsTestCase
         $core->update(['parent_indicator_id' => $target->id]);
         $this->documentLine($core->fresh());
         $this->documentLine($this->makeIndicator($ipcr, 'support'));
+        $this->approveCommitments($ipcr);
 
         $this->actingAsUser($employee);
 

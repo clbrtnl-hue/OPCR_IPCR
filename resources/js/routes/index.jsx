@@ -67,7 +67,7 @@ export default function AppRoutes() {
                                 <Route
                                     path="/my-ipcr"
                                     element={
-                                        <Protected roles={["employee", "program_head", "vp", "qa"]}>
+                                        <Protected roles={["employee", "program_head", "vp", "qa", "hr"]}>
                                             <MyIpcrPage />
                                         </Protected>
                                     }
@@ -85,7 +85,7 @@ export default function AppRoutes() {
                                 <Route
                                     path="/review-queue"
                                     element={
-                                        <Protected roles={["program_head", "vp", "qa"]}>
+                                        <Protected roles={["program_head", "vp", "qa", "president", "hr"]}>
                                             <ReviewQueuePage />
                                         </Protected>
                                     }
@@ -102,7 +102,7 @@ export default function AppRoutes() {
                                 <Route
                                     path="/reports"
                                     element={
-                                        <Protected roles={["president", "qa"]}>
+                                        <Protected roles={["president", "qa", "hr"]}>
                                             <ReportsPage />
                                         </Protected>
                                     }
@@ -134,7 +134,7 @@ export default function AppRoutes() {
                                 <Route
                                     path="/college-opcr"
                                     element={
-                                        <Protected roles={["admin", "president"]}>
+                                        <Protected roles={["admin", "president", "hr"]}>
                                             <CollegeOpcrPage />
                                         </Protected>
                                     }

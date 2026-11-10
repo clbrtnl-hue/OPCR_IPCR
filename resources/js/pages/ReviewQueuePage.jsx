@@ -10,7 +10,7 @@ import FormCards from "~/components/FormCards";
 import { useAuth } from "~/hooks/useAuth";
 
 const REVIEW_ACTION = (record) =>
-    record.status === "qa_approval"
+    record.status === "commitment_review" || record.status === "qa_approval"
         ? "Approve"
         : ["qa_rating", "head_review", "vp_review"].includes(record.status)
           ? "Rate"
@@ -71,7 +71,9 @@ export default function ReviewQueuePage() {
 
     const subtitle = viewOnly
         ? "Forms waiting on a reviewer. You can open them, but you cannot approve or send them on."
-        : user?.role === "qa"
+        : user?.role === "president"
+          ? "IPCR commitments waiting for your approval."
+          : user?.role === "qa"
           ? "OPCRs waiting for your approval and forms ready for rating."
           : user?.role === "vp"
             ? "Forms the heads have endorsed and that are waiting for your review."

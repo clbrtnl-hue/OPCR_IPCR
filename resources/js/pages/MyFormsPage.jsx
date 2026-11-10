@@ -12,7 +12,7 @@ import { useAuth } from "~/hooks/useAuth";
 
 export default function MyFormsPage() {
     const { user, can } = useAuth();
-    const viewOnly = user?.role === "admin";
+    const viewOnly = user?.role === "admin" || user?.role === "hr";
     const navigate = useNavigate();
     const queryClient = useQueryClient();
     const [form] = Form.useForm();
@@ -20,8 +20,8 @@ export default function MyFormsPage() {
     // const [bulkOpen, setBulkOpen] = useState(false);
 
     const { data: forms = [], isLoading } = useQuery({
-        queryKey: ["pcr-forms", "mine"],
-        queryFn: () => api.get("pcr-forms?mine=1").then((r) => r.data),
+        queryKey: ["pcr-forms", user?.role === "hr" ? "college" : "mine"],
+        queryFn: () => api.get(user?.role === "hr" ? "pcr-forms" : "pcr-forms?mine=1").then((r) => r.data),
     });
 
     const { data: years = [] } = useQuery({

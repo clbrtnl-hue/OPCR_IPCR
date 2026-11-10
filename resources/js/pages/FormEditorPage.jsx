@@ -78,6 +78,8 @@ import FormHistory from "~/components/FormHistory";
  */
 const HISTORY_META = {
     draft:       { icon: <EditOutlined />,           color: "#8c8c8c" },
+    commitment_review: { icon: <SafetyCertificateOutlined />, color: "#d48806" },
+    commitments_approved: { icon: <CheckCircleOutlined />, color: "#7cb305" },
     head_review: { icon: <SendOutlined />,           color: "#1677ff" },
     dean_review: { icon: <SendOutlined />,           color: "#1d4ed8" },
     vp_review:   { icon: <SendOutlined />,           color: "#2f54eb" },
@@ -161,7 +163,6 @@ function ExportMenu({ excelBusy, onPrint, onExcel }) {
     );
 }
 
-const IPCR_CHAIN = ["draft", "head_review", "dean_review", "vp_review", "qa_rating", "rated", "final"];
 // An OPCR is planned and published first; it is rated later on the same document.
 const OPCR_CHAIN = ["draft", "qa_approval", "approved", "published", "qa_rating", "rated", "final"];
 
@@ -308,36 +309,50 @@ export default function FormEditorPage({ formId = null }) {
         form.type === "opcr" && periods.length > 0 && periods.every((period) => period.is_locked);
     const periodLocked = form.type === "opcr" ? yearClosed : Boolean(viewedPeriod?.is_locked);
     const isOpcr = form.type === "opcr";
-    const commitmentOpen = ["draft", "returned"].includes(form.status);
-    const canEditCommitment = isOwner && commitmentOpen && !periodLocked;
-    const canRecordProgress = isOwner && !["rated", "final"].includes(form.status) && !periodLocked;
-    // On an OPCR, naming an accountable person and cascading both stop at publish.
-    // On an IPCR they stop as soon as the form is submitted for review.
+    const commitmentsApproved = Boolean(form.commitment_approved_at);
+    // Commitments stay editable until they are approved. A return from rating
+    // does not reopen them.
+    const planningOpen =
+        !isOpcr && ["draft", "returned"].includes(form.status) && !commitmentsApproved;
+    const canEditCommitment =
+        isOwner && !periodLocked && (isOpcr ? ["draft", "returned"].includes(form.status) : planningOpen);
+    const workOpen =
+        isOpcr ||
+        commitmentsApproved ||
+        !["draft", "returned", "commitment_review"].includes(form.status);
+    const canRecordProgress =
+        isOwner && workOpen && !["rated", "final"].includes(form.status) && !periodLocked;
+    // Cascade opens once commitments are approved, and closes when rating starts.
+    const handoutOpen =
+        commitmentsApproved && ["commitments_approved", "returned"].includes(form.status);
     // Offer only what the server would accept: the organization decides which
     // roles hand work out, and terminal roles deliver their own commitments.
     const canAssignHeadings =
         isOwner &&
         !periodLocked &&
         Boolean(user.capabilities?.assign_outputs) &&
-        (isOpcr ? !["rated", "final"].includes(form.status) : commitmentOpen);
+        (isOpcr ? !["rated", "final"].includes(form.status) : handoutOpen);
     const canAssign =
         isOwner &&
         !periodLocked &&
         Boolean(user.capabilities?.assign_indicators) &&
-        (isOpcr ? !["rated", "final"].includes(form.status) : commitmentOpen);
+        (isOpcr ? !["rated", "final"].includes(form.status) : handoutOpen);
     const opcrHandoutClosed = isOpcr && ["published", "qa_rating", "rated", "final"].includes(form.status);
     const canNameAccountable = (canAssignHeadings || canAssign) && !opcrHandoutClosed;
     const canCascade = canAssign && !opcrHandoutClosed;
 
     const samePerson = (left, right) => Number(left) === Number(right);
+    const namedReviewerId = form.review_steps?.find((step) => step.status === form.status)?.reviewer?.id;
 
     // Authority is being named on this form. One person may hold two posts.
     // QA rates their own staff here and does not send that IPCR upward.
     const isMyReviewStep =
         !isOpcr &&
-        ((form.status === "head_review" && samePerson(form.head_reviewer_id, user.id)) ||
-            (form.status === "dean_review" && samePerson(form.dean_reviewer_id, user.id)) ||
-            (form.status === "vp_review" && samePerson(form.vp_reviewer_id, user.id)));
+        (namedReviewerId
+            ? samePerson(namedReviewerId, user.id)
+            : (form.status === "head_review" && samePerson(form.head_reviewer_id, user.id)) ||
+              (form.status === "dean_review" && samePerson(form.dean_reviewer_id, user.id)) ||
+              (form.status === "vp_review" && samePerson(form.vp_reviewer_id, user.id)));
 
     const qaRatesStaff =
         user.role === "qa" &&
@@ -347,7 +362,8 @@ export default function FormEditorPage({ formId = null }) {
     const canScore =
         !periodLocked &&
         !isOpcr &&
-        ((form.status === "head_review" && samePerson(form.head_reviewer_id, user.id)) ||
+        ((namedReviewerId && samePerson(namedReviewerId, user.id)) ||
+            (form.status === "head_review" && samePerson(form.head_reviewer_id, user.id)) ||
             (form.status === "dean_review" && samePerson(form.dean_reviewer_id, user.id)) ||
             (form.status === "vp_review" && samePerson(form.vp_reviewer_id, user.id)) ||
             (user.role === "qa" && form.status === "qa_rating"));
@@ -356,7 +372,7 @@ export default function FormEditorPage({ formId = null }) {
     const showScores = (
         isOpcr
             ? ["qa_rating", "rated", "final"]
-            : ["head_review", "dean_review", "vp_review", "qa_rating", "rated", "final"]
+            : ["head_review", "dean_review", "director_review", "vp_review", "qa_rating", "rated", "final"]
     ).includes(form.status);
 
     const nextStop = nextReviewStop(form);
@@ -386,6 +402,18 @@ export default function FormEditorPage({ formId = null }) {
 
     const canUnpublish = isOpcr && drivesOpcr && form.status === "published";
     const canClose = form.status === "rated" && ["qa", "president"].includes(user.role);
+    const canSendCommitments = canEditCommitment && !isOpcr;
+    const canSubmitForRating =
+        isOwner &&
+        !isOpcr &&
+        !periodLocked &&
+        commitmentsApproved &&
+        ["commitments_approved", "returned"].includes(form.status);
+    const canDecideCommitments =
+        !isOpcr &&
+        form.status === "commitment_review" &&
+        samePerson(form.commitment_approver?.id, user.id);
+    const approverLabel = form.commitment_approver?.label || "approval";
     const canReturnOpcr = isOpcr && user.role === "qa" && form.status === "qa_approval";
     const canReturnFromRating = user.role === "qa" && form.status === "qa_rating";
 
@@ -407,11 +435,12 @@ export default function FormEditorPage({ formId = null }) {
 
     const summary = form.summaries?.find((s) => s.rating_period_id === activePeriodId);
     const reviewSteps = form.review_steps ?? [];
+    const ratingChain = reviewSteps.length
+        ? reviewSteps.map((step) => step.status)
+        : ["head_review", "dean_review", "director_review", "vp_review", "qa_rating"];
     const chain = isOpcr
         ? OPCR_CHAIN
-        : reviewSteps.length
-          ? ["draft", ...reviewSteps.map((step) => step.status), "rated", "final"]
-          : IPCR_CHAIN;
+        : ["draft", "commitment_review", "commitments_approved", ...ratingChain, "rated", "final"];
 
     // A stage with nobody to fill it is passed over rather than stranding the
     // form, so the tracker should say so instead of implying a wait.
@@ -433,7 +462,9 @@ export default function FormEditorPage({ formId = null }) {
         if (step) return step.reviewer?.name ?? null;
 
         const person =
-            status === "head_review"
+            status === "commitment_review"
+                ? form.commitment_approver
+                : status === "head_review"
                 ? form.head_reviewer
                 : status === "dean_review"
                   ? form.dean_reviewer
@@ -475,7 +506,18 @@ export default function FormEditorPage({ formId = null }) {
                                 onPrint={() => setPdfOpen(true)}
                                 onExcel={exportExcel}
                             />
-                            {canEditCommitment && !isOpcr && (
+                            {canSendCommitments && (
+                                <Button
+                                    type="primary"
+                                    loading={move.isPending}
+                                    disabled={!form.commitment_approver}
+                                    onClick={() => move.mutate({ status: "commitment_review" })}
+                                >
+                                    <span className="pms-btn-long">{`Send to ${approverLabel}`}</span>
+                                    <span className="pms-btn-short">Send</span>
+                                </Button>
+                            )}
+                            {canSubmitForRating && (
                                 <Button
                                     type="primary"
                                     loading={move.isPending}
@@ -530,6 +572,23 @@ export default function FormEditorPage({ formId = null }) {
                             )}
                         </Space>
                         <Space wrap={false} className="pms-form-actions" size={8}>
+                        {canDecideCommitments && (
+                            <>
+                                <Button danger onClick={() => setReturnModal(true)}>
+                                    Return
+                                </Button>
+                                <Popconfirm
+                                    title="Approve these commitments?"
+                                    description="The writer can then hand work down and record tasks."
+                                    okText="Approve"
+                                    onConfirm={() => move.mutate({ status: "commitments_approved" })}
+                                >
+                                    <Button type="primary" loading={move.isPending}>
+                                        Approve commitments
+                                    </Button>
+                                </Popconfirm>
+                            </>
+                        )}
                         {canReturnOpcr && (
                             <Button danger onClick={() => setReturnModal(true)}>
                                 Return
@@ -638,6 +697,44 @@ export default function FormEditorPage({ formId = null }) {
                 />
             )}
 
+            {planningOpen && isOwner && (
+                <Alert
+                    type="info"
+                    showIcon
+                    style={{ marginBottom: 16 }}
+                    message="Commitments need approval first"
+                    description={
+                        form.commitment_approver
+                            ? `Send them to ${approverLabel}. Tasks and handing work down stay closed until they are approved.`
+                            : "There is nobody to approve these commitments yet."
+                    }
+                />
+            )}
+
+            {form.status === "commitment_review" && !isOpcr && (
+                <Alert
+                    type="info"
+                    showIcon
+                    style={{ marginBottom: 16 }}
+                    message={
+                        isOwner
+                            ? `Waiting for ${approverLabel} to approve your commitments`
+                            : "These commitments are waiting for approval"
+                    }
+                    description="Tasks and handing work down open after approval."
+                />
+            )}
+
+            {form.status === "commitments_approved" && isOwner && (
+                <Alert
+                    type="success"
+                    showIcon
+                    style={{ marginBottom: 16 }}
+                    message="Commitments approved"
+                    description="You can hand work to your team and record tasks. Submit for review once every line has a narrative and a file."
+                />
+            )}
+
             {form.status === "returned" && (
                 <Alert
                     type="warning"
@@ -669,8 +766,11 @@ export default function FormEditorPage({ formId = null }) {
                                         {
                                             {
                                                 draft: "Draft",
+                                                commitment_review: "Approval",
+                                                commitments_approved: "Approved",
                                                 head_review: "Head",
-                                                dean_review: "Dean / Director",
+                                                dean_review: "Dean",
+                                                director_review: "Director",
                                                 vp_review: "VP",
                                                 qa_approval: "QA",
                                                 approved: "Approved",

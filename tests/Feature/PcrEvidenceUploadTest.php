@@ -25,6 +25,7 @@ class PcrEvidenceUploadTest extends PmsTestCase
         ]);
 
         $indicator = $this->makeIndicator($form);
+        $this->approveCommitments($form);
 
         Passport::actingAs($employee, [], 'api');
 

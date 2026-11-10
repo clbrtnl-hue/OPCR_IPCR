@@ -55,6 +55,7 @@ class VpReviewOnlyTest extends PmsTestCase
         ['vp' => $vp, 'vpIpcr' => $vpIpcr, 'head' => $head] = $this->college();
 
         $line = $this->makeIndicator($vpIpcr, 'core');
+        $this->approveCommitments($vpIpcr);
 
         $this->actingAsUser($vp);
 
@@ -90,6 +91,7 @@ class VpReviewOnlyTest extends PmsTestCase
         ['vp' => $vp, 'vpIpcr' => $vpIpcr, 'head' => $head] = $this->college();
 
         $line = $this->makeIndicator($vpIpcr, 'core');
+        $this->approveCommitments($vpIpcr);
 
         $this->actingAsUser($vp);
 

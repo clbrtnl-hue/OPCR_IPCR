@@ -6,24 +6,28 @@ use App\Models\OrgUnit;
 use App\Models\PcrForm;
 use App\Models\PcrFormReviewer;
 use App\Models\PcrStatusLog;
+use App\Models\PcrTargetAssignment;
 use App\Models\RatingPeriod;
 use App\Models\User;
 
 class PcrWorkflow
 {
     /**
-     * An IPCR is written then reviewed up the hierarchy. An OPCR is planned
+     * An IPCR's commitments are approved before any tasks or cascade, then
+     * reviewed up the hierarchy. An OPCR is planned
      * first: the president drafts it, QA approves it, the president publishes
      * it — only then is it something other people's IPCRs can be tied to — and
      * it is rated once, in December, with the last period, on the same document.
      */
     public const TRANSITIONS = [
         'ipcr' => [
-           
-            'draft'       => ['head_review', 'dean_review', 'vp_review', 'qa_rating'],
-            'returned'    => ['head_review', 'dean_review', 'vp_review', 'qa_rating'],
-            'head_review' => ['dean_review', 'vp_review', 'qa_rating', 'returned'],
-            'dean_review' => ['vp_review', 'qa_rating', 'returned'],
+            'draft'       => ['commitment_review'],
+            'returned'    => ['commitment_review', 'head_review', 'dean_review', 'director_review', 'vp_review', 'qa_rating'],
+            'commitment_review' => ['commitments_approved', 'returned'],
+            'commitments_approved' => ['head_review', 'dean_review', 'director_review', 'vp_review', 'qa_rating'],
+            'head_review' => ['dean_review', 'director_review', 'vp_review', 'qa_rating', 'returned'],
+            'dean_review' => ['director_review', 'vp_review', 'qa_rating', 'returned'],
+            'director_review' => ['vp_review', 'qa_rating', 'returned'],
             'vp_review'   => ['qa_rating', 'returned'],
             'qa_rating'   => ['rated', 'returned'],
             'rated'       => ['final', 'qa_rating'],
@@ -45,6 +49,7 @@ class PcrWorkflow
         'ipcr' => [
             'head_review' => ['employee', 'program_head', 'vp'],
             'dean_review' => ['employee', 'program_head', 'vp'],
+            'director_review' => ['employee', 'program_head', 'vp'],
             'vp_review'   => ['program_head'],
             'qa_rating'   => ['vp'],
             'rated'       => ['qa'],
@@ -75,10 +80,11 @@ class PcrWorkflow
 
     /**
      * Who reviews this form, resolved from the ratee's place in the hierarchy.
-     * A stage whose reviewer is absent — or would be the ratee reviewing
-     * themselves — is null, and the chain skips it. A ratee with nobody above
-     * them in their unit (a VP sitting in the college unit) therefore goes
-     * straight to QA.
+     * Head is the person named on the ratee's own unit. Dean, VP, and extra
+     * steps use that unit first, then the parent if the slot is empty. A stage
+     * whose reviewer is absent — or would be the ratee reviewing themselves —
+     * is null, and the chain skips it. A VP with nobody above them therefore
+     * goes straight to QA.
      */
     public static function resolveReviewers(PcrForm $form): array
     {
@@ -105,7 +111,7 @@ class PcrWorkflow
             }
 
             $id = $source === 'unit_slot'
-                ? $notTheRatee($unit?->reviewerIdForSlot($stage['slot'] ?? ''))
+                ? $notTheRatee($unit?->reviewerIdForSlotInChain($stage['slot'] ?? ''))
                 : $notTheRatee(
                     User::where('role', $stage['role'] ?? '')->where('status', 'active')->value('id')
                 );
@@ -199,8 +205,10 @@ class PcrWorkflow
 
         $stages = app(WorkflowSettings::class)->reviewStages();
 
-        // Where in the configured chain we are; a submission starts before it.
-        $position = in_array($from, ['draft', 'returned'], true)
+        // Where in the configured chain we are. Rating starts once commitments
+        // are approved, or when a rated form is sent back. A draft cannot skip
+        // that approval and land on a reviewer.
+        $position = in_array($from, ['returned', 'commitments_approved'], true)
             ? -1
             : array_search($from, array_column($stages, 'status'), true);
 
@@ -272,7 +280,11 @@ class PcrWorkflow
             return true;
         }
 
-        $fromPos = in_array($from, ['draft', 'returned'], true) ? -1 : array_search($from, $stages, true);
+        // Draft stays in the commitment lane. Rating starts at commitments_approved,
+        // and a return from rating may re-enter any later stage.
+        $fromPos = in_array($from, ['returned', 'commitments_approved'], true)
+            ? -1
+            : array_search($from, $stages, true);
         $toPos   = array_search($to, $stages, true);
 
         return $fromPos !== false && $toPos !== false && $toPos > $fromPos;
@@ -446,11 +458,15 @@ class PcrWorkflow
 
     public static function canView(User $user, PcrForm $form): bool
     {
-        if (in_array($user->role, ['admin', 'qa', 'president'], true)) {
+        if (in_array($user->role, ['admin', 'qa', 'hr', 'president'], true)) {
             return true;
         }
 
         if (self::owns($user, $form)) {
+            return true;
+        }
+
+        if ($form->commitment_approver_id && (int) $form->commitment_approver_id === (int) $user->id) {
             return true;
         }
 
@@ -470,6 +486,128 @@ class PcrWorkflow
 
     public static function canEditCommitments(User $user, PcrForm $form): bool
     {
-        return $form->isEditable() && self::owns($user, $form);
+        if (! $form->isEditable() || ! self::owns($user, $form)) {
+            return false;
+        }
+
+        // Once commitments are approved they stay as approved, including when
+        // the rating is sent back. Only a return from commitment review reopens them.
+        return $form->type !== 'ipcr' || ! $form->commitment_approved_at;
+    }
+
+    /** Tasks stay closed until commitments are approved. A form already in rating is not sent back to that gate. */
+    public static function mayRecordWork(PcrForm $form): bool
+    {
+        if ($form->type !== 'ipcr') {
+            return true;
+        }
+
+        if ($form->commitment_approved_at) {
+            return true;
+        }
+
+        return ! in_array($form->status, ['draft', 'returned', 'commitment_review'], true);
+    }
+
+    /** Cascade opens after approval and closes again once the form is in rating. */
+    public static function mayHandOut(PcrForm $form): bool
+    {
+        if ($form->type !== 'ipcr') {
+            return true;
+        }
+
+        return (bool) $form->commitment_approved_at
+            && in_array($form->status, ['commitments_approved', 'returned'], true);
+    }
+
+    /**
+     * Who approves this IPCR's commitments. People named on the published OPCR
+     * go to the president. Everyone else goes to the person who handed them the
+     * work, then to the head named on their unit.
+     */
+    public static function commitmentApprover(PcrForm $form): ?User
+    {
+        $form->loadMissing('owner', 'orgUnit');
+        $owner = $form->owner;
+
+        if (! $owner) {
+            return null;
+        }
+
+        if (self::accountableOnPublishedOpcr($form, $owner)) {
+            return User::where('role', 'president')->where('status', 'active')->first();
+        }
+
+        $assignerId = PcrTargetAssignment::query()
+            ->where('user_id', $owner->id)
+            ->where('assigned_by', '!=', $owner->id)
+            ->when($form->rating_period_id, function ($query) use ($form) {
+                $query->where(function ($inner) use ($form) {
+                    $inner->where('rating_period_id', $form->rating_period_id)
+                        ->orWhereNull('rating_period_id');
+                });
+            })
+            ->whereHas('indicator.output.form', function ($query) use ($form) {
+                $query->where('type', 'ipcr')
+                    ->where('school_year_id', $form->school_year_id);
+            })
+            ->latest('id')
+            ->value('assigned_by');
+
+        if ($assignerId) {
+            $assigner = User::whereKey($assignerId)->where('status', 'active')->first();
+
+            if ($assigner && (int) $assigner->id !== (int) $owner->id && $assigner->role !== 'president') {
+                return $assigner;
+            }
+        }
+
+        foreach (app(WorkflowSettings::class)->reviewStages() as $stage) {
+            if (($stage['source'] ?? 'unit_slot') !== 'unit_slot') {
+                continue;
+            }
+
+            $id = $form->orgUnit?->reviewerIdForSlotInChain($stage['slot'] ?? '');
+
+            if (! $id || (int) $id === (int) $owner->id) {
+                continue;
+            }
+
+            $person = User::whereKey($id)->where('status', 'active')->first();
+
+            if ($person && $person->role !== 'president') {
+                return $person;
+            }
+        }
+
+        return null;
+    }
+
+    /** A short phrase for the send button: "the President" or the person's name. */
+    public static function commitmentApproverLabel(?User $approver): ?string
+    {
+        if (! $approver) {
+            return null;
+        }
+
+        return $approver->role === 'president' ? 'the President' : $approver->name;
+    }
+
+    private static function accountableOnPublishedOpcr(PcrForm $form, User $owner): bool
+    {
+        return PcrTargetAssignment::query()
+            ->where('user_id', $owner->id)
+            ->when($form->rating_period_id, function ($query) use ($form) {
+                $query->where(function ($inner) use ($form) {
+                    $inner->where('rating_period_id', $form->rating_period_id)
+                        ->orWhereNull('rating_period_id');
+                });
+            })
+            ->whereHas('indicator.output.form', function ($query) use ($form) {
+                $query->where('type', 'opcr')
+                    ->where('school_year_id', $form->school_year_id)
+                    ->whereIn('status', self::OPCR_VISIBLE);
+            })
+            ->exists();
     }
 }

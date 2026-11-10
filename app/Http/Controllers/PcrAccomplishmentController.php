@@ -121,6 +121,12 @@ class PcrAccomplishmentController extends Controller
             return response()->json(['message' => $message], 409);
         }
 
+        if (! PcrWorkflow::mayRecordWork($form)) {
+            return response()->json([
+                'message' => 'Commitments have to be approved before tasks can be recorded.',
+            ], 409);
+        }
+
         $path = public_path('uploads/pcr/' . $attachment->file_path);
 
         if (is_file($path)) {
@@ -178,6 +184,12 @@ class PcrAccomplishmentController extends Controller
             return response()->json([
                 'message' => 'That review period belongs to a different school year.',
             ], 422);
+        }
+
+        if (! PcrWorkflow::mayRecordWork($form)) {
+            return response()->json([
+                'message' => 'Commitments have to be approved before tasks can be recorded.',
+            ], 409);
         }
 
         if ($indicator->rating_period_id && (int) $indicator->rating_period_id !== (int) $periodId) {

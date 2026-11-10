@@ -88,6 +88,20 @@ abstract class PmsTestCase extends TestCase
         return PcrForm::create(array_merge(['type' => 'ipcr', 'status' => 'draft'], $attributes));
     }
 
+    /** Mark an IPCR as past commitment approval so a test can enter the rating lane. */
+    protected function approveCommitments(PcrForm $form, ?User $approver = null): PcrForm
+    {
+        $form->forceFill([
+            'status'                       => 'commitments_approved',
+            'commitment_approved_at'       => now(),
+            'commitment_approver_id'       => $approver?->id,
+            'commitment_approved_by'       => $approver?->id,
+            'commitment_approved_by_name'  => $approver?->name,
+        ])->save();
+
+        return $form->fresh();
+    }
+
     protected function makeIndicator(PcrForm $form, string $section = 'core', array $attributes = []): PcrIndicator
     {
         $output = PcrOutput::create([

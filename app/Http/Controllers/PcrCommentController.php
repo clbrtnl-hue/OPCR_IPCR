@@ -22,6 +22,7 @@ class PcrCommentController extends Controller
         'qa'           => 'qa',
         'president'    => 'president',
         'employee'     => 'employee',
+        'hr'           => 'employee',
         'admin'        => 'qa',
     ];
 
@@ -92,6 +93,12 @@ class PcrCommentController extends Controller
         if ($user->isAdmin()) {
             return response()->json([
                 'message' => 'An administrator can read remarks, not post them.',
+            ], 403);
+        }
+
+        if ($user->role === 'hr' && ! PcrWorkflow::owns($user, $form)) {
+            return response()->json([
+                'message' => 'Human Resource can read this form, not remark on it.',
             ], 403);
         }
 

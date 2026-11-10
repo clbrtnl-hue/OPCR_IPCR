@@ -21,12 +21,13 @@ function remarksClosed(form) {
 
 export default function CommentThread({ formId, indicatorId = null, compact = false }) {
     const { user } = useAuth();
-    const viewOnly = user?.role === "admin";
     const { data: form } = useQuery({
         queryKey: ["pcr-form", String(formId)],
         queryFn: () => api.get(`pcr-forms/${formId}`).then((r) => r.data),
         enabled: Boolean(formId),
     });
+    const viewOnly = user?.role === "admin"
+        || (user?.role === "hr" && Number(form?.user_id) !== Number(user?.id));
     const closed = remarksClosed(form);
     const queryClient = useQueryClient();
     const [body, setBody] = useState("");

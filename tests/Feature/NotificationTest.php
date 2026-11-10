@@ -29,6 +29,7 @@ class NotificationTest extends PmsTestCase
         ]);
 
         $this->documentLine($this->makeIndicator($form));
+        $form = $this->approveCommitments($form);
 
         return compact('head', 'vp', 'qa', 'employee', 'form');
     }

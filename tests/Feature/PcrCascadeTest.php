@@ -339,6 +339,7 @@ class PcrCascadeTest extends PmsTestCase
             'org_unit_id' => $unit->id, 'school_year_id' => $year->id, 'user_id' => $head->id,
         ]);
         $line = $this->makeIndicator($form, 'core');
+        $this->approveCommitments($form);
 
         $this->actingAsUser($head);
 
@@ -368,6 +369,7 @@ class PcrCascadeTest extends PmsTestCase
             'org_unit_id' => $unit->id, 'school_year_id' => $year->id, 'user_id' => $qa->id,
         ]);
         $line = $this->makeIndicator($form, 'core');
+        $this->approveCommitments($form);
 
         $this->actingAsUser($qa);
 
@@ -394,6 +396,7 @@ class PcrCascadeTest extends PmsTestCase
             'org_unit_id' => $unit->id, 'school_year_id' => $year->id, 'user_id' => $head->id,
         ]);
         $line = $this->makeIndicator($form, 'core');
+        $this->approveCommitments($form);
 
         $this->actingAsUser($head);
 
@@ -420,6 +423,7 @@ class PcrCascadeTest extends PmsTestCase
             'description' => '<p>Raise the passing rate.</p>',
             'rating_period_id' => $period->id,
         ]);
+        $this->approveCommitments($form);
 
         $this->actingAsUser($head);
         $this->postJson("/api/pcr-indicators/{$line->id}/assign", ['user_ids' => [$faculty->id]])

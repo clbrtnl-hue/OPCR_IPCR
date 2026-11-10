@@ -44,6 +44,8 @@ function samePerson(left, right) {
 
 function scoreable(form, user) {
     if (!form || !user || user.role === "admin") return false;
+    const step = form.review_steps?.find((item) => item.status === form.status);
+    if (step?.reviewer?.id && samePerson(step.reviewer.id, user.id)) return true;
     if (form.status === "head_review" && samePerson(form.head_reviewer_id, user.id)) return true;
     if (form.status === "dean_review" && samePerson(form.dean_reviewer_id, user.id)) return true;
     if (form.status === "vp_review" && samePerson(form.vp_reviewer_id, user.id)) return true;

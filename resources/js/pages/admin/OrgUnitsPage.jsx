@@ -183,7 +183,7 @@ export default function OrgUnitsPage() {
             render: (v) => v || <Tag color="orange">Not set</Tag>,
         },
         {
-            title: "Dean / Director",
+            title: "Dean",
             dataIndex: ["dean", "name"],
             render: (v) => v || "—",
         },
@@ -224,7 +224,7 @@ export default function OrgUnitsPage() {
         <>
             <PageHeader
                 title="Hierarchy"
-                subtitle="Set who reviews whom. A form walks the steps in Setup → Workflow. Leave a step empty to skip it."
+                subtitle="Set who reviews whom. A form walks the steps in Setup → Workflow. An empty Head is skipped. An empty Dean, VP, or extra step uses the parent unit."
                 extra={
                     <Button type="primary" icon={<PlusOutlined />} onClick={() => openDrawer(null)}>
                         New unit
@@ -237,7 +237,7 @@ export default function OrgUnitsPage() {
                 showIcon
                 style={{ marginBottom: 16 }}
                 message="Review order"
-                description="Employee submits → Head → Dean or Director, when the unit has one → VP → any extra step you added → QA. An empty step is skipped. A person's own form skips the step they themselves would fill."
+                description="Employee submits → Head → Dean → Director → VP → QA. Name the Head on this unit. Colleges fill Dean and leave Director empty. Offices fill Director and leave Dean empty. Empty Dean, Director, or VP uses the parent. A person's own form skips the step they themselves would fill."
             />
 
             <Card>
@@ -264,7 +264,7 @@ export default function OrgUnitsPage() {
                                     <strong>{record.head?.name || "Not set"}</strong>
                                 </div>
                                 <div className="pms-pds-line">
-                                    <span>Dean / Director</span>
+                                    <span>Dean</span>
                                     <strong>{record.dean?.name || "None"}</strong>
                                 </div>
                                 <div className="pms-pds-line">
@@ -353,7 +353,7 @@ export default function OrgUnitsPage() {
                     <Form.Item
                         name="head_user_id"
                         label="Head"
-                        extra="First reviewer. A program head reviews that program's faculty."
+                        extra="First reviewer for people in this unit. Not taken from the parent. Leave empty to skip."
                     >
                         <Select
                             allowClear
@@ -365,21 +365,21 @@ export default function OrgUnitsPage() {
                     </Form.Item>
                     <Form.Item
                         name="dean_user_id"
-                        label="Dean / Director"
-                        extra="Reviews after the head and before the VP. A dean in an academic unit, a director in another office. Leave empty when this unit has neither."
+                        label="Dean"
+                        extra="Reviews after the head and before the director. Leave empty to use the parent unit's dean."
                     >
                         <Select
                             allowClear
                             showSearch
                             optionFilterProp="label"
-                            placeholder="Select the dean or director"
+                            placeholder="Select the dean"
                             options={heads.map((p) => ({ value: p.id, label: p.name }))}
                         />
                     </Form.Item>
                     <Form.Item
                         name="vp_user_id"
                         label="Reports to VP"
-                        extra="Reviews after the dean or director. That person's own form comes here, then goes to QA."
+                        extra="Reviews after the director. Leave empty to use the parent unit's VP."
                     >
                         <Select
                             allowClear
@@ -394,7 +394,7 @@ export default function OrgUnitsPage() {
                             key={stage.slot}
                             name={["reviewers", stage.slot]}
                             label={String(stage.label || "Step").replace(/^With /i, "")}
-                            extra="Leave empty to skip this step for this unit."
+                            extra="Leave empty to use the parent unit, or skip if nobody above is named."
                         >
                             <Select
                                 allowClear

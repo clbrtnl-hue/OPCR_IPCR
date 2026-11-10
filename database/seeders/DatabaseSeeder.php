@@ -4,6 +4,7 @@ namespace Database\Seeders;
 
 use App\Models\Organization;
 use App\Models\OrgUnit;
+use App\Models\OrgUnitReviewer;
 use App\Models\PcrForm;
 use App\Models\PcrIndicator;
 use App\Models\PcrOutput;
@@ -76,6 +77,7 @@ class DatabaseSeeder extends Seeder
         $this->unit('isps', 'Institutional Student Programs and Services', 'SAS-ISPS', 'office', 'sas');
 
         $this->unit('afs', 'Administrative and Finance Services', 'AFS', 'office', 'president_office');
+        $this->unit('hrmo', 'Human Resource Management Office', 'AFS-HRMO', 'office', 'afs');
 
         $this->unit('rpces', 'Research, Publication and Community Extension Services', 'RPCES', 'office', 'president_office');
         $this->unit('ecoo', 'Extension and Community Outreach Office', 'RPCES-ECOO', 'office', 'rpces');
@@ -104,6 +106,8 @@ class DatabaseSeeder extends Seeder
             ['canay', 'Dr.', 'Wenie Rose', 'D.', 'Canay', null, null, 'vpaa@occ.edu.ph', 'vp', 'Vice President for Academic Affairs and Services', 'aas'],
             ['gurrea', 'Dr.', 'Alma', 'T.', 'Gurrea', null, null, 'vpial@occ.edu.ph', 'vp', 'Vice President for International Affairs and Linkages', 'ils'],
             ['vacalares', 'Mr.', 'Sophomore', null, 'Vacalares', null, null, 'vpaf@occ.edu.ph', 'vp', 'Vice President for Administration and Finance', 'afs'],
+            ['hrmo', null, 'HRMO', null, 'Head', null, null, 'hr@occ.edu.ph', 'hr', 'Head, Human Resource Management Office', 'hrmo'],
+            ['hrstaff', null, 'HRMO', null, 'Staff', null, null, 'hr.staff@occ.edu.ph', 'employee', 'Staff, Human Resource Management Office', 'hrmo'],
             ['pinto', 'Mr.', 'Ronnel', null, 'Pinto', null, null, 'vprpe@occ.edu.ph', 'vp', 'Vice President for Research, Publication, and Extension', 'rpces'],
             ['baculio', 'Mr.', 'Keith Lou', null, 'Baculio', null, null, 'vpsas@occ.edu.ph', 'vp', 'Vice President for Student Affairs and Services', 'sas'],
             ['qa', 'Dr.', 'Jeziel', null, 'Alcover-Abuloc', null, null, 'qa.head@occ.edu.ph', 'qa', 'Head, Quality Assurance and Accreditation', 'qaao'],
@@ -158,10 +162,11 @@ class DatabaseSeeder extends Seeder
             'sss'       => ['vp' => 'baculio'],
             'isps'      => ['vp' => 'baculio'],
             'afs'       => ['vp' => 'vacalares'],
+            'hrmo'      => ['head' => 'hrmo', 'vp' => 'vacalares'],
             'rpces'     => ['vp' => 'pinto'],
-            'ecoo'      => ['dean' => 'arao', 'vp' => 'pinto'],
+            'ecoo'      => ['director' => 'arao', 'vp' => 'pinto'],
             'ils'       => ['vp' => 'gurrea'],
-            'cict'      => ['dean' => 'iyo'],
+            'cict'      => ['director' => 'iyo'],
             'qaao'      => ['head' => 'qa'],
         ];
 
@@ -171,6 +176,13 @@ class DatabaseSeeder extends Seeder
                 'dean_user_id' => isset($named['dean']) ? $this->people[$named['dean']]->id : null,
                 'vp_user_id'   => isset($named['vp']) ? $this->people[$named['vp']]->id : null,
             ]);
+
+            if (isset($named['director'])) {
+                OrgUnitReviewer::updateOrCreate(
+                    ['org_unit_id' => $this->units[$unit]->id, 'slot' => 'director_review'],
+                    ['user_id' => $this->people[$named['director']]->id],
+                );
+            }
         }
     }
 

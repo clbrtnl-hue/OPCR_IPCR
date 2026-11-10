@@ -26,7 +26,7 @@ Route::get('organization', [OrganizationController::class, 'show']);
 Route::middleware('auth:api')->group(function () {
     $PMS_ADMIN     = 'role:admin';
     $PMS_QA        = 'role:qa';
-    $PMS_REPORTS   = 'role:president,qa';
+    $PMS_REPORTS   = 'role:president,qa,hr';
 
     /* ---------------------------------------------------------------- Auth */
     Route::get('me', [AuthController::class, 'me']);

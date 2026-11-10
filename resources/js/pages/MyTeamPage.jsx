@@ -44,7 +44,7 @@ export default function MyTeamPage() {
     const units = data?.units ?? [];
     const notStarted = members.filter((m) => !m.form || m.form.outputs_count === 0).length;
     const withMe = members.filter((m) =>
-        ["head_review", "dean_review", "vp_review"].includes(m.form?.status)
+        ["head_review", "dean_review", "director_review", "vp_review"].includes(m.form?.status)
     ).length;
     const done = members.filter((m) => ["rated", "final"].includes(m.form?.status)).length;
 

@@ -56,7 +56,8 @@ class RichTextSanitizationTest extends PmsTestCase
 
     public function test_an_accomplishment_is_cleaned_on_the_way_in(): void
     {
-        ['employee' => $employee, 'indicator' => $indicator, 'period' => $period] = $this->scenario();
+        ['employee' => $employee, 'indicator' => $indicator, 'period' => $period, 'form' => $form] = $this->scenario();
+        $this->approveCommitments($form);
 
         $this->actingAsUser($employee);
 
@@ -98,6 +99,7 @@ class RichTextSanitizationTest extends PmsTestCase
         $unit->update(['head_user_id' => $head->id]);
 
         $this->documentLine($form->indicators()->first());
+        $this->approveCommitments($form);
 
         $this->actingAsUser($employee);
         $this->postJson("/api/pcr-forms/{$form->id}/status", ['status' => 'head_review'])->assertSuccessful();

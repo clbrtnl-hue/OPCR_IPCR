@@ -2,6 +2,7 @@ export const ROLE_LABELS = {
     admin: "Administrator",
     president: "President",
     qa: "Quality Assurance",
+    hr: "Human Resource",
     vp: "Vice President",
     program_head: "Head",
     employee: "Employee",
@@ -9,8 +10,11 @@ export const ROLE_LABELS = {
 
 export const STATUS_META = {
     draft: { label: "Draft", color: "default", who: "With the writer" },
+    commitment_review: { label: "For commitment approval", color: "gold", who: "Waiting for commitments to be approved" },
+    commitments_approved: { label: "Commitments approved", color: "lime", who: "Approved — tasks and cascade are open" },
     head_review: { label: "With Head", color: "blue", who: "Waiting for the head" },
-    dean_review: { label: "With Dean / Director", color: "blue", who: "Waiting for the dean or director" },
+    dean_review: { label: "With Dean", color: "blue", who: "Waiting for the dean" },
+    director_review: { label: "With Director", color: "blue", who: "Waiting for the director" },
     vp_review: { label: "With VP", color: "geekblue", who: "Waiting for the VP" },
     qa_approval: { label: "For QA approval", color: "gold", who: "Waiting for QA to approve the targets" },
     approved: { label: "Approved", color: "lime", who: "Approved — waiting to be published" },
@@ -93,7 +97,7 @@ export function nextReviewStop(form) {
 
     const stops = [
         { status: "head_review", id: form.head_reviewer_id, label: "the Head", short: "Head" },
-        { status: "dean_review", id: form.dean_reviewer_id, label: "the dean or director", short: "Dean / Director" },
+        { status: "dean_review", id: form.dean_reviewer_id, label: "the dean", short: "Dean" },
         { status: "vp_review", id: form.vp_reviewer_id, label: "the VP", short: "VP" },
         { status: "qa_rating", id: "qa", label: "QA", short: "QA" },
     ];

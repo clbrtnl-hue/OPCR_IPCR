@@ -25,7 +25,8 @@ class WorkflowSettingController extends Controller
             'roles'    => User::ROLES,
             'statuses' => [
                 ['status' => 'head_review', 'label' => 'Head review', 'slot' => 'head_user_id'],
-                ['status' => 'dean_review', 'label' => 'Dean / Director review', 'slot' => 'dean_user_id'],
+                ['status' => 'dean_review', 'label' => 'Dean review', 'slot' => 'dean_user_id'],
+                ['status' => 'director_review', 'label' => 'Director review', 'slot' => 'director_review'],
                 ['status' => 'vp_review', 'label' => 'VP review', 'slot' => 'vp_user_id'],
                 ['status' => 'qa_rating', 'label' => 'QA rating', 'slot' => null],
             ],

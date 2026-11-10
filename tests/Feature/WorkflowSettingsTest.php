@@ -42,7 +42,7 @@ class WorkflowSettingsTest extends PmsTestCase
         $settings = app(WorkflowSettings::class);
 
         $this->assertSame(
-            ['head_review', 'dean_review', 'vp_review', 'qa_rating'],
+            ['head_review', 'dean_review', 'director_review', 'vp_review', 'qa_rating'],
             array_column($settings->reviewStages(), 'status')
         );
         $this->assertTrue($settings->isTerminalRole('employee'));
@@ -64,6 +64,7 @@ class WorkflowSettingsTest extends PmsTestCase
         ]);
         $period = $this->makePeriod($year);
         $line = $this->documentLine($this->makeIndicator($form, 'support'));
+        $this->approveCommitments($form);
 
         $this->actingAsUser($faculty);
         $this->postJson("/api/pcr-forms/{$form->id}/status", ['status' => 'head_review'])->assertSuccessful();
@@ -88,6 +89,7 @@ class WorkflowSettingsTest extends PmsTestCase
             'org_unit_id' => $office->id, 'school_year_id' => $year->id, 'user_id' => $head->id,
         ]);
         $line   = $this->makeIndicator($form, 'core');
+        $this->approveCommitments($form);
 
         $this->actingAsUser($head);
         $this->postJson("/api/pcr-indicators/{$line->id}/assign", ['user_ids' => [$faculty->id]])

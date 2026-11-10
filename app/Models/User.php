@@ -14,7 +14,7 @@ class User extends Authenticatable
     use HasApiTokens, HasFactory, Notifiable;
     use BelongsToOrganization;
 
-    public const ROLES = ['admin', 'president', 'qa', 'vp', 'program_head', 'employee'];
+    public const ROLES = ['admin', 'president', 'qa', 'hr', 'vp', 'program_head', 'employee'];
 
     protected $fillable = [
         'name', 'email', 'password', 'role', 'status',

@@ -25,9 +25,16 @@ return [
         ],
         [
             'status'    => 'dean_review',
-            'label'     => 'With Dean / Director',
+            'label'     => 'With Dean',
             'source'    => 'unit_slot',
             'slot'      => 'dean_user_id',
+            'skippable' => true,
+        ],
+        [
+            'status'    => 'director_review',
+            'label'     => 'With Director',
+            'source'    => 'unit_slot',
+            'slot'      => 'director_review',
             'skippable' => true,
         ],
         [

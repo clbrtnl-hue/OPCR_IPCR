@@ -63,6 +63,48 @@ class OrgUnit extends Model
     }
 
     /**
+     * Who reviews a form in this unit. An empty Dean, VP, or extra step uses
+     * the parent. Head does not: each unit's head is its own, or the step is
+     * skipped.
+     */
+    public function reviewerIdForSlotInChain(string $slot): ?int
+    {
+        $named = $this->reviewerIdForSlot($slot);
+
+        if ($named || $slot === 'head_user_id' || $slot === '') {
+            return $named;
+        }
+
+        $seen    = [(int) $this->id => true];
+        $current = $this;
+
+        while ($current->parent_id) {
+            $parentId = (int) $current->parent_id;
+
+            if (isset($seen[$parentId])) {
+                break;
+            }
+
+            $seen[$parentId] = true;
+            $current         = $current->relationLoaded('parent') && (int) $current->parent?->id === $parentId
+                ? $current->parent
+                : static::query()->find($parentId);
+
+            if (! $current) {
+                break;
+            }
+
+            $named = $current->reviewerIdForSlot($slot);
+
+            if ($named) {
+                return $named;
+            }
+        }
+
+        return null;
+    }
+
+    /**
      * The offices this person heads or reviews, plus every unit under those
      * offices, so a dean sees the departments and a VP sees the colleges.
      */

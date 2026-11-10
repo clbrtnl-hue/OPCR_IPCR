@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Models\Notification;
 use App\Models\OrgUnit;
+use App\Models\OrgUnitReviewer;
 use App\Models\User;
 use Tests\PmsTestCase;
 
@@ -46,6 +47,7 @@ class PcrReviewChainTest extends PmsTestCase
     {
         $this->actingAsUser($ratee);
         $this->documentLine($this->makeIndicator($form, 'support'));
+        $this->approveCommitments($form);
 
         return $this->postJson("/api/pcr-forms/{$form->id}/status", ['status' => 'head_review']);
     }
@@ -325,7 +327,7 @@ class PcrReviewChainTest extends PmsTestCase
         $this->actingAsUser($qa);
         $this->postJson("/api/pcr-forms/{$form->id}/status", ['status' => 'vp_review'])
             ->assertStatus(409)
-            ->assertJsonPath('message', 'Rate this IPCR and finalize it. It is not sent on to a dean or director, a VP, or the president.');
+            ->assertJsonPath('message', 'Rate this IPCR and finalize it. It is not sent on to a dean, a director, a VP, or the president.');
 
         $this->postJson('/api/pcr-ratings', [
             'form_id' => $form->id, 'rating_period_id' => $period->id,
@@ -414,5 +416,168 @@ class PcrReviewChainTest extends PmsTestCase
 
         $this->actingAsUser($dean);
         $this->assertNotContains($form->id, array_column($this->getJson('/api/pcr-forms?queue=1')->json(), 'id'));
+    }
+
+    public function test_an_empty_dean_and_vp_are_taken_from_the_parent(): void
+    {
+        ['college' => $college, 'year' => $year, 'period' => $period] = $this->college();
+
+        $vp   = User::factory()->create(['role' => 'vp', 'org_unit_id' => $college->id]);
+        $dean = User::factory()->create(['role' => 'program_head', 'position_title' => 'Dean']);
+        $head = User::factory()->create(['role' => 'program_head', 'position_title' => 'Program Head']);
+
+        $affairs = $this->makeUnit([
+            'name' => 'Academic Affairs', 'code' => 'AAS', 'type' => 'office',
+            'parent_id' => $college->id,
+            'vp_user_id' => $vp->id,
+        ]);
+        $cit = $this->makeUnit([
+            'name' => 'College of IT', 'code' => 'CIT', 'type' => 'office',
+            'parent_id' => $affairs->id,
+            'dean_user_id' => $dean->id,
+        ]);
+        $dit = $this->makeUnit([
+            'name' => 'Department of IT', 'code' => 'DIT', 'type' => 'program',
+            'parent_id' => $cit->id,
+            'head_user_id' => $head->id,
+        ]);
+        $head->update(['org_unit_id' => $dit->id]);
+        $dean->update(['org_unit_id' => $cit->id]);
+        $faculty = User::factory()->create(['role' => 'employee', 'org_unit_id' => $dit->id]);
+
+        $form = $this->makeForm([
+            'org_unit_id' => $dit->id, 'school_year_id' => $year->id, 'user_id' => $faculty->id,
+        ]);
+        $this->submit($faculty, $form);
+        $this->assertSame('head_review', $form->fresh()->status);
+        $this->assertSame($head->id, $form->fresh()->head_reviewer_id);
+        $this->assertSame($dean->id, $form->fresh()->dean_reviewer_id);
+        $this->assertSame($vp->id, $form->fresh()->vp_reviewer_id);
+
+        $indicator = $form->indicators()->first();
+        $this->actingAsUser($head);
+        $this->postJson('/api/pcr-ratings', [
+            'form_id' => $form->id, 'rating_period_id' => $period->id,
+            'ratings' => [['indicator_id' => $indicator->id, 'q' => 5, 'e' => 4, 't' => 4]],
+        ])->assertOk();
+        $this->postJson("/api/pcr-forms/{$form->id}/status", ['status' => 'vp_review'])->assertSuccessful();
+        $this->assertSame('dean_review', $form->fresh()->status);
+
+        $this->actingAsUser($dean);
+        $this->postJson("/api/pcr-forms/{$form->id}/status", ['status' => 'qa_rating'])->assertSuccessful();
+        $this->assertSame('vp_review', $form->fresh()->status);
+
+        $this->actingAsUser($vp);
+        $this->postJson("/api/pcr-forms/{$form->id}/status", ['status' => 'qa_rating'])->assertSuccessful();
+        $this->assertSame('qa_rating', $form->fresh()->status);
+    }
+
+    public function test_a_child_vp_overrides_the_parent(): void
+    {
+        ['college' => $college, 'year' => $year] = $this->college();
+
+        $parentVp = User::factory()->create(['role' => 'vp', 'name' => 'Parent VP']);
+        $childVp  = User::factory()->create(['role' => 'vp', 'name' => 'Child VP']);
+        $head     = User::factory()->create(['role' => 'program_head']);
+
+        $affairs = $this->makeUnit([
+            'name' => 'Academic Affairs', 'code' => 'AAS', 'type' => 'office',
+            'parent_id' => $college->id,
+            'vp_user_id' => $parentVp->id,
+        ]);
+        $dit = $this->makeUnit([
+            'name' => 'Department of IT', 'code' => 'DIT', 'type' => 'program',
+            'parent_id' => $affairs->id,
+            'head_user_id' => $head->id,
+            'vp_user_id' => $childVp->id,
+        ]);
+        $head->update(['org_unit_id' => $dit->id]);
+        $faculty = User::factory()->create(['role' => 'employee', 'org_unit_id' => $dit->id]);
+
+        $form = $this->makeForm([
+            'org_unit_id' => $dit->id, 'school_year_id' => $year->id, 'user_id' => $faculty->id,
+        ]);
+        $this->submit($faculty, $form);
+
+        $fresh = $form->fresh();
+        $this->assertSame($childVp->id, $fresh->vp_reviewer_id);
+        $this->assertNotSame($parentVp->id, $fresh->vp_reviewer_id);
+    }
+
+    public function test_an_empty_head_is_not_taken_from_the_parent(): void
+    {
+        ['college' => $college, 'year' => $year] = $this->college();
+
+        $vp         = User::factory()->create(['role' => 'vp']);
+        $parentHead = User::factory()->create(['role' => 'program_head', 'name' => 'College Head']);
+        $dean       = User::factory()->create(['role' => 'program_head', 'name' => 'College Dean']);
+
+        $cit = $this->makeUnit([
+            'name' => 'College of IT', 'code' => 'CIT', 'type' => 'office',
+            'parent_id' => $college->id,
+            'head_user_id' => $parentHead->id,
+            'dean_user_id' => $dean->id,
+            'vp_user_id' => $vp->id,
+        ]);
+        $dis = $this->makeUnit([
+            'name' => 'Department of IS', 'code' => 'DIS', 'type' => 'program',
+            'parent_id' => $cit->id,
+        ]);
+        $faculty = User::factory()->create(['role' => 'employee', 'org_unit_id' => $dis->id]);
+
+        $form = $this->makeForm([
+            'org_unit_id' => $dis->id, 'school_year_id' => $year->id, 'user_id' => $faculty->id,
+        ]);
+        $this->submit($faculty, $form);
+
+        $fresh = $form->fresh();
+        $this->assertSame('dean_review', $fresh->status);
+        $this->assertNull($fresh->head_reviewer_id);
+        $this->assertSame($dean->id, $fresh->dean_reviewer_id);
+        $this->assertSame($vp->id, $fresh->vp_reviewer_id);
+    }
+
+    public function test_an_office_goes_to_the_director_not_the_dean(): void
+    {
+        ['college' => $college, 'year' => $year, 'period' => $period] = $this->college();
+
+        $vp       = User::factory()->create(['role' => 'vp']);
+        $director = User::factory()->create(['role' => 'program_head', 'name' => 'Office Director']);
+        $head     = User::factory()->create(['role' => 'program_head']);
+
+        $office = $this->makeUnit([
+            'name' => 'Center for ICT', 'code' => 'CICT', 'type' => 'office',
+            'parent_id' => $college->id,
+            'head_user_id' => $head->id,
+            'vp_user_id' => $vp->id,
+        ]);
+        $head->update(['org_unit_id' => $office->id]);
+        $director->update(['org_unit_id' => $office->id]);
+        OrgUnitReviewer::updateOrCreate(
+            ['org_unit_id' => $office->id, 'slot' => 'director_review'],
+            ['user_id' => $director->id],
+        );
+        $staff = User::factory()->create(['role' => 'employee', 'org_unit_id' => $office->id]);
+
+        $form = $this->makeForm([
+            'org_unit_id' => $office->id, 'school_year_id' => $year->id, 'user_id' => $staff->id,
+        ]);
+        $this->submit($staff, $form);
+        $this->assertSame('head_review', $form->fresh()->status);
+        $this->assertNull($form->fresh()->dean_reviewer_id);
+
+        $indicator = $form->indicators()->first();
+        $this->actingAsUser($head);
+        $this->postJson('/api/pcr-ratings', [
+            'form_id' => $form->id, 'rating_period_id' => $period->id,
+            'ratings' => [['indicator_id' => $indicator->id, 'q' => 5, 'e' => 4, 't' => 4]],
+        ])->assertOk();
+        $this->postJson("/api/pcr-forms/{$form->id}/status", ['status' => 'vp_review'])->assertSuccessful();
+        $this->assertSame('director_review', $form->fresh()->status);
+
+        $this->actingAsUser($director);
+        $this->getJson('/api/pcr-forms?queue=1')->assertSuccessful()->assertJsonPath('0.id', $form->id);
+        $this->postJson("/api/pcr-forms/{$form->id}/status", ['status' => 'qa_rating'])->assertSuccessful();
+        $this->assertSame('vp_review', $form->fresh()->status);
     }
 }

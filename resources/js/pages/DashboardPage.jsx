@@ -56,14 +56,14 @@ export default function DashboardPage() {
             api
                 .get(isAdmin ? "pcr-forms?oversight=review" : "pcr-forms?queue=1")
                 .then((r) => r.data),
-        enabled: isAdmin || can("program_head", "vp", "qa"),
+        enabled: isAdmin || can("program_head", "vp", "qa", "hr"),
     });
 
     const activeYear = years.find((y) => y.is_active);
     const activePeriod = activeYear?.periods?.find((p) => p.is_active);
     const shownYear = years.find((y) => y.id === yearId) ?? activeYear;
     const isPresident = user?.role === "president";
-    const leadsTheCollege = ["admin", "president", "qa"].includes(user?.role);
+    const leadsTheCollege = ["admin", "president", "qa", "hr"].includes(user?.role);
 
     const periods = [...(shownYear?.periods ?? [])].sort((a, b) => a.seq - b.seq);
     const shownPeriodId = periods.some((p) => p.id === periodId) ? periodId : null;
@@ -103,7 +103,7 @@ export default function DashboardPage() {
     );
     const myForms = mySummary?.forms;
     const myWork = mySummary?.commitments;
-    const reviews = can("program_head", "vp", "qa");
+    const reviews = can("program_head", "vp", "qa", "hr");
 
     const firstName = user?.name?.split(" ")[0] ?? "";
     const cycleLine = !yearsFetched

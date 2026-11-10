@@ -62,7 +62,7 @@ class PcrFormController extends Controller
 
             $statuses = match ($oversight) {
                 'review' => array_values(array_unique(array_merge(
-                    ['head_review', 'dean_review', 'vp_review', 'qa_approval', 'returned'],
+                    ['commitment_review', 'head_review', 'dean_review', 'vp_review', 'qa_approval', 'returned'],
                     array_diff(PcrWorkflow::stageStatuses(), ['qa_rating'])
                 ))),
                 'rating' => ['qa_rating', 'rated', 'final'],
@@ -141,6 +141,19 @@ class PcrFormController extends Controller
 
         $payload = $form->toArray();
         $payload['review_steps'] = $form->type === 'ipcr' ? PcrWorkflow::chainFor($form) : [];
+
+        if ($form->type === 'ipcr') {
+            $approver = $form->status === 'commitment_review' && $form->commitment_approver_id
+                ? User::find($form->commitment_approver_id)
+                : (! $form->commitment_approved_at ? PcrWorkflow::commitmentApprover($form) : null);
+
+            $payload['commitment_approver'] = $approver ? [
+                'id'             => $approver->id,
+                'name'           => $approver->name,
+                'position_title' => $approver->position_title,
+                'label'          => PcrWorkflow::commitmentApproverLabel($approver),
+            ] : null;
+        }
 
         if ($form->type === 'ipcr' && $form->user_id) {
             $payload['assigned_targets'] = $this->assignedTargetsFor($form);
@@ -306,7 +319,7 @@ class PcrFormController extends Controller
             && (int) $unit->dean_user_id !== (int) $user->id
             && (int) $unit->vp_user_id !== (int) $user->id) {
             return response()->json([
-                'message' => 'Only the head, dean or director, or VP of that office can open its IPCRs.',
+                'message' => 'Only the head, dean, director, or VP of that office can open its IPCRs.',
             ], 403);
         }
 
@@ -530,6 +543,53 @@ class PcrFormController extends Controller
             return response()->json(['message' => "This form is already {$to}."], 409);
         }
 
+        $isCommitmentSubmit = false;
+        $isCommitmentDecision = false;
+
+        // Commitments are approved before rating. Asking to skip ahead still
+        // lands on the approver, never on the head.
+        if ($form->type === 'ipcr' && $from === 'commitment_review') {
+            if ((int) $form->commitment_approver_id !== (int) $user->id) {
+                return response()->json([
+                    'message' => 'This form is waiting for somebody else to approve the commitments.',
+                ], 403);
+            }
+
+            if (! in_array($to, ['commitments_approved', 'returned'], true)) {
+                return response()->json([
+                    'message' => 'These commitments can be approved or returned.',
+                ], 409);
+            }
+
+            $isCommitmentDecision = true;
+        }
+
+        if (! $isCommitmentDecision
+            && $form->type === 'ipcr'
+            && ! $form->commitment_approved_at
+            && in_array($from, ['draft', 'returned'], true)
+            && PcrWorkflow::owns($user, $form)
+            && ($to === 'commitment_review' || PcrWorkflow::isReviewDestination($to))
+        ) {
+            if ($form->indicators()->count() === 0) {
+                return response()->json([
+                    'message' => 'Add at least one success indicator before submitting.',
+                ], 422);
+            }
+
+            $approver = PcrWorkflow::commitmentApprover($form);
+
+            if (! $approver) {
+                return response()->json([
+                    'message' => 'There is nobody to approve these commitments.',
+                ], 422);
+            }
+
+            $to = 'commitment_review';
+            $form->forceFill(['commitment_approver_id' => $approver->id])->save();
+            $isCommitmentSubmit = true;
+        }
+
         if (! PcrWorkflow::canTransition($form->type, $from, $to)) {
             return response()->json([
                 'message' => "A form that is {$from} cannot move to {$to}.",
@@ -546,7 +606,8 @@ class PcrFormController extends Controller
         // chosen by the sender — that is what stops anyone skipping a reviewer,
         // and what routes a ratee who has no head (or is the head) correctly.
         if ($form->type === 'ipcr'
-            && in_array($from, ['draft', 'returned'], true)
+            && $form->commitment_approved_at
+            && in_array($from, ['commitments_approved', 'returned'], true)
             && PcrWorkflow::isReviewDestination($to)
             && PcrWorkflow::owns($user, $form)
         ) {
@@ -565,9 +626,9 @@ class PcrFormController extends Controller
             && PcrWorkflow::isReviewDestination($from)
             && $from !== 'qa_rating';
 
-        if ($isOwnerSubmission) {
-            // Submitting your own form is authorised by owning it; which stage
-            // it lands on was decided above, not by the sender.
+        if ($isOwnerSubmission || $isCommitmentSubmit || $isCommitmentDecision) {
+            // Submitting your own form is authorised by owning it. Approving
+            // commitments is authorised by being the named approver.
         } elseif ($isReviewStage) {
             // Authority comes from being named on this form, not from a role
             // label — which is what lets one person hold both posts.
@@ -590,7 +651,8 @@ class PcrFormController extends Controller
             ], 409);
         }
 
-        $isSubmission = in_array($from, ['draft', 'returned'], true)
+        $isSubmission = $form->commitment_approved_at
+            && in_array($from, ['commitments_approved', 'returned'], true)
             && PcrWorkflow::isReviewDestination($to);
 
         if ($isSubmission) {
@@ -629,7 +691,7 @@ class PcrFormController extends Controller
 
             if ($form->headReviewer?->role === 'qa') {
                 return response()->json([
-                    'message' => 'Rate this IPCR and finalize it. It is not sent on to a dean or director, a VP, or the president.',
+                    'message' => 'Rate this IPCR and finalize it. It is not sent on to a dean, a director, a VP, or the president.',
                 ], 409);
             }
 
@@ -675,11 +737,17 @@ class PcrFormController extends Controller
             ], 422);
         }
 
-        DB::transaction(function () use ($form, $from, $to, $data, $user, $isSubmission) {
+        DB::transaction(function () use ($form, $from, $to, $data, $user, $isSubmission, $isCommitmentSubmit) {
             $attributes = ['status' => $to];
 
-            if ($isSubmission) {
+            if ($isSubmission || $isCommitmentSubmit) {
                 $attributes['submitted_at'] = now();
+            }
+
+            if ($from === 'commitment_review' && $to === 'commitments_approved') {
+                $attributes['commitment_approved_by']      = $user->id;
+                $attributes['commitment_approved_by_name'] = $user->name;
+                $attributes['commitment_approved_at']      = now();
             }
 
             if ($from === 'head_review' && $to !== 'returned') {
@@ -730,6 +798,42 @@ class PcrFormController extends Controller
 
         $label   = strtoupper($form->type);
         $subject = $form->owner?->name ?? $form->orgUnit?->name;
+
+        if ($to === 'commitment_review') {
+            Notification::send(
+                $form->commitment_approver_id,
+                'approval',
+                "IPCR commitments from {$subject} need your approval",
+                'They are waiting in your review queue.',
+                $form->id
+            );
+
+            return;
+        }
+
+        if ($from === 'commitment_review' && $to === 'commitments_approved') {
+            Notification::send(
+                $form->user_id,
+                'approved',
+                'Your commitments were approved',
+                'You can now hand work to your team and record your tasks.',
+                $form->id
+            );
+
+            return;
+        }
+
+        if ($from === 'commitment_review' && $to === 'returned') {
+            Notification::send(
+                $form->user_id,
+                'returned',
+                'Your commitments were returned for correction',
+                $note,
+                $form->id
+            );
+
+            return;
+        }
 
         $this->notifyOwnerTheirRatingMovedOn($form, $from, $to);
 
@@ -866,9 +970,10 @@ class PcrFormController extends Controller
         }
 
         $sentTo = match (true) {
-            $from === 'head_review' && $to === 'dean_review' => 'the dean or director',
-            in_array($from, ['head_review', 'dean_review'], true) && $to === 'vp_review' => 'the VP',
-            in_array($from, ['head_review', 'dean_review', 'vp_review'], true) && $to === 'qa_rating' => 'QA',
+            $from === 'head_review' && $to === 'dean_review' => 'the dean',
+            in_array($from, ['head_review', 'dean_review'], true) && $to === 'director_review' => 'the director',
+            in_array($from, ['head_review', 'dean_review', 'director_review'], true) && $to === 'vp_review' => 'the VP',
+            in_array($from, ['head_review', 'dean_review', 'director_review', 'vp_review'], true) && $to === 'qa_rating' => 'QA',
             PcrWorkflow::isReviewDestination($from) && $from !== 'qa_rating' && PcrWorkflow::isReviewDestination($to)
                 => preg_replace('/^With /i', 'the ', (string) $form->status_label) ?: 'the next reviewer',
             default => null,
@@ -879,7 +984,8 @@ class PcrFormController extends Controller
         }
 
         $by = match ($from) {
-            'dean_review' => 'The dean or director has rated it and sent it on.',
+            'dean_review'      => 'The dean has rated it and sent it on.',
+            'director_review'  => 'The director has rated it and sent it on.',
             'vp_review'   => 'The VP has rated it and sent it on.',
             default       => 'The head has rated it and sent it on.',
         };
@@ -1638,21 +1744,21 @@ class PcrFormController extends Controller
 
         $notes = [];
 
-        $passedHead = in_array($from, ['draft', 'returned'], true)
+        $passedHead = in_array($from, ['draft', 'returned', 'commitments_approved'], true)
             && in_array($to, ['dean_review', 'vp_review', 'qa_rating'], true);
 
         if ($passedHead && ! $form->head_reviewer_id) {
             $notes[] = 'Head review skipped — the ratee heads this office, or it has no separate head.';
         }
 
-        $passedDean = in_array($from, ['draft', 'returned', 'head_review'], true)
+        $passedDean = in_array($from, ['draft', 'returned', 'commitments_approved', 'head_review'], true)
             && in_array($to, ['vp_review', 'qa_rating'], true);
 
         if ($passedDean && ! $form->dean_reviewer_id) {
-            $notes[] = 'Dean / Director review skipped — this unit has no dean or director, or the ratee holds that post.';
+            $notes[] = 'Dean review skipped — this unit has no dean, or the ratee holds that post.';
         }
 
-        $passedVp = in_array($from, ['draft', 'returned', 'head_review', 'dean_review'], true) && $to === 'qa_rating';
+        $passedVp = in_array($from, ['draft', 'returned', 'commitments_approved', 'head_review', 'dean_review', 'director_review'], true) && $to === 'qa_rating';
 
         if ($passedVp && ! $form->vp_reviewer_id) {
             $notes[] = 'VP review skipped — no separate VP above this ratee.';
@@ -1713,10 +1819,17 @@ class PcrFormController extends Controller
 
     private function scopeToViewer($query, User $user, bool $queueOnly): void
     {
+        // Human Resource reads every form, to monitor submission. The review
+        // queue stays with whoever is named on the form, so an HR head still
+        // only acts on the staff of the HR office.
+        if ($user->role === 'hr' && ! $queueOnly) {
+            return;
+        }
+
         if (in_array($user->role, ['admin', 'qa', 'president'], true)) {
             if ($user->role === 'president' && $queueOnly) {
-                // The president does not review — QA does.
-                $query->whereRaw('1 = 0');
+                $query->where('status', 'commitment_review')
+                    ->where('commitment_approver_id', $user->id);
 
                 return;
             }
@@ -1738,6 +1851,9 @@ class PcrFormController extends Controller
                                 ->whereColumn('pcr_form_reviewers.form_id', 'pcr_forms.id')
                                 ->whereColumn('pcr_form_reviewers.stage', 'pcr_forms.status')
                                 ->where('pcr_form_reviewers.reviewer_id', $user->id);
+                        })->orWhere(function ($inner) use ($user) {
+                            $inner->where('status', 'commitment_review')
+                                ->where('commitment_approver_id', $user->id);
                         });
                 });
             }
@@ -1749,7 +1865,7 @@ class PcrFormController extends Controller
         // both a head and a VP post, so this is a union, not a role lookup.
         $unitIds = collect(OrgUnit::overseenIds((int) $user->id));
 
-        if ($unitIds->isNotEmpty() || in_array($user->role, ['program_head', 'vp'], true)) {
+        if ($unitIds->isNotEmpty() || in_array($user->role, ['program_head', 'vp', 'hr'], true)) {
             if ($queueOnly) {
                 // Authority is being named on the form, not holding a role.
                 $query->where(function ($q) use ($user) {
@@ -1765,6 +1881,9 @@ class PcrFormController extends Controller
                             ->whereColumn('pcr_form_reviewers.form_id', 'pcr_forms.id')
                             ->whereColumn('pcr_form_reviewers.stage', 'pcr_forms.status')
                             ->where('pcr_form_reviewers.reviewer_id', $user->id);
+                    })->orWhere(function ($x) use ($user) {
+                        $x->where('status', 'commitment_review')
+                            ->where('commitment_approver_id', $user->id);
                     });
                 })->where(function ($q) use ($user) {
                     $q->whereNull('user_id')->orWhere('user_id', '!=', $user->id);

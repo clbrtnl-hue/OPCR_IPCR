@@ -19,7 +19,7 @@ class UserProfileAccess
             return true;
         }
 
-        if (in_array($viewer->role, ['admin', 'qa', 'president'], true)) {
+        if (in_array($viewer->role, ['admin', 'qa', 'hr', 'president'], true)) {
             return true;
         }
 

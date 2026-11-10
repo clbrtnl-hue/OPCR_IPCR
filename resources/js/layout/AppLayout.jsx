@@ -48,10 +48,11 @@ const MENUS = {
             children: [ITEMS.users, ITEMS.orgUnits, ITEMS.schoolYears, ITEMS.workflow, ITEMS.audit],
         },
     ],
-    president: [ITEMS.dashboard, ITEMS.collegeOpcr, ITEMS.myForms, ITEMS.reports],
+    president: [ITEMS.dashboard, ITEMS.collegeOpcr, ITEMS.reviewQueue, ITEMS.myForms, ITEMS.reports],
     qa: [ITEMS.dashboard, ITEMS.myIpcr, ITEMS.myForms, ITEMS.myTeam, ITEMS.reviewQueue, ITEMS.rating, ITEMS.reports],
     vp: [ITEMS.dashboard, ITEMS.myIpcr, ITEMS.myForms, ITEMS.myTeam, ITEMS.reviewQueue, ITEMS.rating],
     program_head: [ITEMS.dashboard, ITEMS.myIpcr, ITEMS.myForms, ITEMS.myTeam, ITEMS.reviewQueue, ITEMS.rating],
+    hr: [ITEMS.dashboard, ITEMS.myIpcr, ITEMS.collegeOpcr, ITEMS.forms, ITEMS.reviewQueue, ITEMS.reports],
     employee: [ITEMS.dashboard, ITEMS.myIpcr, ITEMS.myForms],
 };
 
@@ -133,10 +134,10 @@ export default function AppLayout({ children }) {
         { key: "/", icon: <NavIcon name="dashboard" />, label: "Home" },
         user?.role === "president"
             ? { key: "/college-opcr", icon: <NavIcon name="college" />, label: "OPCR" }
-            : ["employee", "program_head", "vp", "qa"].includes(user?.role)
+            : ["employee", "program_head", "vp", "qa", "hr"].includes(user?.role)
               ? { key: "/my-ipcr", icon: <NavIcon name="ipcr" />, label: "IPCR" }
               : { key: "/my-forms", icon: <NavIcon name="forms" />, label: "Forms" },
-        ["admin", "qa", "vp", "program_head"].includes(user?.role) && {
+        ["admin", "qa", "vp", "program_head", "president", "hr"].includes(user?.role) && {
             key: "/review-queue",
             icon: <NavIcon name="review" />,
             label: "Review",

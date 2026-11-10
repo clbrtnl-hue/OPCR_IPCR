@@ -30,6 +30,7 @@ class PcrWorkflowTest extends PmsTestCase
         ]);
 
         $this->documentLine($this->makeIndicator($form));
+        $form = $this->approveCommitments($form);
 
         return compact('year', 'period', 'unit', 'head', 'vp', 'qa', 'employee', 'form');
     }
@@ -109,7 +110,7 @@ class PcrWorkflowTest extends PmsTestCase
             ->assertStatus(422)
             ->assertJsonPath('message', fn ($message) => str_contains($message, 'Finish the write-up before submitting.'));
 
-        $this->assertSame('draft', $form->fresh()->status);
+        $this->assertSame('commitments_approved', $form->fresh()->status);
 
         $this->documentLine($line->fresh(), false);
         $this->move($employee, $form, 'head_review')

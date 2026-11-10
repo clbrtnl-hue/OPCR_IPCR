@@ -149,7 +149,7 @@ export default function WorkflowPage() {
                 <Typography.Paragraph type="secondary">
                     An IPCR walks these stages in order. A skippable stage nobody fills is
                     passed over — which is how a head's own form skips the head stage,
-                    a unit with no dean or director skips that stage, and a VP's goes straight to QA.
+                    a unit with no dean or director skips those stages, and a VP's goes straight to QA.
                     The last stage stays QA and can never be skipped. Name the person for a new step
                     on Setup → Hierarchy.
                 </Typography.Paragraph>
@@ -195,7 +195,8 @@ export default function WorkflowPage() {
                                 <Tag>
                                     {{
                                         head_user_id: "The unit's head",
-                                        dean_user_id: "The unit's dean or director",
+                                        dean_user_id: "The unit's dean",
+                                        director_review: "The unit's director",
                                         vp_user_id: "The unit's VP",
                                     }[stage.slot] ?? "The unit"}
                                 </Tag>
@@ -269,7 +270,8 @@ export default function WorkflowPage() {
                                     <Tag>
                                         {{
                                             head_user_id: "The unit's head",
-                                            dean_user_id: "The unit's dean or director",
+                                            dean_user_id: "The unit's dean",
+                                        director_review: "The unit's director",
                                             vp_user_id: "The unit's VP",
                                         }[stage.slot] ?? "The unit"}
                                     </Tag>

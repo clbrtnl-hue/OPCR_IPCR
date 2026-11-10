@@ -748,7 +748,7 @@ class ReportController extends Controller
 
     private const TURNAROUND_STAGES = [
         ['key' => 'submitted_to_head', 'label' => 'Submitted → Head', 'ends' => 'reviewed_at',      'reviewer' => 'head_reviewer_id', 'stage' => 'head'],
-        ['key' => 'head_to_dean',      'label' => 'Head → Dean / Director', 'ends' => 'dean_reviewed_at', 'reviewer' => 'dean_reviewer_id', 'stage' => 'dean'],
+        ['key' => 'head_to_dean',      'label' => 'Head → Dean', 'ends' => 'dean_reviewed_at', 'reviewer' => 'dean_reviewer_id', 'stage' => 'dean'],
         ['key' => 'head_to_vp',        'label' => 'Head → VP',        'ends' => 'vp_reviewed_at',   'reviewer' => 'vp_reviewer_id',   'stage' => 'vp'],
         ['key' => 'vp_to_qa',          'label' => 'VP → QA',          'ends' => 'rated_at',        'reviewer' => null,               'stage' => 'qa'],
     ];
@@ -756,8 +756,10 @@ class ReportController extends Controller
     private const TURNAROUND_LADDER = ['submitted_at', 'reviewed_at', 'dean_reviewed_at', 'vp_reviewed_at', 'rated_at'];
 
     private const WAITING_STATUSES = [
+        'commitment_review' => 'For commitment approval',
         'head_review' => 'With Head',
-        'dean_review' => 'With Dean / Director',
+        'dean_review' => 'With Dean',
+        'director_review' => 'With Director',
         'vp_review'   => 'With VP',
         'qa_rating'   => 'With QA',
     ];

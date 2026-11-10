@@ -227,6 +227,7 @@ class IpcrPeriodFormTest extends PmsTestCase
 
         $this->documentLine($this->makeIndicator($first, 'support', ['rating_period_id' => $period1->id]));
         $this->makeIndicator($second, 'support', ['rating_period_id' => $period2->id]);
+        $this->approveCommitments($first);
 
         $this->postJson("/api/pcr-forms/{$first->id}/status", ['status' => 'head_review'])
             ->assertSuccessful();
@@ -248,6 +249,7 @@ class IpcrPeriodFormTest extends PmsTestCase
             'rating_period_id' => $period1->id,
         ]);
         $line = $this->makeIndicator($form, 'core', ['rating_period_id' => $period1->id]);
+        $this->approveCommitments($form);
 
         $this->postJson('/api/pcr-accomplishments', [
             'indicator_id'          => $line->id,
@@ -394,7 +396,7 @@ class IpcrPeriodFormTest extends PmsTestCase
             ->assertStatus(409)
             ->assertJsonPath('message', 'This IPCR has been submitted. People can no longer be assigned.');
 
-        $form->update(['status' => 'returned']);
+        $form->update(['status' => 'returned', 'commitment_approved_at' => now()]);
 
         $this->postJson("/api/pcr-indicators/{$line->id}/assign", ['user_ids' => [$faculty->id]])
             ->assertStatus(201)

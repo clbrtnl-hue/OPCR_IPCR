@@ -24,10 +24,12 @@ class PcrForm extends Model
         'dean_reviewed_at' => 'datetime',
         'vp_reviewed_at'   => 'datetime',
         'rated_at'       => 'datetime',
+        'commitment_approved_at' => 'datetime',
     ];
 
     public const STATUSES = [
-        'draft', 'head_review', 'dean_review', 'vp_review',
+        'draft', 'commitment_review', 'commitments_approved',
+        'head_review', 'dean_review', 'director_review', 'vp_review',
         'qa_approval', 'approved', 'published',
         'qa_rating', 'rated', 'final', 'returned',
     ];
@@ -114,6 +116,11 @@ class PcrForm extends Model
         return $this->belongsTo(User::class, 'vp_reviewer_id');
     }
 
+    public function commitmentApprover()
+    {
+        return $this->belongsTo(User::class, 'commitment_approver_id');
+    }
+
     public function stageReviewers()
     {
         return $this->hasMany(PcrFormReviewer::class, 'form_id');
@@ -129,8 +136,11 @@ class PcrForm extends Model
 
         return [
             'draft'       => 'Draft',
+            'commitment_review'    => 'For commitment approval',
+            'commitments_approved' => 'Commitments approved',
             'head_review' => 'With Head',
-            'dean_review' => 'With Dean / Director',
+            'dean_review'      => 'With Dean',
+            'director_review'  => 'With Director',
             'vp_review'   => 'With VP',
             'qa_approval' => 'For QA approval',
             'approved'    => 'Approved',

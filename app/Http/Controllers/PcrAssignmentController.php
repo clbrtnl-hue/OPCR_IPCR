@@ -50,10 +50,6 @@ class PcrAssignmentController extends Controller
             return $problem;
         }
 
-        if ($closed = $this->handoutClosed($parent->form)) {
-            return $closed;
-        }
-
         $periodId = $request->input('rating_period_id');
 
         if ($periodId) {
@@ -72,6 +68,10 @@ class PcrAssignmentController extends Controller
 
         if ($message = PcrWorkflow::formLockMessage($actor, $parent->form, $periodId ? (int) $periodId : null)) {
             return response()->json(['message' => $message], 409);
+        }
+
+        if ($closed = $this->handoutClosed($parent->form)) {
+            return $closed;
         }
 
         $assignees = $this->assigneesFrom($data, $parent->form, $actor);
@@ -112,10 +112,6 @@ class PcrAssignmentController extends Controller
             return $problem;
         }
 
-        if ($closed = $this->handoutClosed($form)) {
-            return $closed;
-        }
-
         $periodId = $request->input('rating_period_id')
             ?: $parent->rating_period_id
             ?: PcrWorkflow::periodForWrite($form);
@@ -128,6 +124,10 @@ class PcrAssignmentController extends Controller
 
         if ($message = PcrWorkflow::formLockMessage($actor, $form, $periodId ? (int) $periodId : null)) {
             return response()->json(['message' => $message], 409);
+        }
+
+        if ($closed = $this->handoutClosed($form)) {
+            return $closed;
         }
 
         $assignees = $this->assigneesFrom($data, $form, $actor);
@@ -173,10 +173,6 @@ class PcrAssignmentController extends Controller
             return $problem;
         }
 
-        if ($closed = $this->handoutClosed($form)) {
-            return $closed;
-        }
-
         $periodId = $data['rating_period_id'] ?? null;
 
         if ($periodId) {
@@ -195,6 +191,10 @@ class PcrAssignmentController extends Controller
 
         if ($message = PcrWorkflow::formLockMessage($actor, $form, $periodId ? (int) $periodId : null)) {
             return response()->json(['message' => $message], 409);
+        }
+
+        if ($closed = $this->handoutClosed($form)) {
+            return $closed;
         }
 
         $lines = PcrIndicator::whereHas('output', fn ($q) => $q->where('form_id', $form->id))
@@ -297,15 +297,20 @@ class PcrAssignmentController extends Controller
         return $this->accountableClosed($form);
     }
 
-    /** A submitted IPCR is in review, so its owner can no longer hand work out or take it back. */
+    /** Cascade waits until commitments are approved, and closes again once rating starts. */
     private function ipcrSubmitted(PcrForm $form)
     {
-        if ($form->type !== 'ipcr' || $form->isEditable()) {
+        if ($form->type !== 'ipcr' || PcrWorkflow::mayHandOut($form)) {
             return null;
         }
 
+        $waiting = ! $form->commitment_approved_at
+            && in_array($form->status, ['draft', 'returned', 'commitment_review'], true);
+
         return response()->json([
-            'message' => 'This IPCR has been submitted. People can no longer be assigned.',
+            'message' => $waiting
+                ? 'Commitments have to be approved before work can be handed on.'
+                : 'This IPCR has been submitted. People can no longer be assigned.',
         ], 409);
     }
 
