@@ -110,4 +110,70 @@ class IndicatorDelayTest extends PmsTestCase
         $this->assertSame('2026-06-30', PcrIndicator::find($response->json('indicator.id'))
             ->target_date->toDateString());
     }
+
+    public function test_clearing_a_target_date_removes_it(): void
+    {
+        $this->makeOrganization();
+        $unit = $this->makeUnit();
+        $year = $this->makeSchoolYear();
+        $owner = User::factory()->create(['role' => 'employee', 'org_unit_id' => $unit->id]);
+        $form = $this->makeForm([
+            'org_unit_id' => $unit->id, 'school_year_id' => $year->id, 'user_id' => $owner->id,
+        ]);
+        $line = $this->makeIndicator($form, 'core', ['target_date' => '2025-06-30']);
+
+        $this->actingAsUser($owner);
+
+        $this->postJson('/api/pcr-indicators', [
+            'id'          => $line->id,
+            'output_id'   => $line->output_id,
+            'description' => $line->description,
+            'target_date' => null,
+        ])->assertOk();
+
+        $this->assertNull($line->fresh()->target_date);
+
+        // A cell that does not mention the date must not wipe one that is still set.
+        $line->update(['target_date' => '2026-06-30']);
+
+        $this->postJson('/api/pcr-indicators', [
+            'id'          => $line->id,
+            'output_id'   => $line->output_id,
+            'description' => $line->description,
+        ])->assertOk();
+
+        $this->assertSame('2026-06-30', $line->fresh()->target_date->toDateString());
+    }
+
+    public function test_clearing_an_opcr_budget_and_accountable_removes_them(): void
+    {
+        $this->makeOrganization();
+        $unit = $this->makeUnit();
+        $year = $this->makeSchoolYear();
+        $form = $this->makeForm([
+            'type' => 'opcr', 'org_unit_id' => $unit->id, 'school_year_id' => $year->id,
+        ]);
+        $line = $this->makeIndicator($form, 'core', [
+            'target_date'     => '2025-12-31',
+            'allotted_budget' => 15000,
+            'accountable'     => 'Research office',
+        ]);
+
+        $this->actingAsRole('president', ['org_unit_id' => $unit->id]);
+
+        $this->postJson('/api/pcr-indicators', [
+            'id'              => $line->id,
+            'output_id'       => $line->output_id,
+            'description'     => $line->description,
+            'target_date'     => null,
+            'allotted_budget' => null,
+            'accountable'     => null,
+        ])->assertOk();
+
+        $fresh = $line->fresh();
+
+        $this->assertNull($fresh->target_date);
+        $this->assertNull($fresh->allotted_budget);
+        $this->assertNull($fresh->accountable);
+    }
 }

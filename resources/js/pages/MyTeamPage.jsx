@@ -181,7 +181,7 @@ export default function MyTeamPage() {
                     type="info"
                     showIcon
                     style={{ marginBottom: 16 }}
-                    message="You are not named as the head or VP of any office, so there is no one to show here."
+                    message="You are not named as the head, dean, director, or VP of any office, so there is no one to show here."
                     description="An administrator sets this in Setup → Hierarchy."
                 />
             )}

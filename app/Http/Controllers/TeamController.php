@@ -71,11 +71,7 @@ class TeamController extends Controller
                 'id'   => $unit->id,
                 'name' => $unit->name,
                 'code' => $unit->code,
-                'as'   => match (true) {
-                    (int) $unit->head_user_id === (int) $user->id => 'head',
-                    (int) $unit->dean_user_id === (int) $user->id => 'dean',
-                    default => 'vp',
-                },
+                'as'   => $this->capacityOn($unit, $user),
             ])->values(),
             'members' => $members->map(function ($member) use ($forms, $summaries, $unitsById) {
                 $form    = $forms->get($member->id);
@@ -104,15 +100,35 @@ class TeamController extends Controller
 
     private function unitsLedBy(User $user)
     {
-        $query = OrgUnit::query()->orderBy('name');
+        $query = OrgUnit::query()->with('reviewers')->orderBy('name');
 
         if (! $user->isAdmin()) {
-            $query->where(fn ($q) => $q
-                ->where('head_user_id', $user->id)
-                ->orWhere('dean_user_id', $user->id)
-                ->orWhere('vp_user_id', $user->id));
+            $query->whereLedBy($user->id);
         }
 
         return $query->get(['id', 'name', 'code', 'head_user_id', 'dean_user_id', 'vp_user_id']);
+    }
+
+    private function capacityOn(OrgUnit $unit, User $user): string
+    {
+        if ((int) $unit->head_user_id === (int) $user->id) {
+            return 'head';
+        }
+
+        if ((int) $unit->dean_user_id === (int) $user->id) {
+            return 'dean';
+        }
+
+        if ((int) $unit->vp_user_id === (int) $user->id) {
+            return 'vp';
+        }
+
+        $directs = $unit->relationLoaded('reviewers')
+            ? $unit->reviewers->contains(
+                fn ($row) => $row->slot === 'director_review' && (int) $row->user_id === (int) $user->id
+            )
+            : false;
+
+        return $directs ? 'director' : 'vp';
     }
 }

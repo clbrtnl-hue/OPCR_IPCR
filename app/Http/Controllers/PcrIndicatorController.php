@@ -88,14 +88,21 @@ class PcrIndicatorController extends Controller
             return response()->json(['message' => 'Describe the target and how it is measured.'], 422);
         }
 
+        // Null is a deliberate clear. ?? would treat it as "not sent" and put
+        // the previous value back, so a date copied from last year could never
+        // be removed. A field left out of the request still keeps what it had.
+        $kept = fn (string $field) => array_key_exists($field, $data)
+            ? $data[$field]
+            : $existing?->{$field};
+
         $attributes = [
             'output_id'         => $output->id,
             'description'       => filled($data['description'] ?? null)
                 ? Html::clean($data['description'])
                 : $existing->description,
-            'target_date'       => $data['target_date'] ?? $existing?->target_date,
-            'allotted_budget'   => $isOpcr ? ($data['allotted_budget'] ?? $existing?->allotted_budget) : null,
-            'accountable'       => $isOpcr ? ($data['accountable'] ?? $existing?->accountable) : null,
+            'target_date'       => $kept('target_date'),
+            'allotted_budget'   => $isOpcr ? $kept('allotted_budget') : null,
+            'accountable'       => $isOpcr ? $kept('accountable') : null,
             'parent_indicator_id' => $parentId,
             'rating_period_id'  => $periodId,
             // An edit keeps its place — recomputing here silently moved a row

@@ -1,7 +1,6 @@
-<?php
+<?php namespace Tests\Feature;
 
-namespace Tests\Feature;
-
+use App\Models\OrgUnitReviewer;
 use App\Models\PcrForm;
 use App\Models\User;
 use Tests\PmsTestCase;
@@ -129,6 +128,28 @@ class BulkIpcrTest extends PmsTestCase
         $this->postJson('/api/pcr-forms/bulk', [
             'school_year_id' => $year->id, 'org_unit_id' => $unit->id,
         ])->assertStatus(201);
+    }
+
+    public function test_a_director_opens_shells_for_the_office(): void
+    {
+        ['year' => $year, 'unit' => $unit, 'members' => $members] = $this->office();
+
+        $director = User::factory()->create(['role' => 'program_head']);
+        OrgUnitReviewer::create([
+            'org_unit_id' => $unit->id,
+            'slot'        => 'director_review',
+            'user_id'     => $director->id,
+        ]);
+
+        $this->actingAsUser($director);
+
+        $this->postJson('/api/pcr-forms/bulk', [
+            'school_year_id' => $year->id, 'org_unit_id' => $unit->id,
+        ])->assertStatus(201)->assertJsonPath('created', 4);
+
+        $this->assertDatabaseHas('pcr_forms', [
+            'type' => 'ipcr', 'user_id' => $members[0]->id, 'school_year_id' => $year->id,
+        ]);
     }
 
     public function test_a_stranger_cannot_open_someone_elses_office(): void

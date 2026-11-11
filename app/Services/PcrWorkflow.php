@@ -475,10 +475,28 @@ class PcrWorkflow
         }
 
         if (in_array($user->role, ['program_head', 'vp'], true)) {
-            return in_array((int) $form->org_unit_id, OrgUnit::overseenIds((int) $user->id), true)
-                || ($user->role === 'vp'
-                    && $form->type === 'opcr'
-                    && (int) $form->org_unit_id === (int) $user->org_unit_id);
+            $overseen = OrgUnit::overseenIds((int) $user->id);
+
+            if (in_array((int) $form->org_unit_id, $overseen, true)) {
+                return true;
+            }
+
+            // A head, dean, director, or VP follows the person, not the office
+            // stamped on the form. Someone moved into their unit — or the IPCR
+            // was filed under the parent — is still theirs to open. Read the
+            // unit from the account: the form often arrives with the owner
+            // already loaded and that column left out.
+            $ownerUnitId = $form->type === 'ipcr' && $form->user_id
+                ? User::whereKey($form->user_id)->value('org_unit_id')
+                : null;
+
+            if ($ownerUnitId && in_array((int) $ownerUnitId, $overseen, true)) {
+                return true;
+            }
+
+            return $user->role === 'vp'
+                && $form->type === 'opcr'
+                && (int) $form->org_unit_id === (int) $user->org_unit_id;
         }
 
         return false;

@@ -105,15 +105,28 @@ class OrgUnit extends Model
     }
 
     /**
+     * Offices where this person is the head, dean, director, or VP.
+     */
+    public function scopeWhereLedBy($query, int $userId)
+    {
+        return $query->where(function ($inner) use ($userId) {
+            $inner->where('head_user_id', $userId)
+                ->orWhere('dean_user_id', $userId)
+                ->orWhere('vp_user_id', $userId)
+                ->orWhereHas('reviewers', function ($reviewers) use ($userId) {
+                    $reviewers->where('slot', 'director_review')->where('user_id', $userId);
+                });
+        });
+    }
+
+    /**
      * The offices this person heads or reviews, plus every unit under those
      * offices, so a dean sees the departments and a VP sees the colleges.
      */
     public static function overseenIds(int $userId): array
     {
         $roots = static::query()
-            ->where('head_user_id', $userId)
-            ->orWhere('dean_user_id', $userId)
-            ->orWhere('vp_user_id', $userId)
+            ->whereLedBy($userId)
             ->pluck('id')
             ->map(fn ($id) => (int) $id)
             ->all();

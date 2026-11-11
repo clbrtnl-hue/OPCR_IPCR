@@ -438,9 +438,14 @@ export default function FormEditorPage({ formId = null }) {
     const ratingChain = reviewSteps.length
         ? reviewSteps.map((step) => step.status)
         : ["head_review", "dean_review", "director_review", "vp_review", "qa_rating"];
+    // Commitment approval and rating are separate sequences. Rating opens
+    // once commitments are approved, and its first step is the draft the
+    // writer still has to submit for review.
     const chain = isOpcr
         ? OPCR_CHAIN
-        : ["draft", "commitment_review", "commitments_approved", ...ratingChain, "rated", "final"];
+        : commitmentsApproved
+          ? ["commitments_approved", ...ratingChain, "rated", "final"]
+          : ["draft", "commitment_review"];
 
     // A stage with nobody to fill it is passed over rather than stranding the
     // form, so the tracker should say so instead of implying a wait.
@@ -753,7 +758,10 @@ export default function FormEditorPage({ formId = null }) {
                     current={stepIndex}
                     status={form.status === "returned" ? "error" : "process"}
                     items={chain.map((status, index) => {
-                        const meta = HISTORY_META[status] ?? HISTORY_META.default;
+                        // Approved commitments sit at the start of the rating
+                        // sequence as a draft, until the writer submits them.
+                        const reviewDraft = status === "commitments_approved";
+                        const meta = HISTORY_META[reviewDraft ? "draft" : status] ?? HISTORY_META.default;
                         const skipped = skippedStages.includes(status);
                         const done = index < stepIndex;
                         const here = index === stepIndex;
@@ -761,13 +769,15 @@ export default function FormEditorPage({ formId = null }) {
                         return {
                             title: (
                                 <>
-                                    <span className="pms-chain-long">{metaFor(status).label}</span>
+                                    <span className="pms-chain-long">
+                                        {reviewDraft ? "Draft" : metaFor(status).label}
+                                    </span>
                                     <span className="pms-chain-short">
                                         {
                                             {
                                                 draft: "Draft",
                                                 commitment_review: "Approval",
-                                                commitments_approved: "Approved",
+                                                commitments_approved: "Draft",
                                                 head_review: "Head",
                                                 dean_review: "Dean",
                                                 director_review: "Director",
@@ -789,7 +799,9 @@ export default function FormEditorPage({ formId = null }) {
                             description: skipped
                                 ? "Skipped — nobody fills this stage"
                                 : here
-                                  ? whoIsAt(status) ?? metaFor(status).who
+                                  ? reviewDraft
+                                    ? "With the writer"
+                                    : whoIsAt(status) ?? metaFor(status).who
                                   : undefined,
                             status: skipped ? "finish" : undefined,
                             icon: (

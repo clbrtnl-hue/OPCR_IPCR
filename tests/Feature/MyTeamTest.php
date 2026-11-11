@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Models\OrgUnitReviewer;
 use App\Models\PcrPeriodSummary;
 use App\Models\User;
 use Tests\PmsTestCase;
@@ -145,6 +146,42 @@ class MyTeamTest extends PmsTestCase
         $this->assertNotContains($qa->id, $ids);
     }
 
+    public function test_a_director_sees_the_staff_of_the_office_they_direct(): void
+    {
+        ['year' => $year, 'novelyn' => $novelyn, 'outsider' => $outsider] = $this->college();
+
+        $office = $this->makeUnit([
+            'name' => 'Center for ICT', 'code' => 'CICT', 'type' => 'office',
+        ]);
+        $director = User::factory()->create(['role' => 'program_head', 'org_unit_id' => $office->id]);
+        $staff = User::factory()->create(['role' => 'employee', 'org_unit_id' => $office->id]);
+        OrgUnitReviewer::create([
+            'org_unit_id' => $office->id,
+            'slot'        => 'director_review',
+            'user_id'     => $director->id,
+        ]);
+
+        $form = $this->makeForm([
+            'user_id' => $staff->id, 'org_unit_id' => $office->id,
+            'school_year_id' => $year->id, 'status' => 'draft',
+        ]);
+
+        $this->actingAsUser($director);
+
+        $response = $this->getJson("/api/my-team?school_year_id={$year->id}")->assertOk();
+        $ids = array_column($response->json('members'), 'id');
+
+        $this->assertContains($staff->id, $ids);
+        $this->assertNotContains($director->id, $ids);
+        $this->assertNotContains($novelyn->id, $ids);
+        $this->assertNotContains($outsider->id, $ids);
+        $this->assertSame('director', $response->json('units.0.as'));
+
+        $this->getJson("/api/pcr-forms/{$form->id}")
+            ->assertOk()
+            ->assertJsonPath('id', $form->id);
+    }
+
     public function test_an_employee_may_not_read_the_roster(): void
     {
         ['novelyn' => $novelyn] = $this->college();
@@ -173,5 +210,41 @@ class MyTeamTest extends PmsTestCase
         $this->postJson('/api/pcr-outputs', [
             'form_id' => $form->id, 'section' => 'core', 'title' => 'Written by the head',
         ])->assertStatus(409);
+    }
+
+    public function test_a_leader_may_open_a_members_ipcr_filed_under_another_office(): void
+    {
+        ['year' => $year, 'period' => $period, 'head' => $head, 'vp' => $vp, 'bsit' => $bsit, 'novelyn' => $novelyn] = $this->college();
+
+        $college = $this->makeUnit([
+            'name' => 'College of Information Technology',
+            'code' => 'CIT',
+            'type' => 'office',
+        ]);
+        $bsit->update(['parent_id' => $college->id]);
+
+        $stranger = User::factory()->create(['role' => 'program_head']);
+        $this->makeUnit([
+            'name' => 'Library', 'code' => 'LIB', 'head_user_id' => $stranger->id,
+        ]);
+
+        $form = $this->makeForm([
+            'user_id'          => $novelyn->id,
+            'org_unit_id'      => $college->id,
+            'school_year_id'   => $year->id,
+            'rating_period_id' => $period->id,
+            'status'           => 'dean_review',
+        ]);
+
+        $this->actingAsUser($head);
+        $this->getJson("/api/pcr-forms/{$form->id}")
+            ->assertOk()
+            ->assertJsonPath('id', $form->id);
+
+        $this->actingAsUser($vp);
+        $this->getJson("/api/pcr-forms/{$form->id}")->assertOk();
+
+        $this->actingAsUser($stranger);
+        $this->getJson("/api/pcr-forms/{$form->id}")->assertStatus(403);
     }
 }

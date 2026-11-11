@@ -315,7 +315,13 @@ class PcrFormController extends Controller
         $user = $request->user();
         $unit = OrgUnit::findOrFail($data['org_unit_id']);
 
-        if ((int) $unit->head_user_id !== (int) $user->id
+        $directs = $unit->reviewers()
+            ->where('slot', 'director_review')
+            ->where('user_id', $user->id)
+            ->exists();
+
+        if (! $directs
+            && (int) $unit->head_user_id !== (int) $user->id
             && (int) $unit->dean_user_id !== (int) $user->id
             && (int) $unit->vp_user_id !== (int) $user->id) {
             return response()->json([

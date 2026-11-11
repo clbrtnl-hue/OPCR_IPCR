@@ -38,7 +38,10 @@ export default function BulkIpcrModal({ open, onClose }) {
               (u) =>
                   u.head_user_id === user?.id ||
                   u.dean_user_id === user?.id ||
-                  u.vp_user_id === user?.id
+                  u.vp_user_id === user?.id ||
+                  u.reviewers?.some(
+                      (row) => row.slot === "director_review" && row.user_id === user?.id
+                  )
           );
 
     const members = people.filter((p) => p.org_unit_id === unitId && p.role !== "admin");
@@ -90,7 +93,7 @@ export default function BulkIpcrModal({ open, onClose }) {
                     type="info"
                     showIcon
                     style={{ marginBottom: 16 }}
-                    message="You are not named as the head or VP of any office, so there is nothing to open here."
+                    message="You are not named as the head, dean, director, or VP of any office, so there is nothing to open here."
                 />
             )}
 
