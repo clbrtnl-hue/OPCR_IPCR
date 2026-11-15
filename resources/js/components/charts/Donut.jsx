@@ -8,9 +8,12 @@ export default function Donut({
     data = [],
     format = (value) => value,
     emptyText = "Nothing to show yet.",
+    onSelect,
 }) {
     const formatRef = useRef(format);
     formatRef.current = format;
+    const selectRef = useRef(onSelect);
+    selectRef.current = onSelect;
     const slices = data.filter((row) => Number(row.value) > 0);
     const signature = data.map((row) => `${row.key}:${row.value}:${row.color}`).join("|");
 
@@ -67,22 +70,39 @@ export default function Donut({
         return <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={emptyText} />;
     }
 
+    const onEvent = (chart, event) => {
+        if (event?.type !== "element:click" || !selectRef.current) return;
+
+        const datum = event.data?.data;
+
+        if (!datum || (datum.key == null && datum.label == null)) return;
+
+        selectRef.current(datum);
+    };
+
     return (
         <div className="viz-donut">
-            <Pie {...config} />
+            <Pie {...config} {...(onSelect ? { onEvent } : {})} />
             <div className="viz-legend viz-donut-legend">
                 {data.map((row, index) => {
                     const value = Number(row.value ?? 0);
+                    const clickable = Boolean(onSelect) && value > 0;
+                    const Item = clickable ? "button" : "span";
 
                     return (
-                        <span key={row.key} className={value > 0 ? "viz-legend-item" : "viz-legend-item is-zero"}>
+                        <Item
+                            key={row.key}
+                            type={clickable ? "button" : undefined}
+                            className={value > 0 ? "viz-legend-item" : "viz-legend-item is-zero"}
+                            onClick={clickable ? () => onSelect(row) : undefined}
+                        >
                             <span
                                 className="viz-swatch"
                                 style={{ background: row.color ?? VIZ.ordinal[index % VIZ.ordinal.length] }}
                             />
                             <span className="viz-legend-label">{row.label}</span>
                             <strong>{format(value)}</strong>
-                        </span>
+                        </Item>
                     );
                 })}
             </div>

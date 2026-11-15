@@ -107,7 +107,11 @@ class RichTextSanitizationTest extends PmsTestCase
         $this->actingAsUser($head);
         $this->postJson("/api/pcr-forms/{$form->id}/status", [
             'status' => 'returned',
-            'note'   => '<p>Attach the <strong>letters</strong></p><script>alert(1)</script>',
+            'fixes'  => [[
+                'indicator_id' => $form->indicators()->value('pcr_indicators.id'),
+                'field'        => 'evidence',
+                'note'         => '<p>Attach the <strong>letters</strong></p><script>alert(1)</script>',
+            ]],
         ])->assertSuccessful();
 
         // The timeline and notifications are plain-text surfaces; markup there

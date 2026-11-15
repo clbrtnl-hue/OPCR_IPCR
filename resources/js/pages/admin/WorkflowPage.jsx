@@ -66,7 +66,6 @@ export default function WorkflowPage() {
 
     const { settings, roles } = data;
     const roleOptions = roles.map((r) => ({ value: r, label: ROLE_LABELS[r] ?? r }));
-    const actingRoleOptions = roleOptions.filter((o) => o.value !== "vp");
 
     const put = (key, value) => save.mutate({ key, value });
 
@@ -329,7 +328,7 @@ export default function WorkflowPage() {
                             mode="multiple"
                             style={{ width: "100%" }}
                             value={delegation.assign_outputs ?? []}
-                            options={actingRoleOptions}
+                            options={roleOptions}
                             onChange={(v) => put("delegation", { ...delegation, assign_outputs: v })}
                         />
                     </Col>
@@ -379,11 +378,7 @@ export default function WorkflowPage() {
                                 mode="multiple"
                                 style={{ width: "100%", marginTop: 8 }}
                                 value={opcr[slot] ?? []}
-                                options={
-                                    ["creator_roles", "publisher_roles"].includes(slot)
-                                        ? actingRoleOptions
-                                        : roleOptions
-                                }
+                                options={roleOptions}
                                 onChange={(v) => put("opcr", { ...opcr, [slot]: v })}
                             />
                         </Col>

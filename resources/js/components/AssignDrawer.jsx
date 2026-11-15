@@ -3,6 +3,23 @@ import { Button, Drawer, Empty, Input } from "antd";
 import { CheckOutlined, SearchOutlined } from "@ant-design/icons";
 import UserAvatar from "~/components/UserAvatar";
 
+function PersonChoice({ person, on, onToggle }) {
+    return (
+        <button
+            type="button"
+            className={on ? "pms-cascade-person is-on" : "pms-cascade-person"}
+            onClick={() => onToggle(person.id)}
+        >
+            <UserAvatar user={person} size={36} showTooltip={false} />
+            <span className="pms-cascade-person-text">
+                <strong>{person.name}</strong>
+                {person.position_title && <span>{person.position_title}</span>}
+            </span>
+            {on && <CheckOutlined className="pms-cascade-check" />}
+        </button>
+    );
+}
+
 export default function AssignDrawer({ open, kind, title, isOpcr = false, people = [], loading, onClose, onAssign }) {
     const [picked, setPicked] = React.useState([]);
     const [query, setQuery] = React.useState("");
@@ -15,9 +32,22 @@ export default function AssignDrawer({ open, kind, title, isOpcr = false, people
     }, [open]);
 
     const needle = query.trim().toLowerCase();
-    const shown = people.filter((person) =>
-        `${person.name} ${person.position_title ?? ""}`.toLowerCase().includes(needle)
-    );
+    const matches = (person) =>
+        `${person.name} ${person.position_title ?? ""}`.toLowerCase().includes(needle);
+
+    const byId = new Map(people.map((person) => [person.id, person]));
+    // Newest check sits on top, and stays there even when the search hides them.
+    const selected = [...picked]
+        .reverse()
+        .map((id) => byId.get(id))
+        .filter(Boolean);
+    const shown = people.filter((person) => !picked.includes(person.id) && matches(person));
+    const searchMiss = needle !== "" && shown.length === 0 && !selected.some(matches);
+
+    const toggle = (id) =>
+        setPicked((current) =>
+            current.includes(id) ? current.filter((pickedId) => pickedId !== id) : [...current, id]
+        );
 
     const note =
         kind === "output"
@@ -62,6 +92,13 @@ export default function AssignDrawer({ open, kind, title, isOpcr = false, people
             {title && <p className="pms-assign-target">{title}</p>}
 
             <span className="pms-cascade-label">Who</span>
+            {selected.length > 0 && (
+                <div className="pms-cascade-picked">
+                    {selected.map((person) => (
+                        <PersonChoice key={person.id} person={person} on onToggle={toggle} />
+                    ))}
+                </div>
+            )}
             <Input
                 allowClear
                 prefix={<SearchOutlined />}
@@ -76,41 +113,19 @@ export default function AssignDrawer({ open, kind, title, isOpcr = false, people
                     description="No one on your team can receive this yet."
                     style={{ margin: "16px 0" }}
                 />
-            ) : shown.length === 0 ? (
+            ) : searchMiss ? (
                 <Empty
                     image={Empty.PRESENTED_IMAGE_SIMPLE}
                     description="No one matches that search."
                     style={{ margin: "16px 0" }}
                 />
-            ) : (
+            ) : shown.length > 0 ? (
                 <div className="pms-cascade-people">
-                    {shown.map((person) => {
-                        const on = picked.includes(person.id);
-
-                        return (
-                            <button
-                                key={person.id}
-                                type="button"
-                                className={on ? "pms-cascade-person is-on" : "pms-cascade-person"}
-                                onClick={() =>
-                                    setPicked((current) =>
-                                        current.includes(person.id)
-                                            ? current.filter((id) => id !== person.id)
-                                            : [...current, person.id]
-                                    )
-                                }
-                            >
-                                <UserAvatar user={person} size={36} showTooltip={false} />
-                                <span className="pms-cascade-person-text">
-                                    <strong>{person.name}</strong>
-                                    {person.position_title && <span>{person.position_title}</span>}
-                                </span>
-                                {on && <CheckOutlined className="pms-cascade-check" />}
-                            </button>
-                        );
-                    })}
+                    {shown.map((person) => (
+                        <PersonChoice key={person.id} person={person} on={false} onToggle={toggle} />
+                    ))}
                 </div>
-            )}
+            ) : null}
         </Drawer>
     );
 }

@@ -50,6 +50,8 @@ class ReportController extends Controller
 
         $forms = PcrForm::with([
             'orgUnit:id,name,code',
+            'orgUnit.reviewers',
+            'stageReviewers',
             'owner:id,name,image,position_title,role,org_unit_id',
             'owner.orgUnit:id,name,code',
         ])
@@ -90,7 +92,7 @@ class ReportController extends Controller
 
         $work = $this->commitmentsFor($forms, $periodId);
 
-        $orgUnits = OrgUnit::orderBy('type')->orderBy('name')->get();
+        $orgUnits = OrgUnit::with('reviewers')->orderBy('type')->orderBy('name')->get();
         $unitNames = $orgUnits->pluck('name', 'id');
 
         $units = $orgUnits->map(function ($unit) use ($forms, $summaries, $work, $unitNames) {
@@ -176,7 +178,7 @@ class ReportController extends Controller
                 $units,
                 $orgUnits
             ),
-            'heads'       => $this->leadersFor($units, $orgUnits, 'head_user_id', 'head'),
+            'heads'       => $this->headsFor($units, $orgUnits),
             'vps'         => $this->leadersFor($units, $orgUnits, 'vp_user_id', 'vp'),
         ];
     }
@@ -644,21 +646,56 @@ class ReportController extends Controller
         })->values();
     }
 
-    /** One row per unit that names a head or a VP. The same person may cover several units. */
+    /**
+     * One row per unit. The person is whoever is named Head. A unit with no
+     * Head uses its Dean, then its Director. A Dean or Director is still the
+     * head of that unit; the position title is only the label. A unit that
+     * names a Head keeps that person even when a Dean is also named.
+     */
+    private function headsFor($units, $orgUnits): array
+    {
+        $chosen = [];
+
+        foreach ($orgUnits as $unit) {
+            $userId = $unit->head_user_id
+                ?: $unit->dean_user_id
+                ?: $unit->reviewerIdForSlot('director_review');
+
+            if ($userId) {
+                $chosen[$unit->id] = (int) $userId;
+            }
+        }
+
+        return $this->leaderRows($units, $orgUnits, $chosen, 'head');
+    }
+
+    /** One row per unit that names a VP. The same person may cover several units. */
     private function leadersFor($units, $orgUnits, string $column, string $nameKey): array
     {
-        $leaders = $orgUnits->whereNotNull($column);
+        $chosen = [];
 
-        $people = User::whereIn('id', $leaders->pluck($column)->unique())
+        foreach ($orgUnits as $unit) {
+            if ($unit->{$column}) {
+                $chosen[$unit->id] = (int) $unit->{$column};
+            }
+        }
+
+        return $this->leaderRows($units, $orgUnits, $chosen, $nameKey);
+    }
+
+    private function leaderRows($units, $orgUnits, array $chosen, string $nameKey): array
+    {
+        $people = User::whereIn('id', array_unique($chosen))
             ->get(['id', 'name', 'position_title'])
             ->keyBy('id');
 
         $byUnit = collect($units)->keyBy('id');
 
-        return $leaders
-            ->map(function ($unit) use ($byUnit, $people, $column, $nameKey) {
+        return $orgUnits
+            ->filter(fn ($unit) => isset($chosen[$unit->id]))
+            ->map(function ($unit) use ($byUnit, $people, $chosen, $nameKey) {
                 $row    = $byUnit[$unit->id] ?? null;
-                $person = $people[$unit->{$column}] ?? null;
+                $person = $people[$chosen[$unit->id]] ?? null;
 
                 return [
                     'id'           => $unit->id,

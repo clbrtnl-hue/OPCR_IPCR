@@ -38,6 +38,15 @@ export function notificationMeta(type) {
     return NOTIFICATION_META[type] ?? { ...NOTIFICATION_META.default, label: type ?? "Update" };
 }
 
+/** Where a click should land. A stored link wins; a form id still opens that form. */
+export function notificationHref(item) {
+    if (item?.link) return item.link;
+    if (item?.form_id) return `/forms/${item.form_id}`;
+    if (item?.type === "published") return "/college-opcr";
+
+    return null;
+}
+
 export function dayLabel(dayjsValue, now) {
     if (dayjsValue.isSame(now, "day")) return "Today";
     if (dayjsValue.isSame(now.subtract(1, "day"), "day")) return "Yesterday";

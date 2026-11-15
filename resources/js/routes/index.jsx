@@ -72,14 +72,7 @@ export default function AppRoutes() {
                                         </Protected>
                                     }
                                 />
-                                <Route
-                                    path="/my-team"
-                                    element={
-                                        <Protected roles={["program_head", "vp", "qa"]}>
-                                            <MyTeamPage />
-                                        </Protected>
-                                    }
-                                />
+                                <Route path="/my-team" element={<MyTeamPage />} />
                                 <Route path="/profile" element={<ProfilePage />} />
                                 <Route path="/forms/:id" element={<FormEditorPage />} />
                                 <Route
@@ -93,7 +86,7 @@ export default function AppRoutes() {
                                 <Route
                                     path="/rating"
                                     element={
-                                        <Protected roles={["qa", "program_head", "vp", "admin"]}>
+                                        <Protected roles={["employee", "program_head", "vp", "qa", "hr", "president"]}>
                                             <RatingPage />
                                         </Protected>
                                     }
@@ -131,14 +124,7 @@ export default function AppRoutes() {
                                         </Protected>
                                     }
                                 />
-                                <Route
-                                    path="/college-opcr"
-                                    element={
-                                        <Protected roles={["admin", "president", "hr"]}>
-                                            <CollegeOpcrPage />
-                                        </Protected>
-                                    }
-                                />
+                                <Route path="/college-opcr" element={<CollegeOpcrPage />} />
                                 <Route
                                     path="/admin/workflow"
                                     element={

@@ -26,11 +26,7 @@ class UserProfileAccess
         // Whoever is named to review one of this person's forms — which is how
         // the hierarchy already decides who reads their work.
         return PcrForm::where('user_id', $subject->id)
-            ->where(function ($query) use ($viewer) {
-                $query->where('head_reviewer_id', $viewer->id)
-                    ->orWhere('dean_reviewer_id', $viewer->id)
-                    ->orWhere('vp_reviewer_id', $viewer->id);
-            })
+            ->namedFor($viewer->id)
             ->exists();
     }
 }

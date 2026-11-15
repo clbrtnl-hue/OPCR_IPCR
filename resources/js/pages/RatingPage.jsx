@@ -3,7 +3,6 @@ import {
     Alert,
     Button,
     Card,
-    Modal,
     Divider,
     Drawer,
     Empty,
@@ -26,17 +25,14 @@ import {
     nextReviewStop,
     statusMeta,
 } from "~/utils/constants";
+import { averageOf, dimensionPhrase, ratingRules, scoreOptions } from "~/utils/ratingScale";
 import PageHeader from "~/components/PageHeader";
 import RichText from "~/components/RichText";
 import RichTextView, { toPlainText } from "~/components/RichTextView";
 import CommentThread from "~/components/CommentThread";
+import ReturnPlacesModal from "~/components/ReturnPlacesModal";
 import IndicatorRow from "~/components/IndicatorRow";
 import { AccomplishmentCell } from "~/components/AccomplishmentView";
-
-const SCORE_OPTIONS = RATING_LEGEND.map((band) => ({
-    value: band.value,
-    label: `${band.value} — ${band.label}`,
-}));
 
 function samePerson(left, right) {
     return Number(left) === Number(right);
@@ -49,7 +45,8 @@ function scoreable(form, user) {
     if (form.status === "head_review" && samePerson(form.head_reviewer_id, user.id)) return true;
     if (form.status === "dean_review" && samePerson(form.dean_reviewer_id, user.id)) return true;
     if (form.status === "vp_review" && samePerson(form.vp_reviewer_id, user.id)) return true;
-    if (user.role === "qa" && form.status === "qa_rating") return true;
+    const raters = user.workflow?.rater_roles ?? ["qa"];
+    if (raters.includes(user.role) && form.status === "qa_rating") return true;
 
     return false;
 }
@@ -63,7 +60,6 @@ export default function RatingPage() {
     const [scores, setScores] = useState({});
     const [openLineId, setOpenLineId] = useState(null);
     const [returnModal, setReturnModal] = useState(false);
-    const [returnNote, setReturnNote] = useState("");
     const dirtyScores = useRef(new Set());
 
     const { data: queue = [], isLoading } = useQuery({
@@ -86,7 +82,9 @@ export default function RatingPage() {
     });
 
     const canRate = scoreable(form, user);
-    const closesHere = user?.role === "qa";
+    const closesHere = (user?.workflow?.rater_roles ?? ["qa"]).includes(user?.role);
+    const scale = ratingRules(user);
+    const scoresChoices = scoreOptions(user);
     const periods = form?.school_year?.periods ?? [];
     const formPeriodId = form?.type === "ipcr" ? (form?.rating_period_id ?? null) : null;
     const activePeriodId =
@@ -166,12 +164,11 @@ export default function RatingPage() {
     });
 
     const returnForm = useMutation({
-        mutationFn: (note) =>
-            api.post(`pcr-forms/${form.id}/status`, { status: "returned", note }),
+        mutationFn: (fixes) =>
+            api.post(`pcr-forms/${form.id}/status`, { status: "returned", fixes }),
         onSuccess: () => {
             message.success("Form returned.");
             setReturnModal(false);
-            setReturnNote("");
             queryClient.invalidateQueries({ queryKey: ["qa-queue"] });
             queryClient.invalidateQueries({ queryKey: ["review-queue"] });
             queryClient.invalidateQueries({ queryKey: ["pcr-form", String(selectedId)] });
@@ -201,13 +198,9 @@ export default function RatingPage() {
         }));
     };
 
-    const averageOf = (row) => {
-        const given = [row?.q, row?.e, row?.t].filter((v) => v != null);
-        if (given.length === 0) return null;
-        return (given.reduce((a, b) => a + b, 0) / given.length).toFixed(2);
-    };
+    const rowAverage = (row) => averageOf(row, user);
 
-    const unrated = Object.values(scores).filter((row) => averageOf(row) === null).length;
+    const unrated = Object.values(scores).filter((row) => rowAverage(row) === null).length;
 
     const columns = [
         {
@@ -248,9 +241,9 @@ export default function RatingPage() {
                 );
             },
         },
-        ...["q", "e", "t"].map((dimension) => ({
-            title: dimension.toUpperCase(),
-            key: dimension,
+        ...scale.dimensions.map((dimension) => ({
+            title: dimension.short,
+            key: dimension.key,
             width: 90,
             render: (_, record) =>
                 canRate ? (
@@ -258,12 +251,12 @@ export default function RatingPage() {
                         size="small"
                         style={{ width: 70 }}
                         allowClear
-                        value={scores[record.id]?.[dimension] ?? undefined}
-                        onChange={(value) => update(record.id, dimension, value ?? null)}
-                        options={SCORE_OPTIONS.map((o) => ({ value: o.value, label: String(o.value) }))}
+                        value={scores[record.id]?.[dimension.key] ?? undefined}
+                        onChange={(value) => update(record.id, dimension.key, value ?? null)}
+                        options={scoresChoices}
                     />
                 ) : (
-                    <span>{scores[record.id]?.[dimension] ?? "—"}</span>
+                    <span>{scores[record.id]?.[dimension.key] ?? "—"}</span>
                 ),
         })),
         {
@@ -271,7 +264,7 @@ export default function RatingPage() {
             key: "a",
             width: 70,
             render: (_, record) => {
-                const value = averageOf(scores[record.id]);
+                const value = rowAverage(scores[record.id]);
                 return value ? <Tag color="purple">{value}</Tag> : <Tag>—</Tag>;
             },
         },
@@ -301,7 +294,7 @@ export default function RatingPage() {
                 subtitle={
                     viewOnly
                         ? "Scores on forms with QA or already rated. You can read them, but you cannot rate or close a form."
-                        : "Score each success indicator on Quality, Efficiency and Timeliness. A is their average; the final rating is the mean of the section averages."
+                        : `Score each success indicator on ${dimensionPhrase(user)}. A is their average; the final rating is the mean of the section averages.`
                 }
             />
 
@@ -439,9 +432,13 @@ export default function RatingPage() {
 
                             <Space wrap>
                                 <Typography.Text type="secondary">Legend:</Typography.Text>
-                                {RATING_LEGEND.map((band) => (
-                                    <Tag key={band.value} color={ADJECTIVAL_COLORS[band.label]}>
-                                        {band.value} — {band.label} ({band.range})
+                                {(user?.workflow?.rating?.bands?.length
+                                    ? user.workflow.rating.bands
+                                    : RATING_LEGEND
+                                ).map((band) => (
+                                    <Tag key={band.label} color={ADJECTIVAL_COLORS[band.label]}>
+                                        {band.value} — {band.label}
+                                        {band.range ? ` (${band.range})` : ""}
                                     </Tag>
                                 ))}
                             </Space>
@@ -472,25 +469,14 @@ export default function RatingPage() {
                             )}
                         </Drawer>
 
-                        <Modal
-                            title="Return this form"
+                        <ReturnPlacesModal
                             open={returnModal}
+                            form={form}
+                            kind="writeup"
+                            confirming={returnForm.isPending}
                             onCancel={() => setReturnModal(false)}
-                            okText="Return"
-                            okButtonProps={{ danger: true, disabled: !returnNote.trim() }}
-                            confirmLoading={returnForm.isPending}
-                            onOk={() => returnForm.mutate(returnNote)}
-                        >
-                            <Typography.Paragraph>
-                                Say what needs fixing. The writer sees this remark and can correct the form and resubmit.
-                            </Typography.Paragraph>
-                            <RichText
-                                rows={4}
-                                value={returnNote}
-                                onChange={setReturnNote}
-                                placeholder="The evidence attached does not match the stated target."
-                            />
-                        </Modal>
+                            onSubmit={(fixes) => returnForm.mutate(fixes)}
+                        />
                     </>
                 )
             )}

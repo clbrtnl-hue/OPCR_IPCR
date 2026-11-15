@@ -31,19 +31,7 @@ class WorkflowSettings
 
         $stored = WorkflowSetting::where('key', $key)->value('value');
 
-        $value = $stored ?: $default;
-
-        // The VP names the heads accountable on their own IPCR, and QA names
-        // the staff in the office they head. A saved rule from before that
-        // was allowed must not keep the control hidden.
-        if ($key === 'delegation') {
-            $value['assign_indicators'] = array_values(array_unique(array_merge(
-                $value['assign_indicators'] ?? [],
-                ['vp', 'qa']
-            )));
-        }
-
-        return $this->cache[$key] = $value;
+        return $this->cache[$key] = $stored ?: $default;
     }
 
     public function all(): array
@@ -81,14 +69,9 @@ class WorkflowSettings
         return $this->get('review_stages');
     }
 
-    public const REVIEW_ONLY_ROLES = ['vp'];
-
-    public const REVIEW_ONLY_OPCR_SLOTS = ['creator_roles', 'publisher_roles'];
-
     public function mayAssignOutputs(string $role): bool
     {
-        return ! in_array($role, self::REVIEW_ONLY_ROLES, true)
-            && in_array($role, $this->get('delegation')['assign_outputs'] ?? [], true);
+        return in_array($role, $this->get('delegation')['assign_outputs'] ?? [], true);
     }
 
     public function mayAssignIndicators(string $role): bool
@@ -103,13 +86,61 @@ class WorkflowSettings
 
     public function opcr(string $which): array
     {
-        $roles = $this->get('opcr')[$which] ?? [];
+        return array_values($this->get('opcr')[$which] ?? []);
+    }
 
-        if (! in_array($which, self::REVIEW_ONLY_OPCR_SLOTS, true)) {
-            return $roles;
+    /**
+     * Whoever fills the last role-gated review stage rates and closes the
+     * rating. Setup → Workflow names that role on the final step.
+     */
+    public function raterRoles(): array
+    {
+        $stages = $this->reviewStages();
+
+        for ($i = count($stages) - 1; $i >= 0; $i--) {
+            $role = $stages[$i]['role'] ?? null;
+
+            if (($stages[$i]['source'] ?? '') === 'role' && $role) {
+                return [$role];
+            }
         }
 
-        return array_values(array_diff($roles, self::REVIEW_ONLY_ROLES));
+        return ['qa'];
+    }
+
+    public function isRater(string $role): bool
+    {
+        return in_array($role, $this->raterRoles(), true);
+    }
+
+    /** Q, E and T, limited to the dimensions Setup left switched on. */
+    public function ratingDimensionKeys(): array
+    {
+        $keys = array_values(array_intersect($this->ratingDimensions(), ['q', 'e', 't']));
+
+        return $keys ?: ['q', 'e', 't'];
+    }
+
+    /** What the signed-in screen needs in order to offer the same actions the server would accept. */
+    public function forClient(): array
+    {
+        [$min, $max] = $this->ratingBounds();
+
+        return [
+            'rating' => [
+                'dimensions' => $this->ratingDimensionKeys(),
+                'min'        => (int) $min,
+                'max'        => (int) $max,
+                'bands'      => $this->ratingBands(),
+            ],
+            'opcr' => [
+                'creator_roles'        => $this->opcr('creator_roles'),
+                'approver_roles'       => $this->opcr('approver_roles'),
+                'publisher_roles'      => $this->opcr('publisher_roles'),
+                'rating_trigger_roles' => $this->opcr('rating_trigger_roles'),
+            ],
+            'rater_roles' => $this->raterRoles(),
+        ];
     }
 
     public function opcrOnePerOrganization(): bool

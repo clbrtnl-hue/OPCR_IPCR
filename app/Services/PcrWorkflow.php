@@ -204,13 +204,29 @@ class PcrWorkflow
         }
 
         $stages = app(WorkflowSettings::class)->reviewStages();
+        $statuses = array_column($stages, 'status');
 
-        // Where in the configured chain we are. Rating starts once commitments
-        // are approved, or when a rated form is sent back. A draft cannot skip
-        // that approval and land on a reviewer.
-        $position = in_array($from, ['returned', 'commitments_approved'], true)
+        // A return from review or rating resumes at that same step. A first
+        // submission, and a return that never entered review, starts at the
+        // beginning. Commitment approval is a separate lane.
+        if ($from === 'returned') {
+            $back = self::reviewReturnStage($form);
+            $resume = $back !== null ? array_search($back, $statuses, true) : false;
+
+            if ($resume !== false) {
+                foreach (array_slice($stages, $resume) as $stage) {
+                    if (self::stageFilled($form, $stage) || ! ($stage['skippable'] ?? true)) {
+                        return $stage['status'];
+                    }
+                }
+
+                return null;
+            }
+        }
+
+        $position = $from === 'commitments_approved'
             ? -1
-            : array_search($from, array_column($stages, 'status'), true);
+            : array_search($from, $statuses, true);
 
         if ($position === false) {
             return self::TRANSITIONS[$form->type][$from][0] ?? null;
@@ -235,20 +251,20 @@ class PcrWorkflow
     public static function mayScore(User $user, PcrForm $form): bool
     {
         if ($form->type !== 'ipcr') {
-            return $form->status === 'qa_rating' && $user->role === 'qa';
+            return $form->status === 'qa_rating' && self::isRater($user);
         }
 
         if ((int) self::reviewerId($form, $form->status) === (int) $user->id) {
             return true;
         }
 
-        return $form->status === 'qa_rating' && $user->role === 'qa';
+        return $form->status === 'qa_rating' && self::isRater($user);
     }
 
-    /** QA closes the rating. On their own staff they close it without sending it up. */
+    /** The rating role closes the rating. On their own staff they close it without sending it up. */
     public static function mayFinalize(User $user, PcrForm $form): bool
     {
-        if ($user->role !== 'qa') {
+        if (! self::isRater($user)) {
             return false;
         }
 
@@ -257,6 +273,12 @@ class PcrWorkflow
         }
 
         return (int) self::reviewerId($form, $form->status) === (int) $user->id;
+    }
+
+    /** The role named on the final review step. Defaults to QA. */
+    public static function isRater(?User $user): bool
+    {
+        return $user && app(WorkflowSettings::class)->isRater($user->role);
     }
 
     public static function isReviewerFor(User $user, PcrForm $form, string $status): bool
@@ -303,23 +325,36 @@ class PcrWorkflow
         return (bool) self::reviewerId($form, $status);
     }
 
-    public static function actorMayMoveTo(User $user, string $type, string $to): bool
+    public static function actorMayMoveTo(User $user, string $type, string $to, ?string $from = null): bool
     {
-        if ($type === 'opcr') {
-            $rules = app(WorkflowSettings::class);
+        $rules = app(WorkflowSettings::class);
 
+        if ($type === 'opcr') {
             $configured = match ($to) {
                 'qa_approval' => $rules->opcr('creator_roles'),
                 'approved'    => $rules->opcr('approver_roles'),
                 'published',
                 'draft'       => $rules->opcr('publisher_roles'),
                 'qa_rating'   => $rules->opcr('rating_trigger_roles'),
+                'rated'       => $rules->raterRoles(),
+                'returned'    => $from === 'qa_rating'
+                    ? $rules->raterRoles()
+                    : $rules->opcr('approver_roles'),
+                'final'       => array_values(array_unique([...$rules->raterRoles(), 'president'])),
                 default       => null,
             };
 
             if ($configured !== null) {
                 return in_array($user->role, $configured, true);
             }
+        }
+
+        if ($type === 'ipcr' && $to === 'returned' && $from === 'qa_rating') {
+            return in_array($user->role, $rules->raterRoles(), true);
+        }
+
+        if ($type === 'ipcr' && $to === 'final') {
+            return in_array($user->role, array_values(array_unique([...$rules->raterRoles(), 'president'])), true);
         }
 
         return in_array($user->role, self::ACTOR_ROLES[$type][$to] ?? [], true);
@@ -414,15 +449,21 @@ class PcrWorkflow
         return self::returnedFromRating($form) ? 'qa_rating' : 'qa_approval';
     }
 
-    public static function returnedFromRating(PcrForm $form): bool
+    /** The review or rating step a form was last sent back from, if it was. */
+    public static function reviewReturnStage(PcrForm $form): ?string
     {
         $logs = $form->relationLoaded('statusLogs')
             ? $form->statusLogs
             : PcrStatusLog::where('form_id', $form->id)->get();
 
-        $log = $logs->where('to_status', 'returned')->sortByDesc('id')->first();
+        $from = $logs->where('to_status', 'returned')->sortByDesc('id')->first()?->from_status;
 
-        return $log?->from_status === 'qa_rating';
+        return $from && self::isReviewDestination($from) ? $from : null;
+    }
+
+    public static function returnedFromRating(PcrForm $form): bool
+    {
+        return self::reviewReturnStage($form) === 'qa_rating';
     }
 
     /** A published OPCR, including one sent back from rating, stays available to IPCRs. */
@@ -462,7 +503,24 @@ class PcrWorkflow
             return true;
         }
 
+        if ($form->type === 'opcr') {
+            $rules = app(WorkflowSettings::class);
+
+            if (in_array($user->role, $rules->opcr('approver_roles'), true)
+                || in_array($user->role, $rules->opcr('rating_trigger_roles'), true)
+                || $rules->isRater($user->role)
+            ) {
+                return true;
+            }
+        }
+
         if (self::owns($user, $form)) {
+            return true;
+        }
+
+        // Named in the Accountable column. They read the college OPCR from
+        // their own account; writing it stays with the president.
+        if ($form->type === 'opcr' && self::isAccountableOn($user, $form)) {
             return true;
         }
 
@@ -471,6 +529,10 @@ class PcrWorkflow
         }
 
         if (self::isReviewerFor($user, $form, $form->status)) {
+            return true;
+        }
+
+        if (self::watchesForm($user, $form)) {
             return true;
         }
 
@@ -502,15 +564,58 @@ class PcrWorkflow
         return false;
     }
 
+    private static function isAccountableOn(User $user, PcrForm $form): bool
+    {
+        return PcrForm::query()->whereKey($form->id)->accountableTo((int) $user->id)->exists();
+    }
+
+    /** Named on Can view forms for this unit, or for a unit above it. Not a reviewer. */
+    private static function watchesForm(User $user, PcrForm $form): bool
+    {
+        $ids = OrgUnit::watchedIds((int) $user->id);
+
+        if ($ids === []) {
+            return false;
+        }
+
+        if (in_array((int) $form->org_unit_id, $ids, true)) {
+            return true;
+        }
+
+        if ($form->type !== 'ipcr' || ! $form->user_id) {
+            return false;
+        }
+
+        $ownerUnitId = User::whereKey($form->user_id)->value('org_unit_id');
+
+        return $ownerUnitId && in_array((int) $ownerUnitId, $ids, true);
+    }
+
     public static function canEditCommitments(User $user, PcrForm $form): bool
     {
         if (! $form->isEditable() || ! self::owns($user, $form)) {
             return false;
         }
 
+        // An OPCR sent back from rating keeps its targets. The writer fixes
+        // the accomplishment and the evidence, then it returns to rating.
+        if ($form->type === 'opcr' && $form->status === 'returned' && self::returnedFromRating($form)) {
+            return false;
+        }
+
         // Once commitments are approved they stay as approved, including when
         // the rating is sent back. Only a return from commitment review reopens them.
         return $form->type !== 'ipcr' || ! $form->commitment_approved_at;
+    }
+
+    /** Why a target edit was refused, when the reason is more specific than "not a draft". */
+    public static function commitmentClosedMessage(PcrForm $form): ?string
+    {
+        if ($form->type === 'opcr' && $form->status === 'returned' && self::returnedFromRating($form)) {
+            return 'This OPCR was returned from rating. Targets and success indicators stay as they are — update the accomplishment and the evidence.';
+        }
+
+        return null;
     }
 
     /** Tasks stay closed until commitments are approved. A form already in rating is not sent back to that gate. */
@@ -539,21 +644,25 @@ class PcrWorkflow
     }
 
     /**
-     * Who approves this IPCR's commitments. People named on the published OPCR
-     * go to the president. Everyone else goes to the person who handed them the
-     * work, then to the head named on their unit.
+     * Who approves this IPCR's commitments. QA and people named on the published
+     * OPCR go to the president. Naming someone before the OPCR is published
+     * does not send the form to their VP instead. Everyone else goes to the
+     * person who handed them the work, then to the head named on their unit.
      */
     public static function commitmentApprover(PcrForm $form): ?User
     {
-        $form->loadMissing('owner', 'orgUnit');
-        $owner = $form->owner;
+        $owner = self::ownerWithRole($form);
 
         if (! $owner) {
             return null;
         }
 
-        if (self::accountableOnPublishedOpcr($form, $owner)) {
+        if ($owner->role === 'qa' || self::accountableOnPublishedOpcr($form, $owner)) {
             return User::where('role', 'president')->where('status', 'active')->first();
+        }
+
+        if (self::namedOnOpcr($form, $owner)) {
+            return null;
         }
 
         $assignerId = PcrTargetAssignment::query()
@@ -601,6 +710,21 @@ class PcrWorkflow
         return null;
     }
 
+    /**
+     * Why Send stays closed. Null when an approver can be chosen, or when the
+     * form simply has nobody in the chain.
+     */
+    public static function commitmentWait(PcrForm $form): ?string
+    {
+        $owner = self::ownerWithRole($form);
+
+        if (! $owner || $owner->role === 'qa' || self::accountableOnPublishedOpcr($form, $owner) || ! self::namedOnOpcr($form, $owner)) {
+            return null;
+        }
+
+        return 'The college OPCR is not published yet, so these commitments cannot be sent.';
+    }
+
     /** A short phrase for the send button: "the President" or the person's name. */
     public static function commitmentApproverLabel(?User $approver): ?string
     {
@@ -611,7 +735,30 @@ class PcrWorkflow
         return $approver->role === 'president' ? 'the President' : $approver->name;
     }
 
+    /**
+     * The sheet loads the owner with a short column list, which leaves role
+     * empty. Drop that copy so the approver can be chosen from the real role.
+     */
+    private static function ownerWithRole(PcrForm $form): ?User
+    {
+        $form->loadMissing('orgUnit');
+
+        if ($form->relationLoaded('owner') && $form->owner && ! array_key_exists('role', $form->owner->getAttributes())) {
+            $form->unsetRelation('owner');
+        }
+
+        $form->loadMissing('owner');
+
+        return $form->owner;
+    }
+
     private static function accountableOnPublishedOpcr(PcrForm $form, User $owner): bool
+    {
+        return self::namedOnOpcr($form, $owner, true);
+    }
+
+    /** Named on this year's OPCR for the form's period. Publish is optional. */
+    private static function namedOnOpcr(PcrForm $form, User $owner, bool $publishedOnly = false): bool
     {
         return PcrTargetAssignment::query()
             ->where('user_id', $owner->id)
@@ -621,10 +768,10 @@ class PcrWorkflow
                         ->orWhereNull('rating_period_id');
                 });
             })
-            ->whereHas('indicator.output.form', function ($query) use ($form) {
+            ->whereHas('indicator.output.form', function ($query) use ($form, $publishedOnly) {
                 $query->where('type', 'opcr')
                     ->where('school_year_id', $form->school_year_id)
-                    ->whereIn('status', self::OPCR_VISIBLE);
+                    ->when($publishedOnly, fn ($inner) => $inner->whereIn('status', self::OPCR_VISIBLE));
             })
             ->exists();
     }

@@ -1,17 +1,11 @@
 import React from "react";
 import { Progress, Tag } from "antd";
 import { toPlainText } from "~/components/RichTextView";
+import { useAuth } from "~/hooks/useAuth";
 import { PROGRESS_META, SECTION_LABELS, progressTone } from "~/utils/constants";
+import { averageOf, ratingRules } from "~/utils/ratingScale";
 
 const SECTIONS = ["strategic", "core", "support"];
-
-function averageOf(rating) {
-    const given = [rating?.q, rating?.e, rating?.t].filter((value) => value != null);
-
-    if (given.length === 0) return null;
-
-    return (given.reduce((sum, value) => sum + Number(value), 0) / given.length).toFixed(2);
-}
 
 function Score({ label, value }) {
     return (
@@ -23,6 +17,8 @@ function Score({ label, value }) {
 }
 
 export default function LineCards({ form, periodId, showScores = false, onOpen }) {
+    const { user } = useAuth();
+    const dimensions = ratingRules(user).dimensions;
     const sections = SECTIONS.map((section) => ({
         section,
         lines: (form.outputs ?? [])
@@ -86,10 +82,21 @@ export default function LineCards({ form, periodId, showScores = false, onOpen }
                                 </span>
                                 {showScores && (
                                     <span className="pms-line-scores">
-                                        <Score label="Q" value={rating?.q} />
-                                        <Score label="E" value={rating?.e} />
-                                        <Score label="T" value={rating?.t} />
-                                        <Score label="Avg" value={averageOf(rating)} />
+                                        {dimensions.map((dimension) => (
+                                            <Score
+                                                key={dimension.key}
+                                                label={dimension.short}
+                                                value={rating?.[dimension.key]}
+                                            />
+                                        ))}
+                                        <Score
+                                            label="Avg"
+                                            value={
+                                                rating?.a != null
+                                                    ? Number(rating.a).toFixed(2)
+                                                    : averageOf(rating, user)
+                                            }
+                                        />
                                     </span>
                                 )}
                                 {line.target_date && <Tag>{line.target_date}</Tag>}

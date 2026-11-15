@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Models\Notification;
+use App\Models\PcrIndicator;
 use App\Models\User;
 use Tests\PmsTestCase;
 
@@ -59,7 +60,10 @@ class QaApprovalQueueTest extends PmsTestCase
 
         foreach ([$qa, $otherQa] as $reviewer) {
             $this->assertDatabaseHas('notifications', [
-                'user_id' => $reviewer->id, 'type' => 'approval', 'form_id' => $opcr->id,
+                'user_id' => $reviewer->id,
+                'type'    => 'approval',
+                'form_id' => $opcr->id,
+                'link'    => "/forms/{$opcr->id}",
             ]);
         }
     }
@@ -81,17 +85,24 @@ class QaApprovalQueueTest extends PmsTestCase
     public function test_returning_the_opcr_notifies_the_president(): void
     {
         ['president' => $president, 'qa' => $qa, 'opcr' => $opcr] = $this->college();
+        $line = PcrIndicator::whereHas('output', fn ($query) => $query->where('form_id', $opcr->id))->first();
 
         $opcr->update(['status' => 'qa_approval']);
 
         $this->actingAsUser($qa);
         $this->postJson("/api/pcr-forms/{$opcr->id}/status", [
-            'status' => 'returned', 'note' => 'Targets need a measure.',
+            'status' => 'returned',
+            'fixes'  => [[
+                'indicator_id' => $line->id,
+                'field'        => 'description',
+                'note'         => 'Targets need a measure.',
+            ]],
         ])->assertSuccessful();
 
         $note = Notification::where('user_id', $president->id)->where('type', 'returned')->first();
 
         $this->assertNotNull($note);
         $this->assertSame('Targets need a measure.', $note->body);
+        $this->assertSame("/forms/{$opcr->id}?line={$line->id}", $note->link);
     }
 }

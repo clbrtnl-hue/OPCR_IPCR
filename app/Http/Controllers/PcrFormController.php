@@ -12,10 +12,12 @@ use App\Models\PcrFormReviewer;
 use App\Models\PcrIndicator;
 use App\Models\PcrOutput;
 use App\Models\PcrRating;
+use App\Models\PcrReturnMark;
 use App\Models\RatingPeriod;
 use App\Models\PcrStatusLog;
 use App\Models\PcrTargetAssignment;
 use App\Models\User;
+use App\Services\IndicatorProgressService;
 use App\Services\PcrWorkflow;
 use App\Services\WorkflowSettings;
 use App\Support\Html;
@@ -35,6 +37,7 @@ class PcrFormController extends Controller
             'orgUnit:id,name,code',
             'owner:id,name,position_title,image',
             'ratingPeriod:id,label,seq,is_active',
+            'stageReviewers',
         ])
             ->withCount('outputs')
             ->orderByDesc('created_at');
@@ -55,7 +58,9 @@ class PcrFormController extends Controller
             $query->where('status', $status);
         }
 
-        if ($oversight = $request->query('oversight')) {
+        if ($request->boolean('accountable')) {
+            $query->where('type', 'opcr')->accountableTo((int) $user->id);
+        } elseif ($oversight = $request->query('oversight')) {
             if ($user->role !== 'admin') {
                 return response()->json(['message' => 'Forbidden.'], 403);
             }
@@ -88,6 +93,8 @@ class PcrFormController extends Controller
         $form = PcrForm::with([
             'schoolYear.periods',
             'ratingPeriod:id,label,seq,is_active',
+            'stageReviewers',
+            'orgUnit.reviewers',
             'orgUnit.head:id,name,position_title',
             'orgUnit.dean:id,name,position_title',
             'orgUnit.vp:id,name,position_title',
@@ -153,6 +160,9 @@ class PcrFormController extends Controller
                 'position_title' => $approver->position_title,
                 'label'          => PcrWorkflow::commitmentApproverLabel($approver),
             ] : null;
+            $payload['commitment_wait'] = $approver || $form->commitment_approved_at
+                ? null
+                : PcrWorkflow::commitmentWait($form);
         }
 
         if ($form->type === 'ipcr' && $form->user_id) {
@@ -164,6 +174,8 @@ class PcrFormController extends Controller
             $head = PcrPrint::officeHead();
             $payload['office_head'] = $head?->only(['id', 'name', 'position_title']);
         }
+
+        $payload['return_marks'] = $this->openReturnMarks($form);
 
         return response()->json($payload);
     }
@@ -188,7 +200,8 @@ class PcrFormController extends Controller
 
             if (! PcrWorkflow::canEditCommitments($user, $form)) {
                 return response()->json([
-                    'message' => 'This form can only be edited while it is a draft or has been returned to you.',
+                    'message' => PcrWorkflow::commitmentClosedMessage($form)
+                        ?? 'This form can only be edited while it is a draft or has been returned to you.',
                 ], 409);
             }
 
@@ -250,7 +263,7 @@ class PcrFormController extends Controller
 
             if (! in_array($user->role, $rules->opcr('creator_roles'), true)) {
                 return response()->json([
-                    'message' => 'Only the president opens the college OPCR. It goes to QA for approval, then the president publishes it.',
+                    'message' => 'Your role does not open the college OPCR.',
                 ], 403);
             }
 
@@ -456,7 +469,8 @@ class PcrFormController extends Controller
 
         if (! PcrWorkflow::owns($user, $form) || ! PcrWorkflow::canEditCommitments($user, $form)) {
             return response()->json([
-                'message' => 'Only the owner can build this form, and only while it is a draft or has been returned.',
+                'message' => PcrWorkflow::commitmentClosedMessage($form)
+                    ?? 'Only the owner can build this form, and only while it is a draft or has been returned.',
             ], 409);
         }
 
@@ -531,6 +545,11 @@ class PcrFormController extends Controller
         $data = $request->validate([
             'status' => ['required', 'string', 'max:40'],
             'note'   => 'nullable|string|max:500',
+            'fixes'  => 'nullable|array|max:80',
+            'fixes.*.output_id'    => 'nullable|integer',
+            'fixes.*.indicator_id' => 'nullable|integer',
+            'fixes.*.field'        => 'nullable|string|max:40',
+            'fixes.*.note'         => 'nullable|string|max:500',
         ]);
 
         if (! in_array($data['status'], array_unique(array_merge(
@@ -587,7 +606,8 @@ class PcrFormController extends Controller
 
             if (! $approver) {
                 return response()->json([
-                    'message' => 'There is nobody to approve these commitments.',
+                    'message' => PcrWorkflow::commitmentWait($form)
+                        ?? 'There is nobody to approve these commitments.',
                 ], 422);
             }
 
@@ -643,7 +663,7 @@ class PcrFormController extends Controller
                     'message' => 'This form is waiting for somebody else to review it.',
                 ], 403);
             }
-        } elseif (! PcrWorkflow::actorMayMoveTo($user, $form->type, $to)) {
+        } elseif (! PcrWorkflow::actorMayMoveTo($user, $form->type, $to, $from)) {
             return response()->json([
                 'message' => "Your role cannot move a form to {$to}.",
             ], 403);
@@ -681,7 +701,7 @@ class PcrFormController extends Controller
             $form->loadMissing('owner');
 
             // QA rates their own IPCR. It is not sent to the president.
-            if ($form->owner?->role === 'qa') {
+            if (PcrWorkflow::isRater($form->owner)) {
                 $to = 'qa_rating';
                 $form->forceFill([
                     'head_reviewer_id' => null,
@@ -695,7 +715,7 @@ class PcrFormController extends Controller
         if ($from === 'head_review' && $to !== 'returned') {
             $form->loadMissing('headReviewer');
 
-            if ($form->headReviewer?->role === 'qa') {
+            if (PcrWorkflow::isRater($form->headReviewer)) {
                 return response()->json([
                     'message' => 'Rate this IPCR and finalize it. It is not sent on to a dean, a director, a VP, or the president.',
                 ], 409);
@@ -707,7 +727,7 @@ class PcrFormController extends Controller
         if ($from === 'dean_review' && $to !== 'returned') {
             $form->loadMissing('deanReviewer');
 
-            if ($form->deanReviewer?->role === 'qa') {
+            if (PcrWorkflow::isRater($form->deanReviewer)) {
                 return response()->json([
                     'message' => 'Rate this IPCR and finalize it. It is not sent on to a VP or the president.',
                 ], 409);
@@ -735,6 +755,20 @@ class PcrFormController extends Controller
             ], 422);
         }
 
+        $fixes = [];
+
+        // Approval returns name the target cells. A return from review or
+        // rating names the accomplishment or the evidence.
+        if ($this->namesReturnPlaces($form, $from, $to)) {
+            $fixes = $this->returnPlaces($form, $from, $data['fixes'] ?? []);
+
+            if ($fixes instanceof \Illuminate\Http\JsonResponse) {
+                return $fixes;
+            }
+
+            $data['note'] = implode("\n", array_column($fixes, 'note'));
+        }
+
         $data['note'] = Html::clean($data['note'] ?? null);
 
         if ($to === 'returned' && Html::isBlank($data['note'])) {
@@ -743,7 +777,7 @@ class PcrFormController extends Controller
             ], 422);
         }
 
-        DB::transaction(function () use ($form, $from, $to, $data, $user, $isSubmission, $isCommitmentSubmit) {
+        DB::transaction(function () use ($form, $from, $to, $data, $user, $isSubmission, $isCommitmentSubmit, $fixes) {
             $attributes = ['status' => $to];
 
             if ($isSubmission || $isCommitmentSubmit) {
@@ -756,24 +790,6 @@ class PcrFormController extends Controller
                 $attributes['commitment_approved_at']      = now();
             }
 
-            if ($from === 'head_review' && $to !== 'returned') {
-                $attributes['reviewed_by']      = $user->id;
-                $attributes['reviewed_by_name'] = $user->name;
-                $attributes['reviewed_at']      = now();
-            }
-
-            if ($from === 'dean_review' && $to !== 'returned') {
-                $attributes['dean_reviewed_by']      = $user->id;
-                $attributes['dean_reviewed_by_name'] = $user->name;
-                $attributes['dean_reviewed_at']      = now();
-            }
-
-            if ($from === 'vp_review' && $to !== 'returned') {
-                $attributes['vp_reviewed_by']      = $user->id;
-                $attributes['vp_reviewed_by_name'] = $user->name;
-                $attributes['vp_reviewed_at']      = now();
-            }
-
             $form->update($attributes);
 
             if ($to !== 'returned' && PcrWorkflow::isReviewDestination($from) && $from !== 'qa_rating') {
@@ -783,7 +799,20 @@ class PcrFormController extends Controller
                     'reviewed_at'      => now(),
                 ]);
             }
-            PcrStatusLog::record($form->id, $from, $to, Html::toText($data['note'] ?? null) ?: null);
+            $log = PcrStatusLog::record($form->id, $from, $to, Html::toText($data['note'] ?? null) ?: null);
+
+            if ($log && $fixes) {
+                foreach ($fixes as $fix) {
+                    PcrReturnMark::create([
+                        'form_id'       => $form->id,
+                        'status_log_id' => $log->id,
+                        'output_id'     => $fix['output_id'],
+                        'indicator_id'  => $fix['indicator_id'],
+                        'field'         => $fix['field'],
+                        'note'          => $fix['note'],
+                    ]);
+                }
+            }
 
             // Say so when a stage was passed over, so the trail stays honest
             // about who actually saw the form.
@@ -793,14 +822,186 @@ class PcrFormController extends Controller
         });
 
         ActivityLog::record('PcrForm', $form->id, 'status', "Form moved from {$from} to {$to}");
-        $this->notifyTransition($form, $from, $to, $data['note'] ?? null);
+        $this->notifyTransition($form, $from, $to, $data['note'] ?? null, $fixes);
 
         return response()->json(['data' => 'updated', 'form' => $form->fresh()]);
     }
 
-    private function notifyTransition(PcrForm $form, string $from, string $to, ?string $note): void
+    /**
+     * Marks from the latest return, shown only while the form is still back
+     * with the writer. A later resubmit leaves them in the log.
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    private function openReturnMarks(PcrForm $form): array
+    {
+        if ($form->status !== 'returned') {
+            return [];
+        }
+
+        $log = $form->statusLogs->where('to_status', 'returned')->sortByDesc('id')->first();
+
+        if (! $log) {
+            return [];
+        }
+
+        return PcrReturnMark::where('status_log_id', $log->id)
+            ->orderBy('id')
+            ->get(['id', 'output_id', 'indicator_id', 'field', 'note'])
+            ->map(fn (PcrReturnMark $mark) => $mark->only(['id', 'output_id', 'indicator_id', 'field', 'note']))
+            ->all();
+    }
+
+    private function namesReturnPlaces(PcrForm $form, string $from, string $to): bool
+    {
+        if ($to !== 'returned') {
+            return false;
+        }
+
+        if ($form->type === 'ipcr') {
+            return $from === 'commitment_review' || PcrWorkflow::isReviewDestination($from);
+        }
+
+        return in_array($from, ['qa_approval', 'qa_rating'], true);
+    }
+
+    /**
+     * Approval returns point at the targets. A return from review or rating
+     * points at the write-up, because the targets stay as they were approved.
+     *
+     * @return array<int, string>
+     */
+    private function returnFields(PcrForm $form, string $from): array
+    {
+        if ($this->writeupReturn($form, $from)) {
+            return ['actual_accomplishment', 'evidence'];
+        }
+
+        $fields = ['title', 'description', 'target_date'];
+
+        if ($form->type === 'opcr') {
+            $fields[] = 'allotted_budget';
+            $fields[] = 'accountable';
+        }
+
+        return $fields;
+    }
+
+    private function writeupReturn(PcrForm $form, string $from): bool
+    {
+        if ($form->type === 'ipcr') {
+            return PcrWorkflow::isReviewDestination($from);
+        }
+
+        return $from === 'qa_rating';
+    }
+
+    /**
+     * @param  array<int, mixed>  $rows
+     * @return array<int, array<string, mixed>>|\Illuminate\Http\JsonResponse
+     */
+    private function returnPlaces(PcrForm $form, string $from, array $rows)
+    {
+        if ($rows === []) {
+            return response()->json([
+                'message' => 'Choose at least one place that needs fixing.',
+            ], 422);
+        }
+
+        $allowed    = $this->returnFields($form, $from);
+        $outputIds  = PcrOutput::where('form_id', $form->id)->pluck('id')->map(fn ($id) => (int) $id)->all();
+        $indicators = PcrIndicator::whereIn('output_id', $outputIds)->get(['id', 'output_id'])->keyBy('id');
+        $places     = [];
+        $seen       = [];
+
+        foreach ($rows as $row) {
+            if (! is_array($row)) {
+                return response()->json(['message' => 'Each place needs a field and what to fix.'], 422);
+            }
+
+            $field = (string) ($row['field'] ?? '');
+            $note  = Html::toText(Html::clean($row['note'] ?? null));
+
+            if (! in_array($field, $allowed, true) || $note === '') {
+                return response()->json([
+                    'message' => $this->writeupReturn($form, $from) && $field !== '' && ! in_array($field, $allowed, true)
+                        ? 'A return from review can only mark the accomplishment or the evidence.'
+                        : (in_array($field, ['allotted_budget', 'accountable'], true) && $form->type !== 'opcr'
+                            ? 'Budget and accountable can be marked on an OPCR only.'
+                            : 'Each place needs a field and what to fix.'),
+                ], 422);
+            }
+
+            if ($field === 'title') {
+                $outputId = (int) ($row['output_id'] ?? 0);
+
+                if (! in_array($outputId, $outputIds, true)) {
+                    return response()->json(['message' => 'That output is not part of this form.'], 422);
+                }
+
+                $place = [
+                    'output_id'    => $outputId,
+                    'indicator_id' => null,
+                    'field'        => $field,
+                    'note'         => mb_substr($note, 0, 500),
+                ];
+                $key = "output:{$outputId}:title";
+            } else {
+                $indicator = $indicators->get((int) ($row['indicator_id'] ?? 0));
+
+                if (! $indicator) {
+                    return response()->json(['message' => 'That success indicator is not part of this form.'], 422);
+                }
+
+                $place = [
+                    'output_id'    => (int) $indicator->output_id,
+                    'indicator_id' => (int) $indicator->id,
+                    'field'        => $field,
+                    'note'         => mb_substr($note, 0, 500),
+                ];
+                $key = "indicator:{$indicator->id}:{$field}";
+            }
+
+            if (isset($seen[$key])) {
+                return response()->json(['message' => 'Each place can be named once.'], 422);
+            }
+
+            $seen[$key] = true;
+            $places[]   = $place;
+        }
+
+        return $places;
+    }
+
+    /**
+     * The first marked place, so a return opens on that line or heading.
+     *
+     * @param  array<int, array<string, mixed>>  $places
+     */
+    private function placeLink(PcrForm $form, array $places = []): string
+    {
+        foreach ($places as $place) {
+            if (! empty($place['indicator_id'])) {
+                return "/forms/{$form->id}?line={$place['indicator_id']}";
+            }
+        }
+
+        foreach ($places as $place) {
+            if (! empty($place['output_id'])) {
+                return "/forms/{$form->id}?output={$place['output_id']}";
+            }
+        }
+
+        return "/forms/{$form->id}";
+    }
+
+    /**
+     * @param  array<int, array<string, mixed>>  $places
+     */
+    private function notifyTransition(PcrForm $form, string $from, string $to, ?string $note, array $places = []): void
     {
         $note = Html::toText($note) ?: null;
+        $returnLink = $this->placeLink($form, $places);
 
         $label   = strtoupper($form->type);
         $subject = $form->owner?->name ?? $form->orgUnit?->name;
@@ -835,7 +1036,8 @@ class PcrFormController extends Controller
                 'returned',
                 'Your commitments were returned for correction',
                 $note,
-                $form->id
+                $form->id,
+                $returnLink
             );
 
             return;
@@ -925,10 +1127,10 @@ class PcrFormController extends Controller
 
         if ($to === 'qa_rating') {
             Notification::sendMany(
-                $this->usersWithRoles(['qa']),
+                $this->usersWithRoles(app(WorkflowSettings::class)->raterRoles()),
                 'rating',
                 "{$label} from {$subject} is ready for rating",
-                'The reviewers ahead of QA have endorsed it.',
+                'It is waiting for a rating.',
                 $form->id
             );
 
@@ -943,7 +1145,8 @@ class PcrFormController extends Controller
                 'returned',
                 "Your {$label} was returned for correction",
                 $note,
-                $form->id
+                $form->id,
+                $returnLink
             );
 
             // The writer already has the correction. The head and VP only need
@@ -959,7 +1162,8 @@ class PcrFormController extends Controller
                     'returned',
                     "{$label} from {$subject} was returned for correction",
                     $note,
-                    $form->id
+                    $form->id,
+                    $returnLink
                 );
             }
         }
@@ -1049,7 +1253,7 @@ class PcrFormController extends Controller
                 'published',
                 "The college OPCR is published",
                 "The {$year} OPCR is out. You can now write your IPCR commitments against the targets assigned to you.",
-                $ipcr?->id
+                $ipcr?->id ?? $form->id
             );
         }
     }
@@ -1268,7 +1472,11 @@ class PcrFormController extends Controller
         }
 
         foreach ($form->outputs as $output) {
-            if (trim($output->title) === '' || str_contains($output->title, 'New MFO/PPA')) {
+            if (
+                trim($output->title) === ''
+                || $output->title === 'New PPA'
+                || str_contains($output->title, 'New MFO/PPA')
+            ) {
                 $issues[] = "An MFO/PPA under {$output->section} still needs a name.";
             }
 
@@ -1555,35 +1763,29 @@ class PcrFormController extends Controller
             });
         }
 
-        $fromPeople = $assigned
-            ->reject(fn ($assignment) => $assignment->indicator->output->form->type === 'opcr')
-            ->map(fn ($assignment) => [
-                'id'               => $assignment->indicator_id,
-                'section'          => $assignment->indicator->output->section,
-                'output_id'        => $assignment->indicator->output_id,
-                'output_title'     => $this->outputPath($assignment->indicator->output),
-                'description'      => $assignment->indicator->description,
-                'rating_period_id' => $assignment->rating_period_id,
-                'assigned'         => true,
-                'assigned_by_name' => $assignment->assigned_by_name,
-            ]);
+        $handed = $assigned->map(fn ($assignment) => [
+            'id'               => $assignment->indicator_id,
+            'section'          => $assignment->indicator->output->section,
+            'output_id'        => $assignment->indicator->output_id,
+            'output_title'     => $this->outputPath($assignment->indicator->output),
+            'description'      => $assignment->indicator->description,
+            'rating_period_id' => $assignment->rating_period_id,
+            'assigned'         => true,
+            'assigned_by_name' => $assignment->assigned_by_name,
+        ]);
 
+        // Faculty and staff only answer what was handed to them. A head or VP
+        // may also pick any other published college target.
         if ($form->picksAssignedTargetsOnly()) {
-            return $fromPeople->values();
+            return $handed->values();
         }
 
-        return $fromPeople->concat($fromOpcr)->unique('id')->values();
+        return $handed->concat($fromOpcr)->unique('id')->values();
     }
 
     private function assignedTargetsFor(PcrForm $form): array
     {
         $assignments = $this->assignmentsFor($form);
-
-        if ($form->picksAssignedTargetsOnly()) {
-            $assignments = $assignments->reject(
-                fn ($assignment) => $assignment->indicator->output->form->type === 'opcr'
-            );
-        }
 
         return $assignments
             ->map(fn ($assignment) => [
@@ -1676,9 +1878,10 @@ class PcrFormController extends Controller
                 $records = $records->where('rating_period_id', (int) $line->rating_period_id);
             }
 
+            $need = IndicatorProgressService::EVIDENCE_FILES;
             $done = $records->contains(
                 fn ($record) => ! Html::isBlank($record->actual_accomplishment)
-                    && (int) $record->attachments_count > 0
+                    && (int) $record->attachments_count >= $need
             );
 
             if ($done) {
@@ -1688,20 +1891,11 @@ class PcrFormController extends Controller
             $hasNarrative = $records->contains(
                 fn ($record) => ! Html::isBlank($record->actual_accomplishment)
             );
-            $hasFile = $records->contains(
-                fn ($record) => (int) $record->attachments_count > 0
-            );
+            $files = (int) ($records->max(fn ($record) => (int) $record->attachments_count) ?? 0);
 
             $text = trim(Html::toText($line->description));
             $name = $text === '' ? 'A line' : '“' . mb_strimwidth($text, 0, 60, '…') . '”';
-
-            if ($hasNarrative && ! $hasFile) {
-                $gaps[] = "{$name} still needs a file.";
-            } elseif ($hasFile && ! $hasNarrative) {
-                $gaps[] = "{$name} still needs a narrative.";
-            } else {
-                $gaps[] = "{$name} still needs a narrative and a file.";
-            }
+            $gaps[] = $this->writeUpGap($name, $hasNarrative, $files);
         }
 
         if ($gaps === []) {
@@ -1719,6 +1913,30 @@ class PcrFormController extends Controller
         return $message;
     }
 
+    /** What a line still owes before it can be submitted. Two files are required. */
+    private function writeUpGap(string $name, bool $hasNarrative, int $files): string
+    {
+        $short = max(0, IndicatorProgressService::EVIDENCE_FILES - $files);
+
+        if ($hasNarrative && $short > 1) {
+            return "{$name} still needs two files.";
+        }
+
+        if ($hasNarrative && $short === 1) {
+            return "{$name} still needs one more file.";
+        }
+
+        if (! $hasNarrative && $short === 0) {
+            return "{$name} still needs a narrative.";
+        }
+
+        if (! $hasNarrative && $short === 1) {
+            return "{$name} still needs a narrative and one more file.";
+        }
+
+        return "{$name} still needs a narrative and two files.";
+    }
+
     private function hasUnratedLines(PcrForm $form): bool
     {
         $ids = PcrIndicator::query()
@@ -1732,9 +1950,11 @@ class PcrFormController extends Controller
         $rated = PcrRating::query()
             ->whereIn('indicator_id', $ids)
             ->when($form->rating_period_id, fn ($q) => $q->where('rating_period_id', $form->rating_period_id))
-            ->whereNotNull('q')
-            ->whereNotNull('e')
-            ->whereNotNull('t')
+            ->tap(function ($query) {
+                foreach (app(WorkflowSettings::class)->ratingDimensionKeys() as $dimension) {
+                    $query->whereNotNull($dimension);
+                }
+            })
             ->pluck('indicator_id')
             ->unique();
 
@@ -1834,30 +2054,38 @@ class PcrFormController extends Controller
 
         if (in_array($user->role, ['admin', 'qa', 'president'], true)) {
             if ($user->role === 'president' && $queueOnly) {
-                $query->where('status', 'commitment_review')
-                    ->where('commitment_approver_id', $user->id);
+                $rules = app(WorkflowSettings::class);
+                $extra = array_values(array_filter([
+                    $rules->isRater('president') ? 'qa_rating' : null,
+                    in_array('president', $rules->opcr('approver_roles'), true) ? 'qa_approval' : null,
+                ]));
+
+                $query->where(function ($q) use ($user, $extra) {
+                    $q->where(function ($inner) use ($user) {
+                        $inner->where('status', 'commitment_review')
+                            ->where('commitment_approver_id', $user->id);
+                    });
+
+                    if ($extra !== []) {
+                        $q->orWhereIn('status', $extra);
+                    }
+                });
 
                 return;
             }
 
             if ($user->role === 'qa' && $queueOnly) {
-                $approves = in_array('qa', app(WorkflowSettings::class)->opcr('approver_roles'), true);
-                $waiting  = $approves ? ['qa_rating', 'qa_approval'] : ['qa_rating'];
+                $rules    = app(WorkflowSettings::class);
+                $waiting  = array_values(array_filter([
+                    $rules->isRater('qa') ? 'qa_rating' : null,
+                    in_array('qa', $rules->opcr('approver_roles'), true) ? 'qa_approval' : null,
+                ]));
 
                 // Staff IPCRs stay with the QA director. They are not sent upward.
                 $query->where(function ($q) use ($user, $waiting) {
                     $q->whereIn('status', $waiting)
+                        ->orWhere(fn ($inner) => $inner->namedFor($user->id, true))
                         ->orWhere(function ($inner) use ($user) {
-                            $inner->where('head_reviewer_id', $user->id)->where('status', 'head_review');
-                        })->orWhere(function ($inner) use ($user) {
-                            $inner->where('dean_reviewer_id', $user->id)->where('status', 'dean_review');
-                        })->orWhereExists(function ($inner) use ($user) {
-                            $inner->selectRaw('1')
-                                ->from('pcr_form_reviewers')
-                                ->whereColumn('pcr_form_reviewers.form_id', 'pcr_forms.id')
-                                ->whereColumn('pcr_form_reviewers.stage', 'pcr_forms.status')
-                                ->where('pcr_form_reviewers.reviewer_id', $user->id);
-                        })->orWhere(function ($inner) use ($user) {
                             $inner->where('status', 'commitment_review')
                                 ->where('commitment_approver_id', $user->id);
                         });
@@ -1867,30 +2095,44 @@ class PcrFormController extends Controller
             return;
         }
 
+        if ($queueOnly && ! in_array($user->role, ['admin', 'qa', 'president'], true)) {
+            $rules    = app(WorkflowSettings::class);
+            $rates    = $rules->isRater($user->role);
+            $approves = in_array($user->role, $rules->opcr('approver_roles'), true);
+
+            if ($rates || $approves) {
+                $waiting = array_values(array_filter([
+                    $rates ? 'qa_rating' : null,
+                    $approves ? 'qa_approval' : null,
+                ]));
+
+                $query->where(function ($q) use ($user, $waiting) {
+                    $q->whereIn('status', $waiting)
+                        ->orWhere(fn ($inner) => $inner->namedFor($user->id, true))
+                        ->orWhere(function ($inner) use ($user) {
+                            $inner->where('status', 'commitment_review')
+                                ->where('commitment_approver_id', $user->id);
+                        });
+                });
+
+                return;
+            }
+        }
+
         // Units this person oversees in either capacity — one person may hold
         // both a head and a VP post, so this is a union, not a role lookup.
         $unitIds = collect(OrgUnit::overseenIds((int) $user->id));
+        $watched = OrgUnit::watchedIds((int) $user->id);
 
-        if ($unitIds->isNotEmpty() || in_array($user->role, ['program_head', 'vp', 'hr'], true)) {
+        if ($unitIds->isNotEmpty() || $watched !== [] || in_array($user->role, ['program_head', 'vp', 'hr'], true)) {
             if ($queueOnly) {
                 // Authority is being named on the form, not holding a role.
                 $query->where(function ($q) use ($user) {
-                    $q->where(function ($x) use ($user) {
-                        $x->where('head_reviewer_id', $user->id)->where('status', 'head_review');
-                    })->orWhere(function ($x) use ($user) {
-                        $x->where('dean_reviewer_id', $user->id)->where('status', 'dean_review');
-                    })->orWhere(function ($x) use ($user) {
-                        $x->where('vp_reviewer_id', $user->id)->where('status', 'vp_review');
-                    })->orWhereExists(function ($x) use ($user) {
-                        $x->selectRaw('1')
-                            ->from('pcr_form_reviewers')
-                            ->whereColumn('pcr_form_reviewers.form_id', 'pcr_forms.id')
-                            ->whereColumn('pcr_form_reviewers.stage', 'pcr_forms.status')
-                            ->where('pcr_form_reviewers.reviewer_id', $user->id);
-                    })->orWhere(function ($x) use ($user) {
-                        $x->where('status', 'commitment_review')
-                            ->where('commitment_approver_id', $user->id);
-                    });
+                    $q->where(fn ($inner) => $inner->namedFor($user->id, true))
+                        ->orWhere(function ($x) use ($user) {
+                            $x->where('status', 'commitment_review')
+                                ->where('commitment_approver_id', $user->id);
+                        });
                 })->where(function ($q) use ($user) {
                     $q->whereNull('user_id')->orWhere('user_id', '!=', $user->id);
                 });
@@ -1898,23 +2140,26 @@ class PcrFormController extends Controller
                 return;
             }
 
-            $query->where(function ($q) use ($unitIds, $user) {
+            $query->where(function ($q) use ($unitIds, $user, $watched) {
                 $q->whereIn('org_unit_id', $unitIds)
                     ->orWhere('user_id', $user->id)
-                    ->orWhere('head_reviewer_id', $user->id)
-                    ->orWhere('dean_reviewer_id', $user->id)
-                    ->orWhere('vp_reviewer_id', $user->id)
-                    ->orWhereExists(function ($x) use ($user) {
-                        $x->selectRaw('1')
-                            ->from('pcr_form_reviewers')
-                            ->whereColumn('pcr_form_reviewers.form_id', 'pcr_forms.id')
-                            ->where('pcr_form_reviewers.reviewer_id', $user->id);
-                    });
+                    ->orWhere(fn ($inner) => $inner->namedFor($user->id))
+                    ->orWhere(fn ($inner) => $inner->accountableTo((int) $user->id));
+
+                if ($watched !== []) {
+                    $q->orWhereIn('org_unit_id', $watched)
+                        ->orWhereIn('user_id', function ($inner) use ($watched) {
+                            $inner->select('id')->from('users')->whereIn('org_unit_id', $watched);
+                        });
+                }
             });
 
             return;
         }
 
-        $query->where('user_id', $user->id);
+        $query->where(function ($q) use ($user) {
+            $q->where('user_id', $user->id)
+                ->orWhere(fn ($inner) => $inner->accountableTo((int) $user->id));
+        });
     }
 }

@@ -19,11 +19,11 @@ import {
 } from "antd";
 import { DownOutlined, FileExcelOutlined, FilePdfOutlined, PrinterOutlined } from "@ant-design/icons";
 import { useQuery } from "@tanstack/react-query";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import dayjs from "dayjs";
 import api from "~/utils/api";
 import { downloadFile, openPdf } from "~/utils/download";
-import { ADJECTIVAL_COLORS, SECTION_LABELS, STATUS_META, VIZ } from "~/utils/constants";
+import { ADJECTIVAL_COLORS, RATING_LEGEND, SECTION_LABELS, STATUS_META, VIZ } from "~/utils/constants";
 import PageHeader from "~/components/PageHeader";
 
 const TABS = [
@@ -160,12 +160,36 @@ function ReportCards({ tab, rows, onOpen }) {
 
 export default function ReportsPage() {
     const navigate = useNavigate();
+    const [searchParams] = useSearchParams();
+    const query = searchParams.toString();
     const [yearId, setYearId] = useState(null);
     const [periodId, setPeriodId] = useState(null);
-    const [tab, setTab] = useState("units");
-    const [search, setSearch] = useState("");
-    const [lateOnly, setLateOnly] = useState(false);
+    const [tab, setTab] = useState(() => {
+        if (searchParams.has("late")) return "commitments";
+
+        const next = searchParams.get("tab");
+
+        return TABS.some((item) => item.value === next) ? next : "units";
+    });
+    const [search, setSearch] = useState(() => searchParams.get("q") ?? "");
+    const [lateOnly, setLateOnly] = useState(() => searchParams.has("late"));
     const [busy, setBusy] = useState(false);
+
+    useEffect(() => {
+        const params = new URLSearchParams(query);
+
+        if (params.has("late")) {
+            setTab("commitments");
+            setLateOnly(true);
+        } else {
+            const next = params.get("tab");
+
+            setTab(TABS.some((item) => item.value === next) ? next : "units");
+            setLateOnly(false);
+        }
+
+        setSearch(params.get("q") ?? "");
+    }, [query]);
 
     const { data: years = [] } = useQuery({
         queryKey: ["school-years"],
@@ -206,6 +230,10 @@ export default function ReportsPage() {
     const rows = useMemo(() => {
         if (!data) return [];
 
+        const term = search.trim().toLowerCase();
+        const exactBand = RATING_LEGEND.some((band) => band.label.toLowerCase() === term);
+        const exactSection = ["strategic", "core", "support"].includes(term);
+
         if (tab === "units") return data.units.filter((row) => matches(row, ["name", "code"]));
 
         if (tab === "heads") return data.heads.filter((row) => matches(row, ["head", "unit", "unit_code", "position"]));
@@ -220,11 +248,19 @@ export default function ReportsPage() {
         if (tab === "ratings")
             return data.forms
                 .filter((row) => row.average != null)
-                .filter((row) => matches(row, ["owner", "unit", "type", "adjectival"]));
+                .filter((row) =>
+                    exactBand
+                        ? String(row.adjectival ?? "").toLowerCase() === term
+                        : matches(row, ["owner", "unit", "type", "adjectival"])
+                );
 
         return data.commitments
             .filter((row) => (lateOnly ? row.is_overdue : true))
-            .filter((row) => matches(row, ["description", "owner", "unit", "section"]));
+            .filter((row) =>
+                exactSection
+                    ? String(row.section ?? "").toLowerCase() === term
+                    : matches(row, ["description", "owner", "unit", "section"])
+            );
     }, [data, tab, search, lateOnly]);
 
     const download = async (kind) => {

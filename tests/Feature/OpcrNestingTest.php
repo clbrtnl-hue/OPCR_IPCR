@@ -44,6 +44,25 @@ class OpcrNestingTest extends PmsTestCase
         $this->assertSame('Entrance Exam', PcrOutput::find($childId)->title);
     }
 
+    public function test_a_blank_nested_ppa_stays_blank(): void
+    {
+        ['opcr' => $opcr] = $this->college();
+
+        $parentId = $this->postJson('/api/pcr-outputs', [
+            'form_id' => $opcr->id, 'section' => 'core', 'title' => 'Research',
+        ])->assertStatus(201)->json('output.id');
+
+        $childId = $this->postJson('/api/pcr-outputs', [
+            'form_id'          => $opcr->id,
+            'section'          => 'core',
+            'title'            => '',
+            'parent_output_id' => $parentId,
+        ])->assertStatus(201)->json('output.id');
+
+        $this->assertSame('', PcrOutput::find($childId)->title);
+        $this->assertSame($parentId, (int) PcrOutput::find($childId)->parent_output_id);
+    }
+
     public function test_a_header_without_a_success_indicator_is_ready(): void
     {
         ['opcr' => $opcr] = $this->college();

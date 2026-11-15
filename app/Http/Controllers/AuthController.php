@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\ActivityLog;
 use App\Models\User;
+use App\Services\WorkflowSettings;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Laravel\Passport\Token;
@@ -33,13 +34,20 @@ class AuthController extends Controller
 
         return response()->json([
             'access_token' => $token,
-            'user'         => $user->load('orgUnit'),
+            'user'         => $this->withWorkflow($user->load('orgUnit')),
         ]);
     }
 
     public function me(Request $request)
     {
-        return response()->json($request->user()->load('orgUnit'));
+        return response()->json($this->withWorkflow($request->user()->load('orgUnit')));
+    }
+
+    private function withWorkflow(User $user): User
+    {
+        $user->setAttribute('workflow', app(WorkflowSettings::class)->forClient());
+
+        return $user;
     }
 
     public function changePassword(Request $request)

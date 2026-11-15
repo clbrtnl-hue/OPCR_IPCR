@@ -8,6 +8,7 @@ export default function BarRows({
     color = VIZ.series[0],
     format = (value) => value,
     emptyText = "Nothing to show yet.",
+    onSelect,
 }) {
     if (!data.length) {
         return <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={emptyText} />;
@@ -21,9 +22,15 @@ export default function BarRows({
                 const value = Number(row.value ?? 0);
                 const width = ceiling > 0 ? (value / ceiling) * 100 : 0;
 
+                const Item = onSelect ? "button" : "div";
+
                 return (
                     <Tooltip key={row.key} title={row.hint ?? `${row.label} — ${format(value)}`}>
-                        <div className="viz-bar-row">
+                        <Item
+                            type={onSelect ? "button" : undefined}
+                            className="viz-bar-row"
+                            onClick={onSelect ? () => onSelect(row) : undefined}
+                        >
                             <span className="viz-bar-label" title={row.label}>
                                 {row.label}
                             </span>
@@ -37,7 +44,7 @@ export default function BarRows({
                                 />
                             </span>
                             <span className="viz-bar-value">{format(value)}</span>
-                        </div>
+                        </Item>
                     </Tooltip>
                 );
             })}

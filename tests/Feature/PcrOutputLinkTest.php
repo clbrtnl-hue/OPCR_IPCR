@@ -211,16 +211,19 @@ class PcrOutputLinkTest extends PmsTestCase
         $this->assertNull(PcrOutput::find($response->json('output.id'))->parent_output_id);
     }
 
-    public function test_a_heading_still_needs_a_name(): void
+    public function test_a_blank_heading_stays_blank_until_it_is_named(): void
     {
         ['employee' => $employee, 'ipcr' => $ipcr] = $this->college();
 
         $this->actingAsUser($employee);
 
-        $this->postJson('/api/pcr-outputs', [
+        $response = $this->postJson('/api/pcr-outputs', [
             'form_id' => $ipcr->id,
             'section' => 'core',
-        ])->assertStatus(422);
+            'title'   => '',
+        ])->assertStatus(201);
+
+        $this->assertSame('', PcrOutput::find($response->json('output.id'))->title);
     }
 
     public function test_support_functions_are_the_ratees_own(): void

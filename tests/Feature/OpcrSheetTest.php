@@ -204,6 +204,15 @@ class OpcrSheetTest extends PmsTestCase
             'file'             => UploadedFile::fake()->image('minutes.jpg'),
         ], ['Accept' => 'application/json'])->assertStatus(201);
 
+        $this->assertSame(65, (int) $line->fresh()->progress_pct);
+        $this->assertSame('ongoing', $line->fresh()->progress_status);
+
+        $this->post('/api/pcr-attachments', [
+            'indicator_id'     => $line->id,
+            'rating_period_id' => $period->id,
+            'file'             => UploadedFile::fake()->image('attendance.jpg'),
+        ], ['Accept' => 'application/json'])->assertStatus(201);
+
         $this->getJson("/api/pcr-forms/{$opcr->id}")
             ->assertJsonPath('outputs.0.indicators.0.progress_status', 'completed')
             ->assertJsonPath('outputs.0.indicators.0.progress_pct', 100);
@@ -219,7 +228,7 @@ class OpcrSheetTest extends PmsTestCase
             'file'             => UploadedFile::fake()->image('sheet.jpg'),
         ], ['Accept' => 'application/json'])->assertStatus(201);
 
-        $this->assertSame(70, (int) $fileOnly->fresh()->progress_pct);
+        $this->assertSame(35, (int) $fileOnly->fresh()->progress_pct);
         $this->assertSame('ongoing', $fileOnly->fresh()->progress_status);
     }
 }

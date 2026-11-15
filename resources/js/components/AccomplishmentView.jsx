@@ -29,15 +29,20 @@ export function AccomplishmentCell({
     empty = "Nothing recorded.",
     label = "Open",
     onOpen,
+    mark = null,
+    evidenceMark = null,
 }) {
     return (
         <>
-            {html ? (
-                <RichTextView html={html} />
-            ) : (
-                <span className="pms-cell-empty">{empty}</span>
-            )}
-            <div style={{ marginTop: 4 }}>
+            <div className={mark ? "pms-flag" : undefined}>
+                {html ? (
+                    <RichTextView html={html} />
+                ) : (
+                    <span className="pms-cell-empty">{empty}</span>
+                )}
+                {mark && <div className="pms-cell-mark">{mark}</div>}
+            </div>
+            <div className={evidenceMark ? "pms-flag" : undefined} style={{ marginTop: 4 }}>
                 <Space size={6}>
                     <Button size="small" type="text" icon={<ExpandOutlined />} onClick={onOpen}>
                         {label}
@@ -48,6 +53,7 @@ export function AccomplishmentCell({
                         </Badge>
                     )}
                 </Space>
+                {evidenceMark && <div className="pms-cell-mark">{evidenceMark}</div>}
             </div>
         </>
     );

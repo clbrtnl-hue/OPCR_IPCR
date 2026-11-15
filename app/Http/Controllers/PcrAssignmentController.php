@@ -253,17 +253,31 @@ class PcrAssignmentController extends Controller
                 );
 
                 $assigned++;
-                $touched[$assignee->id] = ($touched[$assignee->id] ?? 0) + 1;
+                $touched[$assignee->id][] = $line->id;
             }
         }
 
-        foreach ($touched as $userId => $count) {
+        foreach ($touched as $userId => $indicatorIds) {
+            // The sheet they can open is their own IPCR for this period.
+            // The president keeps the OPCR, so that form stays the destination.
+            $ipcrId = PcrForm::query()
+                ->where('type', 'ipcr')
+                ->where('user_id', $userId)
+                ->where('school_year_id', $form->school_year_id)
+                ->where('rating_period_id', $periodId)
+                ->value('id');
+
+            $count  = count($indicatorIds);
+            $formId = $ipcrId ?: $form->id;
+            $link   = '/forms/' . $formId . '?targets=' . implode(',', $indicatorIds);
+
             Notification::send(
                 $userId,
                 'assignment',
                 "{$actor->name} assigned you " . $count . ' ' . ($count === 1 ? 'commitment' : 'commitments'),
                 'They are waiting in your IPCR. Write your own commitments against each assigned target.',
-                $form->id
+                $formId,
+                $link
             );
         }
 
@@ -317,7 +331,17 @@ class PcrAssignmentController extends Controller
     /** A published OPCR keeps the people already named. No new assign or cascade. */
     private function accountableClosed(PcrForm $form)
     {
-        if ($form->type !== 'opcr' || ! in_array($form->status, ['published', 'qa_rating', 'rated', 'final'], true)) {
+        if ($form->type !== 'opcr') {
+            return null;
+        }
+
+        if ($form->status === 'returned' && PcrWorkflow::returnedFromRating($form)) {
+            return response()->json([
+                'message' => 'This OPCR was returned from rating. Targets can no longer be changed — update the accomplishment and the evidence.',
+            ], 409);
+        }
+
+        if (! in_array($form->status, ['published', 'qa_rating', 'rated', 'final'], true)) {
             return null;
         }
 
@@ -332,10 +356,6 @@ class PcrAssignmentController extends Controller
      */
     private function mayDelegate(User $actor, PcrForm $form, string $level)
     {
-        if ($level !== 'indicator' && in_array($actor->role, WorkflowSettings::REVIEW_ONLY_ROLES, true)) {
-            return $this->reviewOnly();
-        }
-
         if (! PcrWorkflow::owns($actor, $form)) {
             return response()->json([
                 'message' => 'Only the owner of this commitment can hand parts of it to someone else.',
@@ -361,13 +381,6 @@ class PcrAssignmentController extends Controller
         }
 
         return null;
-    }
-
-    private function reviewOnly()
-    {
-        return response()->json([
-            'message' => 'A VP reviews commitments; work is not handed out from a VP account.',
-        ], 403);
     }
 
     private function assigneesFrom(array $data, PcrForm $form, ?User $actor = null)

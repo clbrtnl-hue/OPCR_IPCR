@@ -36,22 +36,12 @@ import AssignDrawer from "~/components/AssignDrawer";
 import { usePerson } from "~/hooks/usePerson";
 import { toPlainText } from "~/components/RichTextView";
 import ProgressCell from "~/components/ProgressCell";
-import { ADJECTIVAL_COLORS, DELAY_META, NARRATIVE_MAX, RATING_LEGEND, SECTION_LABELS } from "~/utils/constants";
+import { ADJECTIVAL_COLORS, DELAY_META, NARRATIVE_MAX, SECTION_LABELS } from "~/utils/constants";
+import { returnMark } from "~/utils/returnMarks";
+import { averageOf, ratingRules, scoreOptions } from "~/utils/ratingScale";
+import { useAuth } from "~/hooks/useAuth";
 
 const SECTIONS = ["strategic", "core", "support"];
-
-const SCORE_OPTIONS = RATING_LEGEND.map((band) => ({
-    value: band.value,
-    label: String(band.value),
-}));
-
-function averageOf(row) {
-    const given = [row?.q, row?.e, row?.t].filter((value) => value != null);
-
-    if (given.length === 0) return null;
-
-    return (given.reduce((sum, value) => sum + value, 0) / given.length).toFixed(2);
-}
 
 export default function IpcrSheet({
     form,
@@ -64,10 +54,13 @@ export default function IpcrSheet({
     showScores = false,
     opcrTargets = [],
     summary,
-    onAddOutput,
     focusLineId = null,
     focusOutputId = null,
+    returnMarks = [],
 }) {
+    const { user } = useAuth();
+    const scale = ratingRules(user);
+    const scores = scoreOptions(user);
     const queryClient = useQueryClient();
     const [openLineId, setOpenLineId] = useState(null);
     const focusedLine = useRef(null);
@@ -168,7 +161,40 @@ export default function IpcrSheet({
 
     const saveOutput = useMutation({
         mutationFn: (values) => api.post("pcr-outputs", { form_id: form.id, ...values }),
-        onSuccess: refresh,
+        onSuccess: async ({ data }, values) => {
+            const saved = data?.output;
+            const key = ["pcr-form", String(form.id)];
+
+            await queryClient.cancelQueries({ queryKey: key });
+
+            if (saved) {
+                queryClient.setQueryData(key, (current) =>
+                    current?.outputs
+                        ? {
+                              ...current,
+                              outputs: current.outputs.map((output) =>
+                                  output.id === saved.id
+                                      ? {
+                                            ...output,
+                                            title: saved.title,
+                                            section: saved.section,
+                                            parent_output_id: saved.parent_output_id,
+                                            sort_order: saved.sort_order,
+                                        }
+                                      : output
+                              ),
+                          }
+                        : current
+                );
+            }
+
+            if (!values.id) {
+                message.success("MFO/PPA added — name it and add its success indicators.");
+                setJustAdded({ kind: "output", id: data.output.id });
+            }
+
+            refresh();
+        },
     });
 
     const swapOrder = useMutation({
@@ -204,7 +230,37 @@ export default function IpcrSheet({
 
     const saveIndicator = useMutation({
         mutationFn: (values) => api.post("pcr-indicators", { rating_period_id: periodId, ...values }),
-        onSuccess: ({ data }, values) => {
+        onSuccess: async ({ data }, values) => {
+            const saved = data?.indicator;
+            const key = ["pcr-form", String(form.id)];
+
+            await queryClient.cancelQueries({ queryKey: key });
+
+            if (saved) {
+                queryClient.setQueryData(key, (current) =>
+                    current?.outputs
+                        ? {
+                              ...current,
+                              outputs: current.outputs.map((output) => ({
+                                  ...output,
+                                  indicators: (output.indicators ?? []).map((line) =>
+                                      line.id === saved.id
+                                          ? {
+                                                ...line,
+                                                description: saved.description,
+                                                target_date: saved.target_date,
+                                                parent_indicator_id: saved.parent_indicator_id,
+                                                sort_order: saved.sort_order,
+                                                rating_period_id: saved.rating_period_id,
+                                            }
+                                          : line
+                                  ),
+                              })),
+                          }
+                        : current
+                );
+            }
+
             if (!values.id) {
                 message.success("Success indicator added.");
                 setJustAdded({ kind: "indicator", id: data.indicator.id });
@@ -283,7 +339,11 @@ export default function IpcrSheet({
     useEffect(() => {
         if (!justAdded) return;
 
-        const row = document.querySelector(`[data-row="indicator-${justAdded.id}"]`);
+        const key = `${justAdded.kind}-${justAdded.id}`;
+        const row =
+            document.querySelector(`[data-row="${key}"]`) ??
+            document.querySelector(`[data-output-row="${key}"]`) ??
+            document.querySelector(`[data-output-id="${justAdded.id}"]`);
 
         if (!row) return;
 
@@ -346,7 +406,7 @@ export default function IpcrSheet({
         (o.indicators ?? []).some((i) => accountableFor(i).length > 0)
     );
     const showAccountable = canAssign || anyDelegated;
-    const columnCount = (showAccountable ? 6 : 5) + (showScores ? 4 : 0);
+    const columnCount = (showAccountable ? 6 : 5) + (showScores ? scale.dimensions.length + 1 : 0);
 
     const rows = [];
 
@@ -366,7 +426,7 @@ export default function IpcrSheet({
                                 size="small"
                                 type="text"
                                 icon={<PlusOutlined />}
-                                onClick={() => onAddOutput?.(section)}
+                                onClick={() => saveOutput.mutate({ section, title: "" })}
                             >
                                 Add MFO/PPA
                             </Button>
@@ -404,8 +464,9 @@ export default function IpcrSheet({
                             disabled={!canEdit}
                             placeholder="Name this MFO/PPA"
                             maxLength={NARRATIVE_MAX}
+                            mark={returnMark(returnMarks, { outputId: output.id, field: "title" })}
                             onCommit={(title) =>
-                                saveOutput.mutate({ id: output.id, section, title: title ?? "Untitled" })
+                                saveOutput.mutate({ id: output.id, section, title: title ?? "" })
                             }
                         />
                     </div>
@@ -420,7 +481,7 @@ export default function IpcrSheet({
                                         onClick={() =>
                                             saveIndicator.mutate({
                                                 output_id: output.id,
-                                                description: "New success indicator",
+                                                description: "",
                                             })
                                         }
                                     />
@@ -490,7 +551,7 @@ export default function IpcrSheet({
 
             if (!lines.length) {
                 rows.push(
-                    <tr key={`output-${output.id}-empty`}>
+                    <tr key={`output-${output.id}-empty`} data-output-row={`output-${output.id}`}>
                         {outputCell}
                         <td colSpan={columnCount - 1} className="pms-sheet-empty">
                             {canEdit ? "No success indicator yet — use + to add one." : "—"}
@@ -532,9 +593,13 @@ export default function IpcrSheet({
                                         disabled={!canEdit}
                                         placeholder="Target + measure + timeframe"
                                         maxLength={NARRATIVE_MAX}
+                                        mark={returnMark(returnMarks, {
+                                            indicatorId: line.id,
+                                            field: "description",
+                                        })}
                                         onCommit={(description) =>
                                             patchLine(line, output.id, {
-                                                description: description ?? "Untitled",
+                                                description: description ?? "",
                                             })
                                         }
                                     />
@@ -629,6 +694,10 @@ export default function IpcrSheet({
                                 value={line.target_date}
                                 disabled={!canEdit}
                                 placeholder="No date"
+                                mark={returnMark(returnMarks, {
+                                    indicatorId: line.id,
+                                    field: "target_date",
+                                })}
                                 onCommit={(target_date) => patchLine(line, output.id, { target_date })}
                             />
                             {line.delay && line.delay.state !== "no_date" && (
@@ -649,7 +718,7 @@ export default function IpcrSheet({
                                 computedHint={
                                     (line.children ?? []).length > 0
                                         ? "Rolled up from the commitments written against this line."
-                                        : "The narrative counts as 30%. A file counts as 70%. Both together reach 100%."
+                                        : "The narrative counts as 30%. Two files count as 70%, so one file is 35%. A narrative and both files reach 100%."
                                 }
                             />
                         </td>
@@ -708,6 +777,14 @@ export default function IpcrSheet({
                             <AccomplishmentCell
                                 html={accomplishment?.actual_accomplishment}
                                 evidenceCount={evidenceCount}
+                                mark={returnMark(returnMarks, {
+                                    indicatorId: line.id,
+                                    field: "actual_accomplishment",
+                                })}
+                                evidenceMark={returnMark(returnMarks, {
+                                    indicatorId: line.id,
+                                    field: "evidence",
+                                })}
                                 empty={
                                     canRecordProgress
                                         ? "Open the row to record it"
@@ -719,26 +796,26 @@ export default function IpcrSheet({
                         </td>
 
                         {showScores &&
-                            ["q", "e", "t"].map((dimension) => (
-                                <td key={dimension} className="pms-sheet-score">
+                            scale.dimensions.map((dimension) => (
+                                <td key={dimension.key} className="pms-sheet-score">
                                     {canScore ? (
                                         <Select
                                             size="small"
                                             style={{ width: 64 }}
                                             allowClear
-                                            value={draftScores[line.id]?.[dimension] ?? undefined}
-                                            options={SCORE_OPTIONS}
-                                            onChange={(value) => saveScore(line.id, dimension, value)}
+                                            value={draftScores[line.id]?.[dimension.key] ?? undefined}
+                                            options={scores}
+                                            onChange={(value) => saveScore(line.id, dimension.key, value)}
                                         />
                                     ) : (
-                                        rating?.[dimension] ?? ""
+                                        rating?.[dimension.key] ?? ""
                                     )}
                                 </td>
                             ))}
                         {showScores && (
                             <td className="pms-sheet-score">
                                 {canScore
-                                    ? averageOf(draftScores[line.id]) ?? ""
+                                    ? averageOf(draftScores[line.id], user) ?? ""
                                     : rating?.a != null
                                       ? Number(rating.a).toFixed(2)
                                       : ""}
@@ -808,9 +885,15 @@ export default function IpcrSheet({
                             <th style={{ width: 240 }}>Actual Accomplishments</th>
                             {showScores && (
                                 <>
-                                    <th style={{ width: canScore ? 76 : 38 }} title="Quality">Q</th>
-                                    <th style={{ width: canScore ? 76 : 38 }} title="Efficiency">E</th>
-                                    <th style={{ width: canScore ? 76 : 38 }} title="Timeliness">T</th>
+                                    {scale.dimensions.map((dimension) => (
+                                        <th
+                                            key={dimension.key}
+                                            style={{ width: canScore ? 76 : 38 }}
+                                            title={dimension.label}
+                                        >
+                                            {dimension.short}
+                                        </th>
+                                    ))}
                                     <th style={{ width: 46 }} title="Average">A</th>
                                 </>
                             )}

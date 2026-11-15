@@ -181,7 +181,7 @@ export default function DashboardPage() {
                 <>
                     <div className="pms-board-head">
                         <Typography.Title level={5} style={{ margin: 0 }}>
-                            Offices and programs — {shownYear?.label}
+                            College progress — {shownYear?.label}
                         </Typography.Title>
                         <a onClick={() => navigate("/reports")}>Open the report tables</a>
                     </div>

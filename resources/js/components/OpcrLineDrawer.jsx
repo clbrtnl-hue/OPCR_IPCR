@@ -129,7 +129,7 @@ export default function OpcrLineDrawer({
                     computedHint={
                         (line.children ?? []).length > 0 || hasDelegatedHeading
                             ? "With Linked Commitment. Rolled up from the commitments linked to this target."
-                            : "The narrative counts as 30%. A file counts as 70%. Both together reach 100%."
+                            : "The narrative counts as 30%. Two files count as 70%, so one file is 35%. A narrative and both files reach 100%."
                     }
                 />
             </div>

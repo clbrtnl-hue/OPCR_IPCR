@@ -191,4 +191,116 @@ class WorkflowSettingsTest extends PmsTestCase
 
         $this->assertTrue(app(WorkflowSettings::class)->mayAssignOutputs('president'));
     }
+
+    public function test_the_named_approver_returns_an_opcr(): void
+    {
+        ['college' => $college, 'year' => $year, 'head' => $head] = $this->college();
+
+        app(WorkflowSettings::class)->put('opcr', [
+            'creator_roles'        => ['president'],
+            'approver_roles'       => ['program_head'],
+            'publisher_roles'      => ['president'],
+            'rating_trigger_roles' => ['president'],
+            'one_per'              => 'organization',
+        ]);
+
+        $opcr = $this->makeForm([
+            'type' => 'opcr', 'org_unit_id' => $college->id,
+            'school_year_id' => $year->id, 'status' => 'qa_approval',
+        ]);
+        $line = $this->makeIndicator($opcr, 'core');
+        $fixes = [[
+            'indicator_id' => $line->id,
+            'field'        => 'description',
+            'note'         => 'Name the measure.',
+        ]];
+
+        $qa = User::factory()->create(['role' => 'qa']);
+        $this->actingAsUser($qa);
+        $this->postJson("/api/pcr-forms/{$opcr->id}/status", [
+            'status' => 'returned',
+            'fixes'  => $fixes,
+        ])->assertStatus(403);
+
+        $this->actingAsUser($head);
+        $this->postJson("/api/pcr-forms/{$opcr->id}/status", [
+            'status' => 'returned',
+            'fixes'  => $fixes,
+        ])->assertOk();
+
+        $this->assertSame('returned', $opcr->fresh()->status);
+    }
+
+    public function test_the_final_stage_role_rates_the_form(): void
+    {
+        ['office' => $office, 'year' => $year, 'faculty' => $faculty] = $this->college();
+        $period = $this->makePeriod($year);
+        $hr = User::factory()->create(['role' => 'hr']);
+
+        app(WorkflowSettings::class)->put('review_stages', [
+            ['status' => 'head_review', 'label' => 'With Head', 'source' => 'unit_slot',
+             'slot' => 'head_user_id', 'skippable' => true],
+            ['status' => 'qa_rating', 'label' => 'With HR', 'source' => 'role',
+             'role' => 'hr', 'skippable' => false],
+        ]);
+
+        $form = $this->makeForm([
+            'org_unit_id' => $office->id, 'school_year_id' => $year->id,
+            'user_id' => $faculty->id, 'status' => 'qa_rating',
+        ]);
+        $line = $this->makeIndicator($form, 'core');
+        $payload = [
+            'form_id' => $form->id,
+            'rating_period_id' => $period->id,
+            'ratings' => [['indicator_id' => $line->id, 'q' => 4, 'e' => 4, 't' => 4]],
+        ];
+
+        $qa = User::factory()->create(['role' => 'qa']);
+        $this->actingAsUser($qa);
+        $this->postJson('/api/pcr-ratings', $payload)->assertStatus(409);
+
+        $this->actingAsUser($hr);
+        $this->postJson('/api/pcr-ratings', $payload)->assertOk();
+    }
+
+    public function test_score_range_and_dimensions_follow_the_setting(): void
+    {
+        ['office' => $office, 'year' => $year, 'faculty' => $faculty] = $this->college();
+        $period = $this->makePeriod($year);
+        $qa = User::factory()->create(['role' => 'qa']);
+
+        app(WorkflowSettings::class)->put('rating', [
+            'dimensions' => ['q', 't'],
+            'min' => 1,
+            'max' => 4,
+            'bands' => config('pms.rating.bands'),
+        ]);
+
+        $form = $this->makeForm([
+            'org_unit_id' => $office->id, 'school_year_id' => $year->id,
+            'user_id' => $faculty->id, 'status' => 'qa_rating',
+        ]);
+        $line = $this->makeIndicator($form, 'core');
+
+        $this->actingAsUser($qa);
+        $this->postJson('/api/pcr-ratings', [
+            'form_id' => $form->id,
+            'rating_period_id' => $period->id,
+            'ratings' => [['indicator_id' => $line->id, 'q' => 5, 't' => 2]],
+        ])->assertStatus(422);
+
+        $this->postJson('/api/pcr-ratings', [
+            'form_id' => $form->id,
+            'rating_period_id' => $period->id,
+            'ratings' => [['indicator_id' => $line->id, 'q' => 4, 'e' => 5, 't' => 2]],
+        ])->assertOk();
+
+        $this->assertDatabaseHas('pcr_ratings', [
+            'indicator_id' => $line->id,
+            'q' => 4,
+            'e' => null,
+            't' => 2,
+            'a' => 3.00,
+        ]);
+    }
 }

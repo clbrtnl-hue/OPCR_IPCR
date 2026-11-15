@@ -21,7 +21,9 @@ class PcrIndicatorController extends Controller
         $data = $request->validate([
             'id'                => 'nullable|integer|exists:pcr_indicators,id',
             'output_id'         => 'required|integer|exists:pcr_outputs,id',
-            'description'       => ['required_without:parent_indicator_id', 'nullable', 'string', Html::maxChars(500)],
+            // A new line may be blank. The sheet shows a placeholder until it
+            // is written, and readiness still blocks an empty target.
+            'description'       => ['nullable', 'string', Html::maxChars(500)],
             'target_date'       => 'nullable|date',
             'allotted_budget'   => 'nullable|numeric|min:0',
             'accountable'       => 'nullable|string|max:255',
@@ -34,7 +36,8 @@ class PcrIndicatorController extends Controller
 
         if (! PcrWorkflow::canEditCommitments($request->user(), $output->form)) {
             return response()->json([
-                'message' => 'Commitments can only be changed while the form is a draft or has been returned to you.',
+                'message' => PcrWorkflow::commitmentClosedMessage($output->form)
+                    ?? 'Commitments can only be changed while the form is a draft or has been returned to you.',
             ], 409);
         }
 
@@ -84,22 +87,24 @@ class PcrIndicatorController extends Controller
         $existing     = $id ? PcrIndicator::find($id) : null;
         $parent       = $parentId ? PcrIndicator::with('output.form')->find($parentId) : null;
 
-        if (blank($data['description'] ?? null) && blank($existing?->description)) {
-            return response()->json(['message' => 'Describe the target and how it is measured.'], 422);
-        }
-
-        // Null is a deliberate clear. ?? would treat it as "not sent" and put
-        // the previous value back, so a date copied from last year could never
-        // be removed. A field left out of the request still keeps what it had.
+        // A field left out of the request keeps what it had. A field that is
+        // sent, even blank, is the new text — putting the previous sentence
+        // back is what made a copied line impossible to rewrite.
         $kept = fn (string $field) => array_key_exists($field, $data)
             ? $data[$field]
             : $existing?->{$field};
 
+        $description = array_key_exists('description', $data)
+            ? (Html::clean($data['description'] ?? null) ?? '')
+            : $existing?->description;
+
+        if (blank($description)) {
+            $description = '';
+        }
+
         $attributes = [
             'output_id'         => $output->id,
-            'description'       => filled($data['description'] ?? null)
-                ? Html::clean($data['description'])
-                : $existing->description,
+            'description'       => $description,
             'target_date'       => $kept('target_date'),
             'allotted_budget'   => $isOpcr ? $kept('allotted_budget') : null,
             'accountable'       => $isOpcr ? $kept('accountable') : null,
@@ -174,7 +179,7 @@ class PcrIndicatorController extends Controller
         }
 
         return response()->json([
-            'message' => 'Progress follows the accomplishment. The narrative counts as 30% and a file as 70%. Both together reach 100%.',
+            'message' => 'Progress follows the accomplishment. The narrative counts as 30% and two files count as 70% (35% each). Both together reach 100%.',
         ], 409);
     }
 
@@ -184,7 +189,8 @@ class PcrIndicatorController extends Controller
 
         if (! PcrWorkflow::canEditCommitments($request->user(), $indicator->output->form)) {
             return response()->json([
-                'message' => 'Commitments can only be changed while the form is a draft or has been returned to you.',
+                'message' => PcrWorkflow::commitmentClosedMessage($indicator->output->form)
+                    ?? 'Commitments can only be changed while the form is a draft or has been returned to you.',
             ], 409);
         }
 
@@ -245,7 +251,13 @@ class PcrIndicatorController extends Controller
         }
 
         if ($parentForm->type === 'opcr' && $form->picksAssignedTargetsOnly()) {
-            return 'Pick a target that was assigned to you.';
+            $handedToMe = $form->user_id && PcrTargetAssignment::where('indicator_id', $parentId)
+                ->where('user_id', $form->user_id)
+                ->exists();
+
+            if (! $handedToMe) {
+                return 'Pick a target that was assigned to you.';
+            }
         }
 
         // A head or VP may answer a published college target. Faculty and staff

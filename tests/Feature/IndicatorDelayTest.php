@@ -3,9 +3,11 @@
 namespace Tests\Feature;
 
 use App\Models\PcrIndicator;
+use App\Models\PcrOutput;
 use App\Models\SchoolYear;
 use App\Models\User;
 use App\Services\IndicatorProgressService;
+use App\Support\Html;
 use Tests\PmsTestCase;
 
 /**
@@ -175,5 +177,64 @@ class IndicatorDelayTest extends PmsTestCase
         $this->assertNull($fresh->target_date);
         $this->assertNull($fresh->allotted_budget);
         $this->assertNull($fresh->accountable);
+    }
+
+    public function test_replacing_or_clearing_a_success_indicator_keeps_the_new_text(): void
+    {
+        $this->makeOrganization();
+        $unit = $this->makeUnit();
+        $year = $this->makeSchoolYear();
+        $owner = User::factory()->create(['role' => 'employee', 'org_unit_id' => $unit->id]);
+        $form = $this->makeForm([
+            'org_unit_id' => $unit->id, 'school_year_id' => $year->id, 'user_id' => $owner->id,
+        ]);
+        $line = $this->makeIndicator($form, 'core', [
+            'description' => '<p>Increase enrolment by 5% in 2025.</p>',
+        ]);
+
+        $this->actingAsUser($owner);
+
+        $this->postJson('/api/pcr-indicators', [
+            'id'          => $line->id,
+            'output_id'   => $line->output_id,
+            'description' => 'Increase enrolment by 5% in 2026.',
+        ])->assertOk();
+
+        $this->assertSame('Increase enrolment by 5% in 2026.', Html::toText($line->fresh()->description));
+
+        $this->postJson('/api/pcr-indicators', [
+            'id'          => $line->id,
+            'output_id'   => $line->output_id,
+            'description' => null,
+        ])->assertOk();
+
+        $this->assertTrue(Html::isBlank($line->fresh()->description));
+    }
+
+    public function test_replacing_or_clearing_an_mfo_keeps_the_new_title(): void
+    {
+        $this->makeOrganization();
+        $unit = $this->makeUnit();
+        $year = $this->makeSchoolYear();
+        $form = $this->makeForm([
+            'type' => 'opcr', 'org_unit_id' => $unit->id, 'school_year_id' => $year->id,
+        ]);
+        $output = PcrOutput::create([
+            'form_id' => $form->id, 'section' => 'core', 'title' => 'Research 2025',
+        ]);
+
+        $this->actingAsRole('president', ['org_unit_id' => $unit->id]);
+
+        $this->postJson('/api/pcr-outputs', [
+            'id' => $output->id, 'form_id' => $form->id, 'section' => 'core', 'title' => 'Instruction 2026',
+        ])->assertOk();
+
+        $this->assertSame('Instruction 2026', $output->fresh()->title);
+
+        $this->postJson('/api/pcr-outputs', [
+            'id' => $output->id, 'form_id' => $form->id, 'section' => 'core', 'title' => null,
+        ])->assertOk();
+
+        $this->assertSame('', $output->fresh()->title);
     }
 }

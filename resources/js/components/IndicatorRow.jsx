@@ -265,7 +265,7 @@ export default function IndicatorRow({
                     computedHint={
                         indicator.children?.length
                             ? "Rolled up from the commitments written against this line."
-                            : "The narrative counts as 30%. A file counts as 70%. Both together reach 100%."
+                            : "The narrative counts as 30%. Two files count as 70%, so one file is 35%. A narrative and both files reach 100%."
                     }
                 />
             </div>

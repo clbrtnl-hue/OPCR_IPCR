@@ -20,6 +20,14 @@ class TeamController extends Controller
         ]);
 
         $user = $request->user();
+
+        $mayOpen = in_array($user->role, ['program_head', 'vp', 'qa'], true)
+            || OrgUnit::watchedIds((int) $user->id) !== [];
+
+        if (! $mayOpen) {
+            return response()->json(['message' => 'Forbidden.'], 403);
+        }
+
         $year = ($data['school_year_id'] ?? null)
             ? SchoolYear::find($data['school_year_id'])
             : SchoolYear::where('is_active', true)->first() ?? SchoolYear::orderByDesc('start_date')->first();
@@ -33,7 +41,7 @@ class TeamController extends Controller
             : RatingPeriod::where('school_year_id', $year->id)->where('is_active', true)->first()
                 ?? RatingPeriod::where('school_year_id', $year->id)->orderBy('seq')->first();
 
-        $units = $this->unitsLedBy($user);
+        $units = $this->unitsFor($user);
 
         if ($units->isEmpty()) {
             return response()->json([
@@ -98,37 +106,49 @@ class TeamController extends Controller
         ]);
     }
 
-    private function unitsLedBy(User $user)
+    private function unitsFor(User $user)
     {
-        $query = OrgUnit::query()->with('reviewers')->orderBy('name');
+        $query = OrgUnit::query()->with(['reviewers', 'viewers'])->orderBy('name');
 
-        if (! $user->isAdmin()) {
-            $query->whereLedBy($user->id);
+        if ($user->isAdmin()) {
+            return $query->get(['id', 'name', 'code']);
         }
 
-        return $query->get(['id', 'name', 'code', 'head_user_id', 'dean_user_id', 'vp_user_id']);
+        $ids = array_values(array_unique(array_merge(
+            OrgUnit::query()->whereLedBy($user->id)->pluck('id')->map(fn ($id) => (int) $id)->all(),
+            OrgUnit::watchedIds((int) $user->id)
+        )));
+
+        if ($ids === []) {
+            return $query->whereRaw('0 = 1')->get(['id', 'name', 'code']);
+        }
+
+        return $query->whereIn('id', $ids)->get(['id', 'name', 'code']);
     }
 
     private function capacityOn(OrgUnit $unit, User $user): string
     {
-        if ((int) $unit->head_user_id === (int) $user->id) {
-            return 'head';
+        $held = ($unit->relationLoaded('reviewers') ? $unit->reviewers : $unit->reviewers()->get())
+            ->filter(fn ($row) => (int) $row->user_id === (int) $user->id)
+            ->pluck('slot');
+
+        foreach ([
+            'head_user_id'    => 'head',
+            'dean_user_id'    => 'dean',
+            'vp_user_id'      => 'vp',
+            'director_review' => 'director',
+        ] as $slot => $label) {
+            if ($held->contains($slot)) {
+                return $label;
+            }
         }
 
-        if ((int) $unit->dean_user_id === (int) $user->id) {
-            return 'dean';
+        $views = $unit->relationLoaded('viewers') ? $unit->viewers : $unit->viewers()->get();
+
+        if ($views->contains(fn ($row) => (int) $row->user_id === (int) $user->id)) {
+            return 'viewer';
         }
 
-        if ((int) $unit->vp_user_id === (int) $user->id) {
-            return 'vp';
-        }
-
-        $directs = $unit->relationLoaded('reviewers')
-            ? $unit->reviewers->contains(
-                fn ($row) => $row->slot === 'director_review' && (int) $row->user_id === (int) $user->id
-            )
-            : false;
-
-        return $directs ? 'director' : 'vp';
+        return 'vp';
     }
 }

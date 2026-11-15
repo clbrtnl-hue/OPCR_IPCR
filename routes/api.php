@@ -40,6 +40,7 @@ Route::middleware('auth:api')->group(function () {
     Route::get('users/options', [UserController::class, 'options']);
     Route::post('users/{id}/avatar', [UserController::class, 'avatar']);
 
+    Route::get('org-units/watching', [OrgUnitController::class, 'watching']);
     Route::get('org-units', [OrgUnitController::class, 'index']);
     Route::post('org-units', [OrgUnitController::class, 'store'])->middleware($PMS_ADMIN);
     Route::delete('org-units/{id}', [OrgUnitController::class, 'destroy'])->middleware($PMS_ADMIN);
@@ -67,7 +68,7 @@ Route::middleware('auth:api')->group(function () {
     Route::get('pcr-forms/{id}/pdf', [ReportController::class, 'formPdf']);
     Route::get('pcr-forms/{id}/xlsx', [ReportController::class, 'formExcel']);
     Route::get('assignable-users', [PcrAssignmentController::class, 'assignableUsers']);
-    Route::get('my-team', [TeamController::class, 'index'])->middleware('role:program_head,vp,qa');
+    Route::get('my-team', [TeamController::class, 'index']);
     Route::get('people/{id}', [UserProfileController::class, 'show']);
     Route::get('people/{id}/pdf', [UserProfileController::class, 'pdf']);
     Route::post('my-profile', [UserProfileController::class, 'updateProfile']);

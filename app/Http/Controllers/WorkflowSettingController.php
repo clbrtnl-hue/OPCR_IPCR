@@ -68,18 +68,6 @@ class WorkflowSettingController extends Controller
      */
     private function rejectBrokenRules(string $key, array $value): ?string
     {
-        $reviewOnly = fn (array $slots) => collect($slots)->contains(
-            fn ($slot) => array_intersect((array) ($value[$slot] ?? []), WorkflowSettings::REVIEW_ONLY_ROLES)
-        );
-
-        if ($key === 'delegation' && $reviewOnly(['assign_outputs'])) {
-            return 'A VP names people on a success indicator. A whole heading is not theirs to hand out.';
-        }
-
-        if ($key === 'opcr' && $reviewOnly(WorkflowSettings::REVIEW_ONLY_OPCR_SLOTS)) {
-            return 'A VP reviews only and cannot be given this step.';
-        }
-
         if ($key === 'review_stages') {
             if (empty($value)) {
                 return 'A form needs at least one review stage, or nothing could ever be rated.';

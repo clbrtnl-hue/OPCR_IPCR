@@ -124,9 +124,12 @@ export default function OrgUnitsPage() {
     );
 
     const personFor = (record, slot) => record.reviewers?.find((row) => row.slot === slot)?.user?.name;
+    const viewerNames = (record) =>
+        (record.viewers ?? []).map((row) => row.user?.name).filter(Boolean).join(", ");
 
     const heads = people.filter((p) => ["program_head", "admin", "vp", "qa"].includes(p.role));
     const vps = people.filter((p) => ["vp", "admin"].includes(p.role));
+    const viewers = people.filter((p) => p.role !== "admin");
     const tree = useMemo(() => nestUnits(units), [units]);
 
     useEffect(() => {
@@ -160,7 +163,10 @@ export default function OrgUnitsPage() {
         setEditing(record ?? null);
         setOpen(true);
         const reviewers = Object.fromEntries((record?.reviewers ?? []).map((row) => [row.slot, row.user_id]));
-        form.setFieldsValue(record ? { ...record, reviewers } : { type: "program" });
+        const viewerIds = (record?.viewers ?? []).map((row) => row.user_id);
+        form.setFieldsValue(
+            record ? { ...record, reviewers, viewers: viewerIds } : { type: "program", viewers: [] }
+        );
     };
 
     const close = () => {
@@ -197,6 +203,11 @@ export default function OrgUnitsPage() {
             key: stage.slot,
             render: (_, record) => personFor(record, stage.slot) || "—",
         })),
+        {
+            title: "Can view forms",
+            key: "viewers",
+            render: (_, record) => viewerNames(record) || "—",
+        },
         {
             title: "People",
             dataIndex: "members_count",
@@ -277,6 +288,10 @@ export default function OrgUnitsPage() {
                                         <strong>{personFor(record, stage.slot) || "None"}</strong>
                                     </div>
                                 ))}
+                                <div className="pms-pds-line">
+                                    <span>Can view forms</span>
+                                    <strong>{viewerNames(record) || "None"}</strong>
+                                </div>
                                 <div className="pms-pds-line">
                                     <span>People</span>
                                     <strong>{record.members_count ?? 0}</strong>
@@ -405,6 +420,20 @@ export default function OrgUnitsPage() {
                             />
                         </Form.Item>
                     ))}
+                    <Form.Item
+                        name="viewers"
+                        label="Can view forms"
+                        extra="They can open this unit's forms and the departments under it. They do not join the review chain and cannot rate."
+                    >
+                        <Select
+                            mode="multiple"
+                            allowClear
+                            showSearch
+                            optionFilterProp="label"
+                            placeholder="Select who can view"
+                            options={viewers.map((p) => ({ value: p.id, label: p.name }))}
+                        />
+                    </Form.Item>
                 </Form>
             </Drawer>
         </>

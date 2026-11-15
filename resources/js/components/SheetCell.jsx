@@ -12,6 +12,17 @@ import dayjs from "dayjs";
  * Escape abandons the edit, which is what people expect when they change their
  * mind mid-cell.
  */
+function frame(mark, node) {
+    if (!mark) return node;
+
+    return (
+        <div className="pms-flag">
+            {node}
+            <div className="pms-cell-mark">{mark}</div>
+        </div>
+    );
+}
+
 export default function SheetCell({
     value,
     onCommit,
@@ -20,6 +31,7 @@ export default function SheetCell({
     disabled = false,
     align = "left",
     maxLength,
+    mark = null,
 }) {
     const [editing, setEditing] = useState(false);
     const [draft, setDraft] = useState(value ?? "");
@@ -84,7 +96,7 @@ export default function SheetCell({
     };
 
     if (type === "date") {
-        return editing ? (
+        return frame(mark, editing ? (
             <DatePicker
                 open
                 autoFocus
@@ -115,11 +127,12 @@ export default function SheetCell({
                 )}
                 {pending && <LoadingOutlined className="pms-cell-spinner" />}
             </div>
-        );
+        ));
     }
 
     if (disabled) {
-        return (
+        return frame(
+            mark,
             <div ref={container} className="pms-cell is-readonly">
                 {value || <span className="pms-cell-empty">{placeholder}</span>}
             </div>
@@ -127,7 +140,7 @@ export default function SheetCell({
     }
 
     if (!editing) {
-        return (
+        return frame(mark, (
             <div
                 ref={container}
                 className={pending ? "pms-cell is-saving" : "pms-cell"}
@@ -139,11 +152,11 @@ export default function SheetCell({
                 {draft || <span className="pms-cell-empty">{placeholder}</span>}
                 {pending && <LoadingOutlined className="pms-cell-spinner" />}
             </div>
-        );
+        ));
     }
 
     if (type === "number") {
-        return (
+        return frame(mark, (
             <InputNumber
                 ref={ref}
                 size="small"
@@ -158,10 +171,10 @@ export default function SheetCell({
                 onPressEnter={commit}
                 onKeyDown={(e) => e.key === "Escape" && abandon()}
             />
-        );
+        ));
     }
 
-    return (
+    return frame(mark, (
         <Input.TextArea
             ref={ref}
             size="small"
@@ -169,6 +182,7 @@ export default function SheetCell({
             autoSize={{ minRows: 1, maxRows: 8 }}
             style={{ padding: 0, textAlign: align }}
             value={draft}
+            placeholder={placeholder}
             maxLength={maxLength}
             showCount={Boolean(maxLength)}
             onChange={(e) => setDraft(e.target.value)}
@@ -189,5 +203,5 @@ export default function SheetCell({
                 }
             }}
         />
-    );
+    ));
 }

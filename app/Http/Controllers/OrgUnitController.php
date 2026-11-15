@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\ActivityLog;
 use App\Models\OrgUnit;
 use App\Models\OrgUnitReviewer;
+use App\Models\OrgUnitViewer;
 use App\Services\WorkflowSettings;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
@@ -18,6 +19,7 @@ class OrgUnitController extends Controller
                 'dean:id,name,position_title',
                 'vp:id,name,position_title',
                 'reviewers.user:id,name,position_title',
+                'viewers.user:id,name',
             ])
             ->withCount('members')
             ->orderBy('name')
@@ -47,6 +49,8 @@ class OrgUnitController extends Controller
             'vp_user_id'   => 'nullable|integer|exists:users,id',
             'reviewers'    => 'nullable|array',
             'reviewers.*'  => 'nullable|integer|exists:users,id',
+            'viewers'      => 'nullable|array',
+            'viewers.*'    => 'integer|exists:users,id',
         ]);
 
         if ($id && ! empty($data['parent_id']) && (int) $data['parent_id'] === (int) $id) {
@@ -70,19 +74,21 @@ class OrgUnitController extends Controller
 
             ActivityLog::record('OrgUnit', $unit->id, 'update', "Updated unit {$unit->name}", $changes);
             $this->syncReviewers($unit, $data['reviewers'] ?? null);
+            $this->syncViewers($unit, $data['viewers'] ?? null);
 
-            return response()->json(['data' => 'updated', 'unit' => $unit->load(['head', 'dean', 'vp', 'reviewers.user'])]);
+            return response()->json(['data' => 'updated', 'unit' => $unit->load(['head', 'dean', 'vp', 'reviewers.user', 'viewers.user'])]);
         }
 
         $unit = OrgUnit::create($attributes);
         $this->syncReviewers($unit, $data['reviewers'] ?? null);
+        $this->syncViewers($unit, $data['viewers'] ?? null);
 
         ActivityLog::record('OrgUnit', $unit->id, 'create', "Created unit {$unit->name}");
 
-        return response()->json(['data' => 'created', 'unit' => $unit->load(['head', 'dean', 'vp', 'reviewers.user'])], 201);
+        return response()->json(['data' => 'created', 'unit' => $unit->load(['head', 'dean', 'vp', 'reviewers.user', 'viewers.user'])], 201);
     }
 
-    /** Extra steps name their reviewer here. The three built-in slots stay on the unit columns. */
+    /** Extra steps name their reviewer here. Head, dean, and VP are saved on the unit and stored in the same reviewer list. */
     private function syncReviewers(OrgUnit $unit, ?array $reviewers): void
     {
         if ($reviewers === null) {
@@ -105,6 +111,40 @@ class OrgUnitController extends Controller
                 ['user_id' => $userId]
             );
         }
+    }
+
+    /** Replace who may read this unit. Absent means the caller did not touch the list. */
+    private function syncViewers(OrgUnit $unit, ?array $viewers): void
+    {
+        if ($viewers === null) {
+            return;
+        }
+
+        $ids = collect($viewers)->filter()->map(fn ($id) => (int) $id)->unique()->values();
+
+        $unit->viewers()->when(
+            $ids->isNotEmpty(),
+            fn ($query) => $query->whereNotIn('user_id', $ids)
+        )->delete();
+
+        foreach ($ids as $id) {
+            OrgUnitViewer::firstOrCreate([
+                'org_unit_id' => $unit->id,
+                'user_id'     => $id,
+            ]);
+        }
+    }
+
+    /** Units this person may open, for the menu. The review chain is not involved. */
+    public function watching(Request $request)
+    {
+        $ids = OrgUnit::watchedIds((int) $request->user()->id);
+
+        $units = $ids === []
+            ? collect()
+            : OrgUnit::whereIn('id', $ids)->orderBy('name')->get(['id', 'name']);
+
+        return response()->json($units);
     }
 
     public function destroy($id)

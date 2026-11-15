@@ -17,10 +17,10 @@ class PcrStatusLog extends Model
         return $this->belongsTo(PcrForm::class, 'form_id');
     }
 
-    public static function record(int $formId, ?string $from, string $to, ?string $note = null): void
+    public static function record(int $formId, ?string $from, string $to, ?string $note = null): ?self
     {
         try {
-            static::create([
+            return static::create([
                 'form_id'           => $formId,
                 'from_status'       => $from,
                 'to_status'         => $to,
@@ -30,6 +30,8 @@ class PcrStatusLog extends Model
             ]);
         } catch (\Throwable $e) {
             Log::warning('PCR status log failed: ' . $e->getMessage());
+
+            return null;
         }
     }
 }

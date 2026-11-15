@@ -103,16 +103,22 @@ class PcrDeliveryRollupTest extends PmsTestCase
             ->assertJsonPath('delivered.0.owner.name', $faculty->name);
     }
 
-    public function test_somebody_who_cannot_see_the_office_target_is_refused(): void
+    public function test_the_rollup_follows_who_can_open_the_opcr(): void
     {
         ['target' => $target, 'faculty' => $faculty] = $this->college();
 
         $admin = $this->actingAsRole('admin');
         $this->service()->assignIndicator($target, $faculty, $admin);
+        $stranger = User::factory()->create(['role' => 'employee']);
 
-        $this->actingAsUser($faculty);
+        $this->actingAsUser($stranger);
 
         $this->getJson("/api/pcr-indicators/{$target->id}/rollup")->assertStatus(403);
+
+        // Named on the target, so the OPCR and this roll-up are theirs to read.
+        $this->actingAsUser($faculty);
+
+        $this->getJson("/api/pcr-indicators/{$target->id}/rollup")->assertOk();
     }
 
     public function test_it_returns_only_the_remarks_on_that_line(): void

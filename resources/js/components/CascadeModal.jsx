@@ -9,6 +9,23 @@ import UserAvatar from "~/components/UserAvatar";
 
 const SECTIONS = ["strategic", "core", "support"];
 
+function PersonChoice({ person, on, onToggle }) {
+    return (
+        <button
+            type="button"
+            className={on ? "pms-cascade-person is-on" : "pms-cascade-person"}
+            onClick={() => onToggle(person.id)}
+        >
+            <UserAvatar user={person} size={36} showTooltip={false} />
+            <span className="pms-cascade-person-text">
+                <strong>{person.name}</strong>
+                {person.position_title && <span>{person.position_title}</span>}
+            </span>
+            {on && <CheckOutlined className="pms-cascade-check" />}
+        </button>
+    );
+}
+
 export default function CascadeModal({ form, periodId, open, onClose }) {
     const queryClient = useQueryClient();
     const [picked, setPicked] = React.useState([]);
@@ -93,11 +110,17 @@ export default function CascadeModal({ form, periodId, open, onClose }) {
     };
 
     const personNeedle = personQuery.trim().toLowerCase();
-    const shownPeople = people.filter((person) => {
-        const hay = `${person.name} ${person.position_title ?? ""}`.toLowerCase();
-
-        return hay.includes(personNeedle);
-    });
+    const matchesPerson = (person) =>
+        `${person.name} ${person.position_title ?? ""}`.toLowerCase().includes(personNeedle);
+    const byId = new Map(people.map((person) => [person.id, person]));
+    // Newest check sits on top, and stays there even when the search hides them.
+    const selectedPeople = [...picked]
+        .reverse()
+        .map((id) => byId.get(id))
+        .filter(Boolean);
+    const shownPeople = people.filter((person) => !picked.includes(person.id) && matchesPerson(person));
+    const peopleSearchMiss =
+        personNeedle !== "" && shownPeople.length === 0 && !selectedPeople.some(matchesPerson);
 
     const lineNeedle = lineQuery.trim().toLowerCase();
     const visibleGroups = groups
@@ -164,6 +187,13 @@ export default function CascadeModal({ form, periodId, open, onClose }) {
             </p>
 
             <span className="pms-cascade-label">Who</span>
+            {selectedPeople.length > 0 && (
+                <div className="pms-cascade-picked">
+                    {selectedPeople.map((person) => (
+                        <PersonChoice key={person.id} person={person} on onToggle={togglePerson} />
+                    ))}
+                </div>
+            )}
             <Input
                 allowClear
                 prefix={<SearchOutlined />}
@@ -177,35 +207,19 @@ export default function CascadeModal({ form, periodId, open, onClose }) {
                     description="No one on your team can receive a target yet."
                     style={{ margin: "16px 0" }}
                 />
-            ) : shownPeople.length === 0 ? (
+            ) : peopleSearchMiss ? (
                 <Empty
                     image={Empty.PRESENTED_IMAGE_SIMPLE}
                     description="No one matches that search."
                     style={{ margin: "16px 0" }}
                 />
-            ) : (
+            ) : shownPeople.length > 0 ? (
                 <div className="pms-cascade-people">
-                    {shownPeople.map((person) => {
-                        const on = picked.includes(person.id);
-
-                        return (
-                            <button
-                                key={person.id}
-                                type="button"
-                                className={on ? "pms-cascade-person is-on" : "pms-cascade-person"}
-                                onClick={() => togglePerson(person.id)}
-                            >
-                                <UserAvatar user={person} size={36} showTooltip={false} />
-                                <span className="pms-cascade-person-text">
-                                    <strong>{person.name}</strong>
-                                    {person.position_title && <span>{person.position_title}</span>}
-                                </span>
-                                {on && <CheckOutlined className="pms-cascade-check" />}
-                            </button>
-                        );
-                    })}
+                    {shownPeople.map((person) => (
+                        <PersonChoice key={person.id} person={person} on={false} onToggle={togglePerson} />
+                    ))}
                 </div>
-            )}
+            ) : null}
 
             <span className="pms-cascade-label">
                 Targets

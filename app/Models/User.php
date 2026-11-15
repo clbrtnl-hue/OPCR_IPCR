@@ -68,17 +68,29 @@ class User extends Authenticatable
 
     public function headedUnits()
     {
-        return $this->hasMany(OrgUnit::class, 'head_user_id');
+        return $this->unitsInSlot('head_user_id');
     }
 
     public function deanedUnits()
     {
-        return $this->hasMany(OrgUnit::class, 'dean_user_id');
+        return $this->unitsInSlot('dean_user_id');
     }
 
     public function overseenUnits()
     {
-        return $this->hasMany(OrgUnit::class, 'vp_user_id');
+        return $this->unitsInSlot('vp_user_id');
+    }
+
+    private function unitsInSlot(string $slot)
+    {
+        return $this->hasManyThrough(
+            OrgUnit::class,
+            OrgUnitReviewer::class,
+            'user_id',
+            'id',
+            'id',
+            'org_unit_id'
+        )->where('org_unit_reviewers.slot', $slot);
     }
 
     public function isAdmin(): bool

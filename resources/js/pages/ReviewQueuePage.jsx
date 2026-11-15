@@ -1,7 +1,7 @@
 import React from "react";
 import { Button, Card, Empty, Space, Table, Tag } from "antd";
 import { useQuery } from "@tanstack/react-query";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import dayjs from "dayjs";
 import api from "~/utils/api";
 import { statusMeta } from "~/utils/constants";
@@ -9,23 +9,37 @@ import PageHeader from "~/components/PageHeader";
 import FormCards from "~/components/FormCards";
 import { useAuth } from "~/hooks/useAuth";
 
-const REVIEW_ACTION = (record) =>
-    record.status === "commitment_review" || record.status === "qa_approval"
-        ? "Approve"
-        : ["qa_rating", "head_review", "vp_review"].includes(record.status)
-          ? "Rate"
-          : "Review";
+const REVIEW_ACTION = (record, role) => {
+    // Opening the form is the action. Approval still happens on the sheet.
+    if (record.status === "commitment_review" || record.status === "qa_approval") {
+        return "View";
+    }
+
+    if (role === "qa" && record.type === "opcr") {
+        return "View";
+    }
+
+    return ["qa_rating", "head_review", "vp_review"].includes(record.status) ? "Rate" : "Review";
+};
 
 export default function ReviewQueuePage() {
     const navigate = useNavigate();
+    const [searchParams] = useSearchParams();
     const { user } = useAuth();
     const viewOnly = user?.role === "admin";
+    const periodId = Number(searchParams.get("period")) || null;
 
     const { data: queue = [], isLoading } = useQuery({
         queryKey: ["review-queue", viewOnly ? "oversight" : "mine"],
         queryFn: () =>
             api.get(viewOnly ? "pcr-forms?oversight=review" : "pcr-forms?queue=1").then((r) => r.data),
     });
+
+    const rows = periodId
+        ? queue.filter(
+              (form) => Number(form.rating_period_id ?? form.rating_period?.id) === periodId
+          )
+        : queue;
 
     const columns = [
         {
@@ -63,7 +77,7 @@ export default function ReviewQueuePage() {
             key: "actions",
             render: (_, record) => (
                 <Button type="primary" size="small" onClick={() => navigate(`/forms/${record.id}`, { state: { from: "/review-queue" } })}>
-                    {viewOnly ? "View" : REVIEW_ACTION(record)}
+                    {viewOnly ? "View" : REVIEW_ACTION(record, user?.role)}
                 </Button>
             ),
         },
@@ -84,7 +98,7 @@ export default function ReviewQueuePage() {
             <PageHeader title="Review Queue" subtitle={subtitle} />
 
             <Card>
-                {queue.length === 0 && !isLoading ? (
+                {rows.length === 0 && !isLoading ? (
                     <Empty
                         description={
                             viewOnly
@@ -96,9 +110,9 @@ export default function ReviewQueuePage() {
                     <>
                         <div className="pms-mobile-only">
                             <FormCards
-                                forms={queue}
+                                forms={rows}
                                 showSubmitted
-                                actionLabel={(record) => (viewOnly ? "View" : REVIEW_ACTION(record))}
+                                actionLabel={(record) => (viewOnly ? "View" : REVIEW_ACTION(record, user?.role))}
                                 onOpen={(record) => navigate(`/forms/${record.id}`, { state: { from: "/review-queue" } })}
                             />
                         </div>
@@ -106,7 +120,7 @@ export default function ReviewQueuePage() {
                             <Table
                                 rowKey="id"
                                 loading={isLoading}
-                                dataSource={queue}
+                                dataSource={rows}
                                 columns={columns}
                                 pagination={{ pageSize: 15 }}
                                 scroll={{ x: 900 }}

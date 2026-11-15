@@ -57,7 +57,11 @@ class NotificationTest extends PmsTestCase
         Passport::actingAs($head, [], 'api');
         $this->postJson("/api/pcr-forms/{$form->id}/status", [
             'status' => 'returned',
-            'note'   => 'Attach the acceptance letters.',
+            'fixes'  => [[
+                'indicator_id' => $form->indicators()->value('pcr_indicators.id'),
+                'field'        => 'evidence',
+                'note'         => 'Attach the acceptance letters.',
+            ]],
         ])->assertOk();
 
         $this->assertDatabaseHas('notifications', [
@@ -91,7 +95,11 @@ class NotificationTest extends PmsTestCase
         Passport::actingAs($vp, [], 'api');
         $this->postJson("/api/pcr-forms/{$form->id}/status", [
             'status' => 'returned',
-            'note'   => 'The targets still need a measure.',
+            'fixes'  => [[
+                'indicator_id' => $form->indicators()->value('pcr_indicators.id'),
+                'field'        => 'actual_accomplishment',
+                'note'         => 'The targets still need a measure.',
+            ]],
         ])->assertOk();
 
         $this->assertDatabaseHas('notifications', [

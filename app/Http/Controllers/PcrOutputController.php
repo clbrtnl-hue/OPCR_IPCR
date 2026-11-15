@@ -21,7 +21,9 @@ class PcrOutputController extends Controller
             'id'         => 'nullable|integer|exists:pcr_outputs,id',
             'form_id'    => 'required|integer|exists:pcr_forms,id',
             'section'          => ['required', Rule::in(PcrOutput::SECTIONS)],
-            'title'            => ['required_without:parent_output_id', 'nullable', 'string', Html::maxChars(500)],
+            // A new heading may be blank. The sheet shows a placeholder until
+            // it is named, and readiness still blocks an unnamed row.
+            'title'            => ['nullable', 'string', Html::maxChars(500)],
             'parent_output_id' => 'nullable|integer|exists:pcr_outputs,id',
             'sort_order' => 'nullable|integer|min:0',
         ]);
@@ -30,7 +32,8 @@ class PcrOutputController extends Controller
 
         if (! PcrWorkflow::canEditCommitments($request->user(), $form)) {
             return response()->json([
-                'message' => 'Commitments can only be changed while the form is a draft or has been returned to you.',
+                'message' => PcrWorkflow::commitmentClosedMessage($form)
+                    ?? 'Commitments can only be changed while the form is a draft or has been returned to you.',
             ], 409);
         }
 
@@ -87,9 +90,21 @@ class PcrOutputController extends Controller
             }
         }
 
-        $title = filled($data['title'] ?? null)
-            ? $data['title']
-            : ($existing?->title ?? ($sameForm ? 'New PPA' : ($parent?->title ?? 'Untitled')));
+        // Sent text replaces the heading, including a blank that clears it.
+        // A blank new row stays blank so the sheet can show a placeholder.
+        // One that answers an office MFO and was given no name still takes
+        // that MFO's name.
+        if (array_key_exists('title', $data)) {
+            $title = trim((string) ($data['title'] ?? ''));
+        } elseif ($existing) {
+            $title = $existing->title;
+        } else {
+            $title = '';
+        }
+
+        if ($title === '' && ! $existing && $parent && ! $sameForm) {
+            $title = $parent->title;
+        }
 
         $attributes = [
             'form_id'          => $form->id,
@@ -121,7 +136,8 @@ class PcrOutputController extends Controller
 
         if (! PcrWorkflow::canEditCommitments($request->user(), $output->form)) {
             return response()->json([
-                'message' => 'Commitments can only be changed while the form is a draft or has been returned to you.',
+                'message' => PcrWorkflow::commitmentClosedMessage($output->form)
+                    ?? 'Commitments can only be changed while the form is a draft or has been returned to you.',
             ], 409);
         }
 

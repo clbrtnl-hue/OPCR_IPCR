@@ -153,8 +153,8 @@ abstract class PmsTestCase extends TestCase
     }
 
     /**
-     * A line is finished by a narrative (30%) and a file (70%). Pass $withFile
-     * false to leave it at the narrative's 30.
+     * A line is finished by a narrative (30%) and two files (35% each). Pass
+     * $withFile false to leave it at the narrative's 30.
      */
     protected function documentLine(PcrIndicator $line, bool $withFile = true, ?string $text = '<p>Done.</p>'): PcrIndicator
     {
@@ -171,14 +171,18 @@ abstract class PmsTestCase extends TestCase
             ['actual_accomplishment' => $text]
         );
 
-        if ($withFile && ! $record->attachments()->exists()) {
-            PcrAttachment::create([
-                'accomplishment_id' => $record->id,
-                'file_path'         => 'evidence-test.png',
-                'original_name'     => 'evidence.png',
-                'mime'              => 'image/png',
-                'file_size'         => 100,
-            ]);
+        if ($withFile) {
+            $missing = IndicatorProgressService::EVIDENCE_FILES - $record->attachments()->count();
+
+            for ($n = 0; $n < $missing; $n++) {
+                PcrAttachment::create([
+                    'accomplishment_id' => $record->id,
+                    'file_path'         => 'evidence-test.png',
+                    'original_name'     => 'evidence.png',
+                    'mime'              => 'image/png',
+                    'file_size'         => 100,
+                ]);
+            }
         }
 
         app(IndicatorProgressService::class)->syncFromRecord($line->fresh());

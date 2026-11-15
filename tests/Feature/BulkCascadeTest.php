@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Models\Notification;
+use App\Models\PcrForm;
 use App\Models\PcrIndicator;
 use App\Models\PcrOutput;
 use App\Models\PcrTargetAssignment;
@@ -86,17 +87,30 @@ class BulkCascadeTest extends PmsTestCase
 
     public function test_it_raises_one_notification_per_person_not_one_per_line(): void
     {
-        ['opcr' => $opcr, 'head' => $head] = $this->college();
+        ['opcr' => $opcr, 'head' => $head, 'faculty' => $faculty, 'lines' => $lines] = $this->college();
 
         $this->actingAsRole('president');
 
-        $this->postJson("/api/pcr-forms/{$opcr->id}/cascade", ['user_ids' => [$head->id]])
-            ->assertStatus(201);
+        $this->postJson("/api/pcr-forms/{$opcr->id}/cascade", [
+            'user_ids' => [$head->id, $faculty->id],
+        ])->assertStatus(201);
 
-        $this->assertSame(
-            1,
-            Notification::where('user_id', $head->id)->where('type', 'assignment')->count()
-        );
+        foreach ([$head, $faculty] as $person) {
+            $notes = Notification::where('user_id', $person->id)->where('type', 'assignment')->get();
+            $this->assertCount(1, $notes);
+
+            $ipcr = PcrForm::where('type', 'ipcr')
+                ->where('user_id', $person->id)
+                ->where('school_year_id', $opcr->school_year_id)
+                ->first();
+
+            $this->assertNotNull($ipcr);
+            $this->assertSame($ipcr->id, $notes[0]->form_id);
+            $this->assertSame(
+                '/forms/' . $ipcr->id . '?targets=' . $lines->pluck('id')->implode(','),
+                $notes[0]->link
+            );
+        }
     }
 
     public function test_only_the_named_lines_are_handed_out(): void

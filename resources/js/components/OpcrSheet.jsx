@@ -33,6 +33,9 @@ import OpcrLineDrawer from "~/components/OpcrLineDrawer";
 import LineCards from "~/components/LineCards";
 import CommentThread from "~/components/CommentThread";
 import { ADJECTIVAL_COLORS, DELAY_META, NARRATIVE_MAX, SECTION_LABELS } from "~/utils/constants";
+import { returnMark } from "~/utils/returnMarks";
+import { ratingRules } from "~/utils/ratingScale";
+import { useAuth } from "~/hooks/useAuth";
 
 const SECTIONS = ["strategic", "core", "support"];
 
@@ -57,13 +60,16 @@ function siblingsOf(outputs, output) {
  * rather than opening a dialog for every line — the paper form is the mental
  * model, so the screen should not fight it.
  */
-export default function OpcrSheet({ form, periodId, canEdit, canAssign, canRecordProgress, showScores = false, summary, focusLineId = null }) {
+export default function OpcrSheet({ form, periodId, canEdit, canAssign, canRecordProgress, showScores = false, summary, focusLineId = null, focusOutputId = null, returnMarks = [] }) {
+    const { user } = useAuth();
+    const dimensions = ratingRules(user).dimensions;
     const queryClient = useQueryClient();
     const [assigning, setAssigning] = useState(null);   // an output, or an indicator
     const [justAdded, setJustAdded] = useState(null);   // { kind, id }
     const [openLineId, setOpenLineId] = useState(null);
     const [commentLineId, setCommentLineId] = useState(null);
     const focusedLine = useRef(null);
+    const focusedOutput = useRef(null);
     const { openPerson } = usePerson();
 
     const { data: comments = [] } = useQuery({
@@ -101,7 +107,33 @@ export default function OpcrSheet({ form, periodId, canEdit, canAssign, canRecor
 
     const saveOutput = useMutation({
         mutationFn: (values) => api.post("pcr-outputs", { form_id: form.id, ...values }),
-        onSuccess: ({ data }, values) => {
+        onSuccess: async ({ data }, values) => {
+            const saved = data?.output;
+            const key = ["pcr-form", String(form.id)];
+
+            await queryClient.cancelQueries({ queryKey: key });
+
+            if (saved) {
+                queryClient.setQueryData(key, (current) =>
+                    current?.outputs
+                        ? {
+                              ...current,
+                              outputs: current.outputs.map((output) =>
+                                  output.id === saved.id
+                                      ? {
+                                            ...output,
+                                            title: saved.title,
+                                            section: saved.section,
+                                            parent_output_id: saved.parent_output_id,
+                                            sort_order: saved.sort_order,
+                                        }
+                                      : output
+                              ),
+                          }
+                        : current
+                );
+            }
+
             // A row added to the foot of a long sheet is easy to miss, so say
             // it happened and take the person to it.
             if (!values.id) {
@@ -151,7 +183,39 @@ export default function OpcrSheet({ form, periodId, canEdit, canAssign, canRecor
 
     const saveIndicator = useMutation({
         mutationFn: (values) => api.post("pcr-indicators", { rating_period_id: null, ...values }),
-        onSuccess: ({ data }, values) => {
+        onSuccess: async ({ data }, values) => {
+            const saved = data?.indicator;
+            const key = ["pcr-form", String(form.id)];
+
+            await queryClient.cancelQueries({ queryKey: key });
+
+            if (saved) {
+                queryClient.setQueryData(key, (current) =>
+                    current?.outputs
+                        ? {
+                              ...current,
+                              outputs: current.outputs.map((output) => ({
+                                  ...output,
+                                  indicators: (output.indicators ?? []).map((line) =>
+                                      line.id === saved.id
+                                          ? {
+                                                ...line,
+                                                description: saved.description,
+                                                target_date: saved.target_date,
+                                                allotted_budget: saved.allotted_budget,
+                                                accountable: saved.accountable,
+                                                parent_indicator_id: saved.parent_indicator_id,
+                                                sort_order: saved.sort_order,
+                                                rating_period_id: saved.rating_period_id,
+                                            }
+                                          : line
+                                  ),
+                              })),
+                          }
+                        : current
+                );
+            }
+
             if (!values.id) {
                 message.success("Success indicator added.");
                 setJustAdded({ kind: "indicator", id: data.indicator.id });
@@ -234,6 +298,23 @@ export default function OpcrSheet({ form, periodId, canEdit, canAssign, canRecor
 
         return () => clearTimeout(timer);
     }, [focusLineId, form.outputs]);
+
+    useEffect(() => {
+        if (!focusOutputId || focusedOutput.current === focusOutputId) return;
+
+        const nodes = [...document.querySelectorAll(`[data-output-id="${focusOutputId}"]`)];
+        const cell = nodes.find((node) => node.offsetParent !== null) ?? nodes[0];
+
+        if (!cell) return;
+
+        focusedOutput.current = focusOutputId;
+        const row = cell.closest("tr") ?? cell;
+        row.scrollIntoView({ behavior: "smooth", block: "center" });
+        row.classList.add("is-new");
+        const timer = setTimeout(() => row.classList.remove("is-new"), 2200);
+
+        return () => clearTimeout(timer);
+    }, [focusOutputId, form.outputs]);
 
     useEffect(() => {
         if (!justAdded) return;
@@ -326,7 +407,7 @@ export default function OpcrSheet({ form, periodId, canEdit, canAssign, canRecor
         return null;
     }, [openLineId, form.outputs]);
 
-    const columnCount = showScores ? 11 : 7;
+    const columnCount = 7 + (showScores ? dimensions.length + 1 : 0);
     const rows = [];
 
     SECTIONS.forEach((section) => {
@@ -345,7 +426,7 @@ export default function OpcrSheet({ form, periodId, canEdit, canAssign, canRecor
                                 type="text"
                                 icon={<PlusOutlined />}
                                 onClick={() =>
-                                    saveOutput.mutate({ section, title: "New MFO/PPA" })
+                                    saveOutput.mutate({ section, title: "" })
                                 }
                             >
                                 Add MFO/PPA
@@ -382,11 +463,12 @@ export default function OpcrSheet({ form, periodId, canEdit, canAssign, canRecor
                         disabled={!canEdit}
                         placeholder="Name this MFO/PPA"
                         maxLength={NARRATIVE_MAX}
+                        mark={returnMark(returnMarks, { outputId: output.id, field: "title" })}
                         onCommit={(title) =>
                             saveOutput.mutate({
                                 id: output.id,
                                 section,
-                                title: title ?? "Untitled",
+                                title: title ?? "",
                                 parent_output_id: output.parent_output_id,
                             })
                         }
@@ -407,7 +489,7 @@ export default function OpcrSheet({ form, periodId, canEdit, canAssign, canRecor
                                     onClick={() =>
                                         saveOutput.mutate({
                                             section,
-                                            title: "New PPA",
+                                            title: "",
                                             parent_output_id: output.id,
                                         })
                                     }
@@ -421,7 +503,7 @@ export default function OpcrSheet({ form, periodId, canEdit, canAssign, canRecor
                                     onClick={() =>
                                         saveIndicator.mutate({
                                             output_id: output.id,
-                                            description: "New success indicator",
+                                            description: "",
                                         })
                                     }
                                 />
@@ -508,6 +590,18 @@ export default function OpcrSheet({ form, periodId, canEdit, canAssign, canRecor
                     }),
                     { people: 0, files: 0, recorded: 0 }
                 );
+                const accountableMark = returnMark(returnMarks, {
+                    indicatorId: line.id,
+                    field: "accountable",
+                });
+                const accomplishmentMark = returnMark(returnMarks, {
+                    indicatorId: line.id,
+                    field: "actual_accomplishment",
+                });
+                const evidenceMark = returnMark(returnMarks, {
+                    indicatorId: line.id,
+                    field: "evidence",
+                });
 
                 rows.push(
                     <tr
@@ -523,9 +617,13 @@ export default function OpcrSheet({ form, periodId, canEdit, canAssign, canRecor
                                 disabled={!canEdit}
                                 placeholder="Target + measure + timeframe"
                                 maxLength={NARRATIVE_MAX}
+                                mark={returnMark(returnMarks, {
+                                    indicatorId: line.id,
+                                    field: "description",
+                                })}
                                 onCommit={(description) =>
                                     patchLine(line, output.id, {
-                                        description: description ?? "Untitled",
+                                        description: description ?? "",
                                     })
                                 }
                             />
@@ -579,6 +677,10 @@ export default function OpcrSheet({ form, periodId, canEdit, canAssign, canRecor
                                 value={line.target_date}
                                 disabled={!canEdit}
                                 placeholder="No date"
+                                mark={returnMark(returnMarks, {
+                                    indicatorId: line.id,
+                                    field: "target_date",
+                                })}
                                 onCommit={(target_date) => patchLine(line, output.id, { target_date })}
                             />
                             {line.delay && line.delay.state !== "no_date" && (
@@ -600,7 +702,7 @@ export default function OpcrSheet({ form, periodId, canEdit, canAssign, canRecor
                                 computedHint={
                                     (line.children ?? []).length > 0
                                         ? "With Linked Commitment. Rolled up from the commitments linked to this target."
-                                        : "The narrative counts as 30%. A file counts as 70%. Both together reach 100%."
+                                        : "The narrative counts as 30%. Two files count as 70%, so one file is 35%. A narrative and both files reach 100%."
                                 }
                             />
                         </td>
@@ -611,11 +713,15 @@ export default function OpcrSheet({ form, periodId, canEdit, canAssign, canRecor
                                 align="right"
                                 value={line.allotted_budget}
                                 disabled={!canEdit}
+                                mark={returnMark(returnMarks, {
+                                    indicatorId: line.id,
+                                    field: "allotted_budget",
+                                })}
                                 onCommit={(allotted_budget) => patchLine(line, output.id, { allotted_budget })}
                             />
                         </td>
 
-                        <td>
+                        <td className={accountableMark ? "pms-flag" : undefined}>
                             <Space size={4} wrap>
                                 {accountableFor(line).map((person) => {
                                     const withdrawId = person.assignmentId ?? person.childId;
@@ -661,9 +767,11 @@ export default function OpcrSheet({ form, periodId, canEdit, canAssign, canRecor
                                     <span className="pms-cell-empty">Not yet assigned</span>
                                 )}
                             </Space>
+                            {accountableMark && <div className="pms-cell-mark">{accountableMark}</div>}
                         </td>
 
                         <td className="pms-sheet-muted">
+                            <div className={accomplishmentMark ? "pms-flag" : undefined}>
                             {accomplishment?.actual_accomplishment && (
                                 <div
                                     className="pms-richtext-view"
@@ -690,8 +798,10 @@ export default function OpcrSheet({ form, periodId, canEdit, canAssign, canRecor
                                     </span>
                                 )
                             )}
+                            {accomplishmentMark && <div className="pms-cell-mark">{accomplishmentMark}</div>}
+                            </div>
 
-                            <div style={{ marginTop: 4 }}>
+                            <div className={evidenceMark ? "pms-flag" : undefined} style={{ marginTop: 4 }}>
                                 <Space size={6}>
                                     <Button
                                         size="small"
@@ -727,14 +837,17 @@ export default function OpcrSheet({ form, periodId, canEdit, canAssign, canRecor
                                         </Badge>
                                     )}
                                 </Space>
+                                {evidenceMark && <div className="pms-cell-mark">{evidenceMark}</div>}
                             </div>
                         </td>
 
                         {showScores && (
                             <>
-                                <td className="pms-sheet-score">{rating?.q ?? ""}</td>
-                                <td className="pms-sheet-score">{rating?.e ?? ""}</td>
-                                <td className="pms-sheet-score">{rating?.t ?? ""}</td>
+                                {dimensions.map((dimension) => (
+                                    <td key={dimension.key} className="pms-sheet-score">
+                                        {rating?.[dimension.key] ?? ""}
+                                    </td>
+                                ))}
                                 <td className="pms-sheet-score">
                                     {rating?.a != null ? Number(rating.a).toFixed(2) : ""}
                                 </td>
@@ -762,7 +875,7 @@ export default function OpcrSheet({ form, periodId, canEdit, canAssign, canRecor
                         {sectionBudget > 0 ? `₱${sectionBudget.toLocaleString()}` : ""}
                     </td>
                     <td colSpan={2} />
-                    <td colSpan={3} />
+                    <td colSpan={dimensions.length} />
                     <td className="pms-sheet-score">
                         {sectionAverage != null ? Number(sectionAverage).toFixed(2) : ""}
                     </td>
@@ -796,7 +909,7 @@ export default function OpcrSheet({ form, periodId, canEdit, canAssign, canRecor
                     {totalBudget > 0 ? `₱${totalBudget.toLocaleString()}` : ""}
                 </td>
                 <td colSpan={2} />
-                <td colSpan={3} />
+                <td colSpan={dimensions.length} />
                 <td className="pms-sheet-score">
                     {summary?.final_average != null
                         ? Number(summary.final_average).toFixed(2)
@@ -805,7 +918,7 @@ export default function OpcrSheet({ form, periodId, canEdit, canAssign, canRecor
             </tr>,
             <tr key="adjectival" className="pms-sheet-total">
                 <td colSpan={3}>ADJECTIVAL RATING</td>
-                <td colSpan={7} />
+                <td colSpan={columnCount - 4} />
                 <td className="pms-sheet-score">
                     {summary?.adjectival ? (
                         <Tag color={ADJECTIVAL_COLORS[summary.adjectival]} style={{ margin: 0 }}>
@@ -853,9 +966,11 @@ export default function OpcrSheet({ form, periodId, canEdit, canAssign, canRecor
                             <th style={{ width: 210 }}>Actual Accomplishments</th>
                             {showScores && (
                                 <>
-                                    <th style={{ width: 38 }} title="Quality">Q</th>
-                                    <th style={{ width: 38 }} title="Efficiency">E</th>
-                                    <th style={{ width: 38 }} title="Timeliness">T</th>
+                                    {dimensions.map((dimension) => (
+                                        <th key={dimension.key} style={{ width: 38 }} title={dimension.label}>
+                                            {dimension.short}
+                                        </th>
+                                    ))}
                                     <th style={{ width: 46 }} title="Average">A</th>
                                 </>
                             )}

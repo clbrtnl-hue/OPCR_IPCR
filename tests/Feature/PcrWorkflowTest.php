@@ -53,15 +53,27 @@ class PcrWorkflowTest extends PmsTestCase
     {
         Passport::actingAs($actor, [], 'api');
 
-        return $this->postJson("/api/pcr-forms/{$form->id}/status", array_filter([
-            'status' => $status,
-            'note'   => $note,
-        ]));
+        $payload = ['status' => $status, 'note' => $note];
+
+        // A return from review names the write-up. The note is the remark on the evidence.
+        if ($status === 'returned' && $note) {
+            $lineId = $form->indicators()->value('pcr_indicators.id');
+
+            if ($lineId) {
+                $payload['fixes'] = [[
+                    'indicator_id' => $lineId,
+                    'field'        => 'evidence',
+                    'note'         => $note,
+                ]];
+            }
+        }
+
+        return $this->postJson("/api/pcr-forms/{$form->id}/status", array_filter($payload));
     }
 
     public function test_form_travels_the_full_chain_to_qa(): void
     {
-        ['form' => $form, 'period' => $period, 'employee' => $employee, 'head' => $head, 'vp' => $vp] = $this->scenario();
+        ['form' => $form, 'period' => $period, 'employee' => $employee, 'head' => $head, 'vp' => $vp, 'qa' => $qa] = $this->scenario();
 
         $this->move($employee, $form, 'head_review')->assertOk();
         $this->assertSame('head_review', $form->fresh()->status);
@@ -74,6 +86,12 @@ class PcrWorkflowTest extends PmsTestCase
         $this->move($vp, $form, 'qa_rating')->assertOk();
         $this->assertSame('qa_rating', $form->fresh()->status);
         $this->assertSame($vp->name, $form->fresh()->vp_reviewed_by_name);
+        $this->assertDatabaseHas('notifications', [
+            'user_id' => $qa->id,
+            'type'    => 'rating',
+            'form_id' => $form->id,
+            'link'    => "/forms/{$form->id}",
+        ]);
     }
 
     public function test_employee_cannot_skip_the_head_and_send_straight_to_qa(): void
@@ -115,7 +133,7 @@ class PcrWorkflowTest extends PmsTestCase
         $this->documentLine($line->fresh(), false);
         $this->move($employee, $form, 'head_review')
             ->assertStatus(422)
-            ->assertJsonPath('message', fn ($message) => str_contains($message, 'still needs a file.'));
+            ->assertJsonPath('message', fn ($message) => str_contains($message, 'still needs two files.'));
 
         $line->accomplishments()->each(function ($record) {
             $record->update(['actual_accomplishment' => null]);
@@ -184,6 +202,34 @@ class PcrWorkflowTest extends PmsTestCase
         $this->move($employee, $form, 'head_review')->assertOk();
 
         $this->assertSame('head_review', $form->fresh()->status);
+    }
+
+    public function test_a_return_from_the_vp_comes_back_to_the_vp(): void
+    {
+        ['form' => $form, 'period' => $period, 'employee' => $employee, 'head' => $head, 'vp' => $vp] = $this->scenario();
+
+        $this->move($employee, $form, 'head_review')->assertOk();
+        $this->rate($head, $form, $period);
+        $this->move($head, $form, 'vp_review')->assertOk();
+        $this->move($vp, $form, 'returned', 'The evidence does not match the target.')->assertOk();
+        $this->move($employee, $form, 'head_review')->assertOk();
+
+        $this->assertSame('vp_review', $form->fresh()->status);
+    }
+
+    public function test_a_return_from_rating_comes_back_to_qa(): void
+    {
+        ['form' => $form, 'period' => $period, 'employee' => $employee, 'head' => $head, 'vp' => $vp, 'qa' => $qa] = $this->scenario();
+
+        $this->move($employee, $form, 'head_review')->assertOk();
+        $this->rate($head, $form, $period);
+        $this->move($head, $form, 'vp_review')->assertOk();
+        $this->rate($vp, $form, $period);
+        $this->move($vp, $form, 'qa_rating')->assertOk();
+        $this->move($qa, $form, 'returned', 'The accomplishment does not match the target.')->assertOk();
+        $this->move($employee, $form, 'head_review')->assertOk();
+
+        $this->assertSame('qa_rating', $form->fresh()->status);
     }
 
     public function test_another_employee_cannot_submit_someone_elses_form(): void

@@ -9,13 +9,10 @@ import {
     Drawer,
     Dropdown,
     Empty,
-    Form,
-    Input,
     Modal,
     Popconfirm,
     Row,
     Segmented,
-    Select,
     Space,
     Spin,
     Steps,
@@ -38,7 +35,6 @@ import {
     MessageOutlined,
     MinusOutlined,
     NotificationOutlined,
-    PlusOutlined,
     PrinterOutlined,
     ProfileOutlined,
     SafetyCertificateOutlined,
@@ -54,7 +50,8 @@ import dayjs from "dayjs";
 import relativeTime from "dayjs/plugin/relativeTime";
 import api from "~/utils/api";
 import { downloadFile } from "~/utils/download";
-import { ADJECTIVAL_COLORS, NARRATIVE_MAX, SECTION_LABELS, nextReviewStop, statusMeta } from "~/utils/constants";
+import { ADJECTIVAL_COLORS, nextReviewStop, statusMeta } from "~/utils/constants";
+import { dimensionPhrase } from "~/utils/ratingScale";
 import { useAuth } from "~/hooks/useAuth";
 import PageHeader from "~/components/PageHeader";
 import { toPlainText } from "~/components/RichTextView";
@@ -64,12 +61,13 @@ import CascadeModal from "~/components/CascadeModal";
 import TemplatePicker from "~/components/TemplatePicker";
 import OpcrSheet from "~/components/OpcrSheet";
 import IpcrSheet from "~/components/IpcrSheet";
-import RichText from "~/components/RichText";
 import PdfPreview from "~/components/PdfPreview";
 import CopyFromYear from "~/components/CopyFromYear";
 import CopyPreviousPeriod from "~/components/CopyPreviousPeriod";
 import CommentThread from "~/components/CommentThread";
 import FormHistory from "~/components/FormHistory";
+import ReturnPlacesModal from "~/components/ReturnPlacesModal";
+import { RETURN_FIELD_LABELS } from "~/utils/returnMarks";
 
 /**
  * What each step in a form's life looks like. The icon carries the meaning at a
@@ -106,7 +104,20 @@ function sheetName(form) {
 
 const WHOLE_YEAR_LABEL = "January to December";
 
-/** A line the writer reports themselves is done only with a narrative and a file. */
+const FILES_REQUIRED = 2;
+
+function writeUpGap(name, hasNarrative, files) {
+    const short = Math.max(0, FILES_REQUIRED - files);
+
+    if (hasNarrative && short > 1) return `${name} still needs two files.`;
+    if (hasNarrative && short === 1) return `${name} still needs one more file.`;
+    if (!hasNarrative && short === 0) return `${name} still needs a narrative.`;
+    if (!hasNarrative && short === 1) return `${name} still needs a narrative and one more file.`;
+
+    return `${name} still needs a narrative and two files.`;
+}
+
+/** A line the writer reports themselves is done only with a narrative and two files. */
 function writeUpGaps(form) {
     if (form?.type !== "ipcr") return [];
 
@@ -122,7 +133,7 @@ function writeUpGaps(form) {
             );
             const narrative = (row) => toPlainText(row.actual_accomplishment);
             const done = records.some(
-                (row) => narrative(row) && (row.attachments ?? []).length > 0
+                (row) => narrative(row) && (row.attachments ?? []).length >= FILES_REQUIRED
             );
 
             if (done) continue;
@@ -130,11 +141,12 @@ function writeUpGaps(form) {
             const text = toPlainText(line.description);
             const name = text ? (text.length > 60 ? `${text.slice(0, 59)}…` : text) : "A line";
             const hasNarrative = records.some((row) => narrative(row));
-            const hasFile = records.some((row) => (row.attachments ?? []).length > 0);
+            const files = records.reduce(
+                (most, row) => Math.max(most, (row.attachments ?? []).length),
+                0
+            );
 
-            if (hasNarrative && !hasFile) gaps.push(`${name} still needs a file.`);
-            else if (hasFile && !hasNarrative) gaps.push(`${name} still needs a narrative.`);
-            else gaps.push(`${name} still needs a narrative and a file.`);
+            gaps.push(writeUpGap(name, hasNarrative, files));
         }
     }
 
@@ -166,12 +178,72 @@ function ExportMenu({ excelBusy, onPrint, onExcel }) {
 // An OPCR is planned and published first; it is rated later on the same document.
 const OPCR_CHAIN = ["draft", "qa_approval", "approved", "published", "qa_rating", "rated", "final"];
 
+function TargetList({ targets, notedIds }) {
+    const noted = new Set(notedIds);
+
+    return (
+        <ul className="pms-assigned-targets">
+            {targets.map((target) => (
+                <li
+                    key={target.id}
+                    data-assigned-target={target.id}
+                    className={noted.has(target.id) ? "is-noted" : undefined}
+                >
+                    <strong>{target.output_title}</strong>
+                    {" — "}
+                    {toPlainText(target.description)}
+                    {target.assigned_by_name ? ` · ${target.assigned_by_name}` : ""}
+                </li>
+            ))}
+        </ul>
+    );
+}
+
+function AssignedTargets({ targets, notedIds }) {
+    const noted = new Set(notedIds);
+    const fromNotice = noted.size ? targets.filter((target) => noted.has(target.id)) : [];
+    const rest = noted.size ? targets.filter((target) => !noted.has(target.id)) : targets;
+
+    return (
+        <Alert
+            type="info"
+            showIcon
+            style={{ marginBottom: 16 }}
+            message={fromNotice.length ? "From this notification" : "Targets assigned to you"}
+            description={
+                <>
+                    {fromNotice.length > 0 && <TargetList targets={fromNotice} notedIds={notedIds} />}
+                    {rest.length > 0 && (
+                        <>
+                            {fromNotice.length > 0 && (
+                                <div className="pms-assigned-also">Also assigned to you</div>
+                            )}
+                            <TargetList targets={rest} notedIds={[]} />
+                        </>
+                    )}
+                </>
+            }
+        />
+    );
+}
+
 export default function FormEditorPage({ formId = null }) {
     const { id: routeId } = useParams();
     const [searchParams] = useSearchParams();
     const focusLineId = Number(searchParams.get("line")) || null;
-    const focusTargetId = Number(searchParams.get("target")) || null;
+    const focusTargetsKey = [
+        ...new Set(
+            [searchParams.get("targets"), searchParams.get("target")]
+                .filter(Boolean)
+                .join(",")
+                .split(",")
+                .map((value) => Number(value))
+                .filter((value) => value > 0)
+        ),
+    ].join(",");
+    const focusTargetIds = focusTargetsKey ? focusTargetsKey.split(",").map(Number) : [];
     const focusOutputId = Number(searchParams.get("output")) || null;
+    const notedPeriodId = Number(searchParams.get("period")) || null;
     const focusRemarks = searchParams.get("remarks") === "1";
     const focusedTarget = useRef(null);
     // Normalised: children invalidate ["pcr-form", String(...)], and a numeric
@@ -179,10 +251,9 @@ export default function FormEditorPage({ formId = null }) {
     const id = String(formId ?? routeId);
     const { user } = useAuth();
     const queryClient = useQueryClient();
-    const [outputForm] = Form.useForm();
-    const [outputModal, setOutputModal] = useState(false);
     const [periodId, setPeriodId] = useState(null);
     const [returnModal, setReturnModal] = useState(false);
+    const [returnMode, setReturnMode] = useState("approval");
     const [panelOpen, setPanelOpen] = useState(false);
     const [pdfOpen, setPdfOpen] = useState(false);
     const [excelBusy, setExcelBusy] = useState(false);
@@ -194,7 +265,6 @@ export default function FormEditorPage({ formId = null }) {
     const [previousOpen, setPreviousOpen] = useState(false);
     const [cascadeOpen, setCascadeOpen] = useState(false);
     const [templateOpen, setTemplateOpen] = useState(false);
-    const [returnNote, setReturnNote] = useState("");
 
     const { data: opcrTargets = [] } = useQuery({
         queryKey: ["opcr-targets", id],
@@ -214,26 +284,30 @@ export default function FormEditorPage({ formId = null }) {
     }, [focusRemarks, focusLineId, form?.id]);
 
     useEffect(() => {
-        if (!focusTargetId || !form || focusedTarget.current === focusTargetId) return;
+        if (!focusTargetsKey || !form || focusedTarget.current === focusTargetsKey) return;
 
-        const item = document.querySelector(`[data-assigned-target="${focusTargetId}"]`);
+        const items = focusTargetsKey
+            .split(",")
+            .map((targetId) => document.querySelector(`[data-assigned-target="${targetId}"]`))
+            .filter(Boolean);
 
-        if (!item) return;
+        if (!items.length) return;
 
-        focusedTarget.current = focusTargetId;
-        item.scrollIntoView({ behavior: "smooth", block: "center" });
-        item.classList.add("is-new");
-        const timer = setTimeout(() => item.classList.remove("is-new"), 2200);
+        focusedTarget.current = focusTargetsKey;
+        items.forEach((item) => item.classList.add("is-new"));
+        items[0].scrollIntoView({ behavior: "smooth", block: "center" });
+        const timer = setTimeout(() => items.forEach((item) => item.classList.remove("is-new")), 2200);
 
         return () => clearTimeout(timer);
-    }, [focusTargetId, form]);
+    }, [focusTargetsKey, form]);
 
     const periods = form?.school_year?.periods ?? [];
     // A period-pinned IPCR covers exactly one review period; the OPCR (and
     // legacy year-wide IPCRs) still switch between the year's two periods.
     const formPeriodId = form?.type === "ipcr" ? (form?.rating_period_id ?? null) : null;
+    const periodFromNotice = periods.some((period) => period.id === notedPeriodId) ? notedPeriodId : null;
     const activePeriodId =
-        formPeriodId ?? periodId ?? periods.find((p) => p.is_active)?.id ?? periods[0]?.id;
+        formPeriodId ?? periodId ?? periodFromNotice ?? periods.find((p) => p.is_active)?.id ?? periods[0]?.id;
 
     const exportExcel = async () => {
         if (!form) return;
@@ -255,22 +329,12 @@ export default function FormEditorPage({ formId = null }) {
 
     const refresh = () => queryClient.invalidateQueries({ queryKey: ["pcr-form", id] });
 
-    const addOutput = useMutation({
-        mutationFn: (values) => api.post("pcr-outputs", { ...values, form_id: form.id }),
-        onSuccess: () => {
-            message.success("Output added.");
-            setOutputModal(false);
-            outputForm.resetFields();
-            refresh();
-        },
-    });
-
     const move = useMutation({
-        mutationFn: ({ status, note }) => api.post(`pcr-forms/${form.id}/status`, { status, note }),
+        mutationFn: ({ status, note, fixes }) =>
+            api.post(`pcr-forms/${form.id}/status`, { status, note, fixes }),
         onSuccess: () => {
             message.success("Form updated.");
             setReturnModal(false);
-            setReturnNote("");
             refresh();
         },
     });
@@ -310,12 +374,19 @@ export default function FormEditorPage({ formId = null }) {
     const periodLocked = form.type === "opcr" ? yearClosed : Boolean(viewedPeriod?.is_locked);
     const isOpcr = form.type === "opcr";
     const commitmentsApproved = Boolean(form.commitment_approved_at);
+    const returnedFromRating =
+        form.status === "returned" &&
+        [...(form.status_logs ?? [])]
+            .sort((a, b) => b.id - a.id)
+            .find((log) => log.to_status === "returned")?.from_status === "qa_rating";
     // Commitments stay editable until they are approved. A return from rating
-    // does not reopen them.
+    // does not reopen them. An OPCR sent back from rating keeps its targets too.
     const planningOpen =
         !isOpcr && ["draft", "returned"].includes(form.status) && !commitmentsApproved;
     const canEditCommitment =
-        isOwner && !periodLocked && (isOpcr ? ["draft", "returned"].includes(form.status) : planningOpen);
+        isOwner &&
+        !periodLocked &&
+        (isOpcr ? form.status === "draft" || (form.status === "returned" && !returnedFromRating) : planningOpen);
     const workOpen =
         isOpcr ||
         commitmentsApproved ||
@@ -337,7 +408,9 @@ export default function FormEditorPage({ formId = null }) {
         !periodLocked &&
         Boolean(user.capabilities?.assign_indicators) &&
         (isOpcr ? !["rated", "final"].includes(form.status) : handoutOpen);
-    const opcrHandoutClosed = isOpcr && ["published", "qa_rating", "rated", "final"].includes(form.status);
+    const opcrHandoutClosed =
+        isOpcr &&
+        (["published", "qa_rating", "rated", "final"].includes(form.status) || returnedFromRating);
     const canNameAccountable = (canAssignHeadings || canAssign) && !opcrHandoutClosed;
     const canCascade = canAssign && !opcrHandoutClosed;
 
@@ -354,8 +427,22 @@ export default function FormEditorPage({ formId = null }) {
               (form.status === "dean_review" && samePerson(form.dean_reviewer_id, user.id)) ||
               (form.status === "vp_review" && samePerson(form.vp_reviewer_id, user.id)));
 
+    const opcrRules = user.workflow?.opcr ?? {
+        creator_roles: ["president"],
+        approver_roles: ["qa"],
+        publisher_roles: ["president"],
+        rating_trigger_roles: ["president"],
+    };
+    const raterRoles = user.workflow?.rater_roles ?? ["qa"];
+    const holds = (roles) => roles.includes(user.role);
+    const isRater = holds(raterRoles);
+    const canCreateOpcr = holds(opcrRules.creator_roles);
+    const canApproveOpcr = holds(opcrRules.approver_roles);
+    const canPublishOpcr = holds(opcrRules.publisher_roles);
+    const canTriggerRating = holds(opcrRules.rating_trigger_roles);
+
     const qaRatesStaff =
-        user.role === "qa" &&
+        isRater &&
         ((form.status === "head_review" && samePerson(form.head_reviewer_id, user.id)) ||
             (form.status === "dean_review" && samePerson(form.dean_reviewer_id, user.id)));
 
@@ -366,7 +453,7 @@ export default function FormEditorPage({ formId = null }) {
             (form.status === "head_review" && samePerson(form.head_reviewer_id, user.id)) ||
             (form.status === "dean_review" && samePerson(form.dean_reviewer_id, user.id)) ||
             (form.status === "vp_review" && samePerson(form.vp_reviewer_id, user.id)) ||
-            (user.role === "qa" && form.status === "qa_rating"));
+            (isRater && form.status === "qa_rating"));
     // Q, E, T and A stay off the working sheet until someone is actually rating.
     // They stay once the rating is done. The printed form always includes them.
     const showScores = (
@@ -378,30 +465,21 @@ export default function FormEditorPage({ formId = null }) {
     const nextStop = nextReviewStop(form);
     const nextStatus = nextStop.status;
 
-    // The OPCR's planning lane: the president sends the targets to QA, QA
-    // approves them, and the president publishes them.
-    const drivesOpcr = user.role === "president";
-
-    const returnedFromRating =
-        form.status === "returned" &&
-        [...(form.status_logs ?? [])]
-            .sort((a, b) => b.id - a.id)
-            .find((log) => log.to_status === "returned")?.from_status === "qa_rating";
-
     const opcrAction = !isOpcr
         ? null
-        : drivesOpcr && form.status === "returned" && returnedFromRating
+        : canTriggerRating && form.status === "returned" && returnedFromRating
           ? { status: "qa_rating", label: "Send for rating", short: "For rating" }
-          : drivesOpcr && ["draft", "returned"].includes(form.status)
-            ? { status: "qa_approval", label: "Send to QA for approval", short: "Send to QA" }
-            : user.role === "qa" && form.status === "qa_approval"
+          : canCreateOpcr && ["draft", "returned"].includes(form.status)
+            ? { status: "qa_approval", label: "Send for approval", short: "Send" }
+            : canApproveOpcr && form.status === "qa_approval"
               ? { status: "approved", label: "Approve targets" }
-              : drivesOpcr && form.status === "approved"
+              : canPublishOpcr && form.status === "approved"
                 ? { status: "published", label: "Publish" }
                 : null;
 
-    const canUnpublish = isOpcr && drivesOpcr && form.status === "published";
-    const canClose = form.status === "rated" && ["qa", "president"].includes(user.role);
+    const canUnpublish = isOpcr && canPublishOpcr && form.status === "published";
+    const canSendForRating = isOpcr && canTriggerRating && form.status === "published";
+    const canClose = form.status === "rated" && (isRater || user.role === "president");
     const canSendCommitments = canEditCommitment && !isOpcr;
     const canSubmitForRating =
         isOwner &&
@@ -413,13 +491,16 @@ export default function FormEditorPage({ formId = null }) {
         !isOpcr &&
         form.status === "commitment_review" &&
         samePerson(form.commitment_approver?.id, user.id);
+    // The owner always sees the step bar. Someone else sees it only while the
+    // form is waiting on them.
+    const seesSteps =
+        isOwner ||
+        canDecideCommitments ||
+        isMyReviewStep ||
+        ((isRater && form.status === "qa_rating") || (canApproveOpcr && isOpcr && form.status === "qa_approval"));
     const approverLabel = form.commitment_approver?.label || "approval";
-    const canReturnOpcr = isOpcr && user.role === "qa" && form.status === "qa_approval";
-    const canReturnFromRating = user.role === "qa" && form.status === "qa_rating";
-
-    const sections = ["strategic", "core", "support"].filter(
-        (section) => !(isOpcr === false && section === "strategic")
-    );
+    const canReturnOpcr = isOpcr && canApproveOpcr && form.status === "qa_approval";
+    const canReturnFromRating = isRater && form.status === "qa_rating";
 
     // Each review point carries its own commitments — January to June is not
     // rated on the same lines as July to December.
@@ -479,7 +560,15 @@ export default function FormEditorPage({ formId = null }) {
 
         return person?.name ?? null;
     };
-    const stepIndex = Math.max(chain.indexOf(form.status), 0);
+    // A reviewer sees only the step the form is waiting on. The owner keeps
+    // the whole sequence.
+    const shownChain = isOwner || !chain.includes(form.status) ? chain : [form.status];
+    const stepIndex = Math.max(shownChain.indexOf(form.status), 0);
+    const returnMarks = form.return_marks ?? [];
+    const openReturn = (mode) => {
+        setReturnMode(mode);
+        setReturnModal(true);
+    };
 
     return (
         <>
@@ -518,7 +607,9 @@ export default function FormEditorPage({ formId = null }) {
                                     disabled={!form.commitment_approver}
                                     onClick={() => move.mutate({ status: "commitment_review" })}
                                 >
-                                    <span className="pms-btn-long">{`Send to ${approverLabel}`}</span>
+                                    <span className="pms-btn-long">
+                                        {form.commitment_approver ? `Send to ${approverLabel}` : "Send"}
+                                    </span>
                                     <span className="pms-btn-short">Send</span>
                                 </Button>
                             )}
@@ -538,7 +629,7 @@ export default function FormEditorPage({ formId = null }) {
                                         move.mutate({ status: "head_review" });
                                     }}
                                 >
-                                    {user.role === "qa" ? "Start rating" : "Submit for review"}
+                                    {isRater ? "Start rating" : "Submit for review"}
                                 </Button>
                             )}
                             {opcrAction && (
@@ -579,7 +670,7 @@ export default function FormEditorPage({ formId = null }) {
                         <Space wrap={false} className="pms-form-actions" size={8}>
                         {canDecideCommitments && (
                             <>
-                                <Button danger onClick={() => setReturnModal(true)}>
+                                <Button danger onClick={() => openReturn("approval")}>
                                     Return
                                 </Button>
                                 <Popconfirm
@@ -595,7 +686,7 @@ export default function FormEditorPage({ formId = null }) {
                             </>
                         )}
                         {canReturnOpcr && (
-                            <Button danger onClick={() => setReturnModal(true)}>
+                            <Button danger onClick={() => openReturn("approval")}>
                                 Return
                             </Button>
                         )}
@@ -608,7 +699,7 @@ export default function FormEditorPage({ formId = null }) {
                                 <Button>Unpublish</Button>
                             </Popconfirm>
                         )}
-                                {canUnpublish && (
+                                {canSendForRating && (
                             <Button
                                 type="primary"
                                 loading={move.isPending}
@@ -635,11 +726,11 @@ export default function FormEditorPage({ formId = null }) {
                             </Popconfirm>
                         )}
                         {canReturnFromRating && (
-                            <Button danger onClick={() => setReturnModal(true)}>
+                            <Button danger onClick={() => openReturn("writeup")}>
                                 Return
                             </Button>
                         )}
-                        {canScore && user.role === "qa" && (
+                        {canScore && isRater && (
                             <Button
                                 type="primary"
                                 loading={finalize.isPending}
@@ -650,7 +741,7 @@ export default function FormEditorPage({ formId = null }) {
                         )}
                         {isMyReviewStep && (
                             <>
-                                <Button danger onClick={() => setReturnModal(true)}>
+                                <Button danger onClick={() => openReturn("writeup")}>
                                     Return
                                 </Button>
                                 {!qaRatesStaff && (
@@ -680,7 +771,7 @@ export default function FormEditorPage({ formId = null }) {
                     showIcon
                     style={{ marginBottom: 16 }}
                     message="Enter the rating on each line"
-                    description="Set Quality, Efficiency and Timeliness in the Q, E and T columns. Send the form on once every line has a score."
+                    description={`Set ${dimensionPhrase(user)} on each line. Send the form on once every line has a score.`}
                 />
             )}
 
@@ -709,9 +800,11 @@ export default function FormEditorPage({ formId = null }) {
                     style={{ marginBottom: 16 }}
                     message="Commitments need approval first"
                     description={
-                        form.commitment_approver
-                            ? `Send them to ${approverLabel}. Tasks and handing work down stay closed until they are approved.`
-                            : "There is nobody to approve these commitments yet."
+                        form.commitment_wait
+                            ? form.commitment_wait
+                            : form.commitment_approver
+                              ? `Send them to ${approverLabel}. Tasks and handing work down stay closed until they are approved.`
+                              : "There is nobody to approve these commitments yet."
                     }
                 />
             )}
@@ -736,7 +829,7 @@ export default function FormEditorPage({ formId = null }) {
                     showIcon
                     style={{ marginBottom: 16 }}
                     message="Commitments approved"
-                    description="You can hand work to your team and record tasks. Submit for review once every line has a narrative and a file."
+                    description="You can hand work to your team and record tasks. Submit for review once every line has a narrative and two files."
                 />
             )}
 
@@ -746,18 +839,34 @@ export default function FormEditorPage({ formId = null }) {
                     showIcon
                     style={{ marginBottom: 16 }}
                     message="This form was sent back to you"
-                    description="Read the remarks below, make the corrections, then submit it again."
+                    description={
+                        returnMarks.length ? (
+                            <ul className="pms-return-list">
+                                {returnMarks.map((mark) => (
+                                    <li key={mark.id}>
+                                        <strong>{RETURN_FIELD_LABELS[mark.field] ?? "This part"}.</strong>{" "}
+                                        {mark.note}
+                                    </li>
+                                ))}
+                            </ul>
+                        ) : isOpcr && returnedFromRating ? (
+                            "Targets and success indicators stay as they are. Update the actual accomplishment and the evidence, then send it back for rating."
+                        ) : (
+                            "Read the remarks below, make the corrections, then submit it again."
+                        )
+                    }
                 />
             )}
 
+            {seesSteps && (
             <Card style={{ marginBottom: 16 }}>
                 <Steps
                     size="small"
-                    className="pms-chain"
+                    className={`pms-chain${shownChain.length <= 2 ? " is-compact" : ""}`}
                     labelPlacement="vertical"
                     current={stepIndex}
                     status={form.status === "returned" ? "error" : "process"}
-                    items={chain.map((status, index) => {
+                    items={shownChain.map((status, index) => {
                         // Approved commitments sit at the start of the rating
                         // sequence as a draft, until the writer submits them.
                         const reviewDraft = status === "commitments_approved";
@@ -820,6 +929,7 @@ export default function FormEditorPage({ formId = null }) {
                     })}
                 />
             </Card>
+            )}
 
             <Row gutter={16}>
                 <Col xs={24} lg={24}>
@@ -846,17 +956,6 @@ export default function FormEditorPage({ formId = null }) {
                                 )}
                             </div>
                             <div className="pms-commit-actions">
-                                {canEditCommitment && !isOpcr && (
-                                    <Button
-                                        className="pms-commit-text"
-                                        type="primary"
-                                        size="small"
-                                        icon={<PlusOutlined />}
-                                        onClick={() => setOutputModal(true)}
-                                    >
-                                        Add output
-                                    </Button>
-                                )}
                                 {!isOpcr && canEditCommitment && form.outputs.length === 0 && (
                                     <Button
                                         className="pms-commit-text"
@@ -913,23 +1012,9 @@ export default function FormEditorPage({ formId = null }) {
                             </div>
                         </div>
                         {!isOpcr && (form.assigned_targets ?? []).length > 0 && (
-                            <Alert
-                                type="info"
-                                showIcon
-                                style={{ marginBottom: 16 }}
-                                message="Targets assigned to you"
-                                description={
-                                    <ul className="pms-assigned-targets">
-                                        {(form.assigned_targets ?? []).map((target) => (
-                                            <li key={target.id} data-assigned-target={target.id}>
-                                                <strong>{target.output_title}</strong>
-                                                {" — "}
-                                                {toPlainText(target.description)}
-                                                {target.assigned_by_name ? ` · ${target.assigned_by_name}` : ""}
-                                            </li>
-                                        ))}
-                                    </ul>
-                                }
+                            <AssignedTargets
+                                targets={form.assigned_targets}
+                                notedIds={focusTargetIds}
                             />
                         )}
                         {isOpcr ? (
@@ -942,9 +1027,11 @@ export default function FormEditorPage({ formId = null }) {
                                 showScores={showScores}
                                 summary={summary}
                                 focusLineId={focusLineId}
+                                focusOutputId={focusOutputId}
+                                returnMarks={returnMarks}
                             />
-                        ) : form.outputs.length === 0 ? (
-                            <Empty description="No commitments yet. Add an MFO/PPA and write your own success indicators, then link each one to an assigned office target." />
+                        ) : form.outputs.length === 0 && !canEditCommitment ? (
+                            <Empty description="No commitments yet." />
                         ) : (
                             <IpcrSheet
                                 form={form}
@@ -959,10 +1046,7 @@ export default function FormEditorPage({ formId = null }) {
                                 summary={summary}
                                 focusLineId={focusLineId}
                                 focusOutputId={focusOutputId}
-                                onAddOutput={(section) => {
-                                    outputForm.setFieldsValue({ section });
-                                    setOutputModal(true);
-                                }}
+                                returnMarks={returnMarks}
                             />
                         )}
                     </Card>
@@ -1036,6 +1120,7 @@ export default function FormEditorPage({ formId = null }) {
                         canRecordProgress={canRecordProgress}
                         showScores={showScores}
                         summary={summary}
+                        returnMarks={returnMarks}
                     />
                 ) : (
                     <IpcrSheet
@@ -1049,10 +1134,7 @@ export default function FormEditorPage({ formId = null }) {
                         showScores={showScores}
                         opcrTargets={opcrTargets}
                         summary={summary}
-                        onAddOutput={(section) => {
-                            outputForm.setFieldsValue({ section });
-                            setOutputModal(true);
-                        }}
+                        returnMarks={returnMarks}
                     />
                 )}
             </Drawer>
@@ -1066,7 +1148,7 @@ export default function FormEditorPage({ formId = null }) {
                 cancelButtonProps={{ style: { display: "none" } }}
             >
                 <Typography.Paragraph type="secondary">
-                    This form stays with you until every line has a narrative and a file. It is
+                    This form stays with you until every line has a narrative and two files. It is
                     not sent for review yet.
                 </Typography.Paragraph>
                 <ul style={{ paddingLeft: 18, margin: 0 }}>
@@ -1181,85 +1263,14 @@ export default function FormEditorPage({ formId = null }) {
                     </Card>
             </Drawer>
 
-            <Modal
-                title={isOpcr ? "Add output (MFO/PPA)" : "Add MFO/PPA"}
-                okText={isOpcr ? "OK" : "Add"}
-                open={outputModal}
-                onCancel={() => setOutputModal(false)}
-                onOk={() => outputForm.submit()}
-                confirmLoading={addOutput.isPending}
-            >
-                <Form
-                    form={outputForm}
-                    layout="vertical"
-                    requiredMark={false}
-                    initialValues={{ section: "core" }}
-                    onFinish={(v) => addOutput.mutate(v)}
-                >
-                    <Form.Item name="section" label="Section" rules={[{ required: true }]}>
-                        {isOpcr ? (
-                            <Select
-                                options={sections.map((value) => ({ value, label: SECTION_LABELS[value] }))}
-                            />
-                        ) : (
-                            <Segmented
-                                block
-                                options={sections.map((value) => ({ value, label: SECTION_LABELS[value] }))}
-                            />
-                        )}
-                    </Form.Item>
-                    <Form.Item noStyle shouldUpdate={(a, b) => a.section !== b.section}>
-                        {({ getFieldValue }) => {
-                            const section = getFieldValue("section");
-
-                            return (
-                                <Form.Item
-                                    name="title"
-                                    label={isOpcr ? "Output" : "MFO/PPA"}
-                                    rules={[
-                                        { required: true, message: "Name the MFO/PPA." },
-                                        { max: NARRATIVE_MAX, message: `Keep this to ${NARRATIVE_MAX} characters.` },
-                                    ]}
-                                    extra={
-                                        isOpcr
-                                            ? "The MFO/PPA column — for example “Research” or “1.1 Entrance Exam”."
-                                            : undefined
-                                    }
-                                >
-                                    <Input.TextArea
-                                        autoSize={{ minRows: 2, maxRows: 6 }}
-                                        maxLength={NARRATIVE_MAX}
-                                        showCount
-                                        placeholder={
-                                            isOpcr ? "Research" : section === "support" ? "Submission of DTR" : "Instruction"
-                                        }
-                                    />
-                                </Form.Item>
-                            );
-                        }}
-                    </Form.Item>
-                </Form>
-            </Modal>
-
-            <Modal
-                title="Return this form"
+            <ReturnPlacesModal
                 open={returnModal}
+                form={form}
+                kind={returnMode}
+                confirming={move.isPending}
                 onCancel={() => setReturnModal(false)}
-                okText="Return"
-                okButtonProps={{ danger: true, disabled: !returnNote.trim() }}
-                confirmLoading={move.isPending}
-                onOk={() => move.mutate({ status: "returned", note: returnNote })}
-            >
-                <Typography.Paragraph>
-                    Say what needs fixing. The writer sees this remark and can correct the form and resubmit.
-                </Typography.Paragraph>
-                <RichText
-                    rows={4}
-                    value={returnNote}
-                    onChange={setReturnNote}
-                    placeholder="The evidence attached does not match the stated target."
-                />
-            </Modal>
+                onSubmit={(fixes) => move.mutate({ status: "returned", fixes })}
+            />
         </>
     );
 }

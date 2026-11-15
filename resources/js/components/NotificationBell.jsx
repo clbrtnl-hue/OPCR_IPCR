@@ -6,7 +6,7 @@ import { useNavigate } from "react-router-dom";
 import dayjs from "dayjs";
 import relativeTime from "dayjs/plugin/relativeTime";
 import api from "~/utils/api";
-import { notificationMeta } from "~/utils/notifications";
+import { notificationHref, notificationMeta } from "~/utils/notifications";
 
 dayjs.extend(relativeTime);
 
@@ -43,7 +43,12 @@ export default function NotificationBell() {
         }
 
         setOpen(false);
-        navigate(item.link ?? "/notifications");
+
+        const href = notificationHref(item);
+
+        if (href) {
+            navigate(href);
+        }
     };
 
     const panel = (

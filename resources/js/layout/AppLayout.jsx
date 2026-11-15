@@ -33,6 +33,68 @@ const ITEMS = {
 
 const withPersonal = (menu) => [...menu, ITEMS.notifications];
 
+const COLLEGE_MENU_ROLES = ["admin", "president", "hr", "qa"];
+
+const samePerson = (left, right) => Number(left) === Number(right);
+
+/** This form is sitting with the signed-in person for review, approval, or rating. */
+function formIsWithReviewer(user, form) {
+    if (!user || !form) {
+        return false;
+    }
+
+    if (
+        form.status === "commitment_review" &&
+        samePerson(form.commitment_approver?.id ?? form.commitment_approver_id, user.id)
+    ) {
+        return true;
+    }
+
+    const approves = (user.workflow?.opcr?.approver_roles ?? ["qa"]).includes(user.role);
+    const rates = (user.workflow?.rater_roles ?? ["qa"]).includes(user.role);
+
+    if ((approves && form.status === "qa_approval") || (rates && form.status === "qa_rating")) {
+        return true;
+    }
+
+    if (samePerson(form.user_id, user.id)) {
+        return false;
+    }
+
+    const step = (form.review_steps ?? []).find((item) => item.status === form.status);
+
+    if (step && samePerson(step.reviewer_id ?? step.reviewer?.id, user.id)) {
+        return true;
+    }
+
+    return (
+        (form.status === "head_review" && samePerson(form.head_reviewer_id, user.id)) ||
+        (form.status === "dean_review" && samePerson(form.dean_reviewer_id, user.id)) ||
+        (form.status === "vp_review" && samePerson(form.vp_reviewer_id, user.id))
+    );
+}
+
+function menuFor(role, showCollegeOpcr, showTeam, showRating) {
+    const menu = [...(MENUS[role] ?? MENUS.employee)];
+
+    if (showRating && !menu.some((item) => item.key === "/rating")) {
+        const reviewAt = menu.findIndex((item) => item.key === "/review-queue");
+        menu.splice(reviewAt >= 0 ? reviewAt + 1 : menu.length, 0, ITEMS.rating);
+    }
+
+    if (showCollegeOpcr && !menu.some((item) => item.key === "/college-opcr")) {
+        const dashboardAt = menu.findIndex((item) => item.key === "/");
+        menu.splice(Math.max(dashboardAt, 0) + 1, 0, ITEMS.collegeOpcr);
+    }
+
+    if (showTeam && !menu.some((item) => item.key === "/my-team")) {
+        const ipcrAt = menu.findIndex((item) => item.key === "/my-ipcr");
+        menu.splice(ipcrAt >= 0 ? ipcrAt + 1 : 1, 0, ITEMS.myTeam);
+    }
+
+    return withPersonal(menu);
+}
+
 const MENUS = {
     admin: [
         ITEMS.dashboard,
@@ -49,7 +111,7 @@ const MENUS = {
         },
     ],
     president: [ITEMS.dashboard, ITEMS.collegeOpcr, ITEMS.reviewQueue, ITEMS.myForms, ITEMS.reports],
-    qa: [ITEMS.dashboard, ITEMS.myIpcr, ITEMS.myForms, ITEMS.myTeam, ITEMS.reviewQueue, ITEMS.rating, ITEMS.reports],
+    qa: [ITEMS.dashboard, ITEMS.collegeOpcr, ITEMS.myIpcr, ITEMS.myForms, ITEMS.myTeam, ITEMS.reviewQueue, ITEMS.rating, ITEMS.reports],
     vp: [ITEMS.dashboard, ITEMS.myIpcr, ITEMS.myForms, ITEMS.myTeam, ITEMS.reviewQueue, ITEMS.rating],
     program_head: [ITEMS.dashboard, ITEMS.myIpcr, ITEMS.myForms, ITEMS.myTeam, ITEMS.reviewQueue, ITEMS.rating],
     hr: [ITEMS.dashboard, ITEMS.myIpcr, ITEMS.collegeOpcr, ITEMS.forms, ITEMS.reviewQueue, ITEMS.reports],
@@ -81,9 +143,34 @@ export default function AppLayout({ children }) {
     const unread = notifications?.unread ?? 0;
     const activeYear = years.find((y) => y.is_active);
     const activePeriod = activeYear?.periods?.find((p) => p.is_active);
+    const opcrRules = user?.workflow?.opcr ?? {};
+    const actsOnOpcr = ["creator_roles", "approver_roles", "publisher_roles", "rating_trigger_roles"].some(
+        (slot) => (opcrRules[slot] ?? []).includes(user?.role)
+    );
+    const hasCollegeMenu = COLLEGE_MENU_ROLES.includes(user?.role) || actsOnOpcr;
+    const isRater = (user?.workflow?.rater_roles ?? (user?.role === "qa" ? ["qa"] : [])).includes(user?.role);
+    const { data: accountableOpcrs = [] } = useQuery({
+        queryKey: ["college-opcr-nav", user?.id],
+        queryFn: () => api.get("pcr-forms?accountable=1").then((r) => r.data),
+        enabled: Boolean(user) && !hasCollegeMenu,
+    });
+    const seesCollegeOpcr = hasCollegeMenu || accountableOpcrs.length > 0;
+    const leadsATeam = ["program_head", "vp", "qa"].includes(user?.role);
+    const { data: watchedUnits = [] } = useQuery({
+        queryKey: ["watched-units", user?.id],
+        queryFn: () => api.get("org-units/watching").then((r) => r.data),
+        enabled: Boolean(user) && !leadsATeam,
+    });
+    const seesTeam = leadsATeam || watchedUnits.length > 0;
+    const openFormId = location.pathname.match(/^\/forms\/(\d+)/)?.[1] ?? null;
+    const { data: openForm } = useQuery({
+        queryKey: ["pcr-form", openFormId],
+        queryFn: () => api.get(`pcr-forms/${openFormId}`).then((r) => r.data),
+        enabled: Boolean(user) && Boolean(openFormId),
+    });
 
     const items = useMemo(() => {
-        const menu = withPersonal(MENUS[user?.role] ?? MENUS.employee);
+        const menu = menuFor(user?.role, seesCollegeOpcr, seesTeam, isRater);
 
         return menu.map((item) =>
             item.key === "/notifications"
@@ -99,7 +186,7 @@ export default function AppLayout({ children }) {
                   }
                 : item
         );
-    }, [user?.role, unread, collapsed]);
+    }, [user?.role, unread, collapsed, seesCollegeOpcr, seesTeam, isRater]);
 
     const selectedKey = useMemo(() => {
         const path = location.pathname;
@@ -113,18 +200,37 @@ export default function AppLayout({ children }) {
         }
 
         // Opening a form leaves the list URL. Keep the menu the person came
-        // from; a form reached any other way still belongs to My Forms.
+        // from. Otherwise their own form is My Forms, someone else's is My
+        // Team, and a form waiting on this person stays in the review queue.
         if (path.startsWith("/forms/")) {
             const from = location.state?.from;
             if (typeof from === "string" && flat.some((item) => item.key === from)) {
                 return from;
             }
 
+            if (flat.some((item) => item.key === "/review-queue") && formIsWithReviewer(user, openForm)) {
+                return "/review-queue";
+            }
+
+            const ownsForm = Boolean(openForm) && samePerson(openForm.user_id, user?.id);
+
+            if (ownsForm) {
+                return "/my-forms";
+            }
+
+            if (openForm?.type === "opcr" && flat.some((item) => item.key === "/college-opcr")) {
+                return "/college-opcr";
+            }
+
+            if (openForm && flat.some((item) => item.key === "/my-team")) {
+                return "/my-team";
+            }
+
             return "/my-forms";
         }
 
         return "/";
-    }, [location.pathname, location.state, items]);
+    }, [location.pathname, location.state, items, user, openForm]);
 
     useEffect(() => {
         setNavOpen(false);
@@ -132,6 +238,16 @@ export default function AppLayout({ children }) {
 
     const tabs = [
         { key: "/", icon: <NavIcon name="dashboard" />, label: "Home" },
+        seesCollegeOpcr && !hasCollegeMenu && {
+            key: "/college-opcr",
+            icon: <NavIcon name="college" />,
+            label: "OPCR",
+        },
+        user?.role === "qa" && {
+            key: "/college-opcr",
+            icon: <NavIcon name="college" />,
+            label: "OPCR",
+        },
         user?.role === "president"
             ? { key: "/college-opcr", icon: <NavIcon name="college" />, label: "OPCR" }
             : ["employee", "program_head", "vp", "qa", "hr"].includes(user?.role)

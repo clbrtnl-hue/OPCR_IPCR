@@ -293,12 +293,16 @@ class OpcrLifecycleTest extends PmsTestCase
             'type' => 'opcr', 'org_unit_id' => $unit->id,
             'school_year_id' => $year->id, 'status' => 'qa_rating',
         ]);
-        $this->makeIndicator($opcr, 'core');
+        $line = $this->makeIndicator($opcr, 'core');
 
         $this->actingAsRole('qa', ['org_unit_id' => $unit->id]);
         $this->postJson("/api/pcr-forms/{$opcr->id}/status", [
             'status' => 'returned',
-            'note'   => 'The rating narrative needs a source.',
+            'fixes'  => [[
+                'indicator_id' => $line->id,
+                'field'        => 'evidence',
+                'note'         => 'The rating narrative needs a source.',
+            ]],
         ])->assertOk();
 
         $this->assertSame('returned', $opcr->fresh()->status);
@@ -326,17 +330,93 @@ class OpcrLifecycleTest extends PmsTestCase
             'type' => 'opcr', 'org_unit_id' => $unit->id,
             'school_year_id' => $year->id, 'status' => 'qa_approval',
         ]);
-        $this->makeIndicator($opcr, 'core');
+        $line = $this->makeIndicator($opcr, 'core');
 
         $this->actingAsRole('qa', ['org_unit_id' => $unit->id]);
         $this->postJson("/api/pcr-forms/{$opcr->id}/status", [
             'status' => 'returned',
-            'note'   => 'Name the measure on each target.',
+            'fixes'  => [[
+                'indicator_id' => $line->id,
+                'field'        => 'description',
+                'note'         => 'Name the measure on each target.',
+            ]],
         ])->assertOk();
 
         $this->actingAsRole('president', ['org_unit_id' => $unit->id]);
         $this->postJson("/api/pcr-forms/{$opcr->id}/status", ['status' => 'qa_rating'])->assertOk();
 
         $this->assertSame('qa_approval', $opcr->fresh()->status);
+    }
+
+    public function test_an_opcr_returned_from_rating_keeps_its_targets_fixed(): void
+    {
+        $this->makeOrganization();
+        $unit = $this->makeUnit();
+        $year = $this->makeSchoolYear();
+        $period = $this->makePeriod($year);
+        $president = User::factory()->create(['role' => 'president', 'org_unit_id' => $unit->id]);
+        $staff = User::factory()->create(['role' => 'employee', 'org_unit_id' => $unit->id]);
+
+        $opcr = $this->makeForm([
+            'type' => 'opcr', 'org_unit_id' => $unit->id,
+            'school_year_id' => $year->id, 'status' => 'qa_rating',
+            'user_id' => $president->id,
+        ]);
+        $line = $this->makeIndicator($opcr, 'core');
+
+        $this->actingAsRole('qa', ['org_unit_id' => $unit->id]);
+        $this->postJson("/api/pcr-forms/{$opcr->id}/status", [
+            'status' => 'returned',
+            'fixes'  => [[
+                'indicator_id' => $line->id,
+                'field'        => 'actual_accomplishment',
+                'note'         => 'The narrative needs a source.',
+            ]],
+        ])->assertOk();
+
+        $this->actingAsUser($president);
+
+        $this->postJson('/api/pcr-indicators', [
+            'id'          => $line->id,
+            'output_id'   => $line->output_id,
+            'description' => 'A rewritten target.',
+        ])->assertStatus(409)
+            ->assertJsonPath(
+                'message',
+                'This OPCR was returned from rating. Targets and success indicators stay as they are — update the accomplishment and the evidence.'
+            );
+
+        $this->postJson("/api/pcr-indicators/{$line->id}/assign", [
+            'user_ids' => [$staff->id],
+        ])->assertStatus(409);
+
+        $this->postJson('/api/pcr-accomplishments', [
+            'indicator_id'          => $line->id,
+            'rating_period_id'      => $period->id,
+            'actual_accomplishment' => 'The office finished the work and attached the report.',
+        ])->assertOk();
+
+        $approved = $this->makeForm([
+            'type' => 'opcr', 'org_unit_id' => $unit->id,
+            'school_year_id' => $year->id, 'status' => 'qa_approval',
+        ]);
+        $target = $this->makeIndicator($approved, 'core');
+
+        $this->actingAsRole('qa', ['org_unit_id' => $unit->id]);
+        $this->postJson("/api/pcr-forms/{$approved->id}/status", [
+            'status' => 'returned',
+            'fixes'  => [[
+                'indicator_id' => $target->id,
+                'field'        => 'description',
+                'note'         => 'Name the measure.',
+            ]],
+        ])->assertOk();
+
+        $this->actingAsUser($president);
+        $this->postJson('/api/pcr-indicators', [
+            'id'          => $target->id,
+            'output_id'   => $target->output_id,
+            'description' => 'Publish 30 articles from January to December.',
+        ])->assertOk();
     }
 }

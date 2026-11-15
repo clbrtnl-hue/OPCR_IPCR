@@ -168,11 +168,15 @@ class PcrReminderService
                 }
 
                 foreach ($this->reviewers($form) as $reviewerId) {
-                    $queue[$reviewerId] = ($queue[$reviewerId] ?? 0) + 1;
+                    $queue[$reviewerId][$form->id] = $form->id;
                 }
             }
 
-            foreach ($queue as $reviewerId => $count) {
+            foreach ($queue as $reviewerId => $formIds) {
+                $formIds = array_values($formIds);
+                $count = count($formIds);
+                $only = $count === 1 ? $formIds[0] : null;
+
                 $sent += (int) Notification::remind(
                     $reviewerId,
                     'period',
@@ -180,8 +184,8 @@ class PcrReminderService
                     $count === 1
                         ? "1 form is still in your review queue for {$period->label}."
                         : "{$count} forms are still in your review queue for {$period->label}.",
-                    null,
-                    "/review-queue?period={$period->id}"
+                    $only,
+                    $only ? "/forms/{$only}" : "/review-queue?period={$period->id}"
                 );
             }
         }
@@ -267,17 +271,24 @@ class PcrReminderService
     /** @return array<int, int> */
     private function reviewers(PcrForm $form): array
     {
-        $ids = match ($form->status) {
-            'head_review' => [$form->head_reviewer_id],
-            'dean_review' => [$form->dean_reviewer_id],
-            'vp_review'   => [$form->vp_reviewer_id],
-            'qa_rating', 'qa_approval' => User::query()
-                ->where('role', 'qa')
+        if (in_array($form->status, ['qa_rating', 'qa_approval'], true)) {
+            $rules = app(WorkflowSettings::class);
+            $roles = $form->status === 'qa_rating'
+                ? $rules->raterRoles()
+                : $rules->opcr('approver_roles');
+
+            return User::query()
+                ->whereIn('role', $roles)
                 ->where('status', 'active')
                 ->pluck('id')
-                ->all(),
-            default => $form->stageReviewers()->where('stage', $form->status)->pluck('reviewer_id')->all(),
-        };
+                ->map(fn ($id) => (int) $id)
+                ->all();
+        }
+
+        $ids = $form->stageReviewers()
+            ->where('stage', $form->status)
+            ->pluck('reviewer_id')
+            ->all();
 
         return array_values(array_filter(array_map('intval', $ids)));
     }

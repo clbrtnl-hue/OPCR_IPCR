@@ -3,15 +3,19 @@
 namespace App\Models;
 
 use App\Models\Concerns\BelongsToOrganization;
+use App\Models\Concerns\StoresUnitReviewers;
 use Illuminate\Database\Eloquent\Model;
 
 class OrgUnit extends Model
 {
     use BelongsToOrganization;
+    use StoresUnitReviewers;
 
     protected $table = 'org_units';
 
     protected $guarded = [];
+
+    protected $appends = ['head_user_id', 'dean_user_id', 'vp_user_id'];
 
     public function parent()
     {
@@ -48,16 +52,35 @@ class OrgUnit extends Model
         return $this->hasMany(OrgUnitReviewer::class, 'org_unit_id');
     }
 
-    /** The person named for a review step. Built-in slots still read the old columns. */
+    /** People who may read this unit's forms. They are not a review step. */
+    public function viewers()
+    {
+        return $this->hasMany(OrgUnitViewer::class, 'org_unit_id');
+    }
+
+    /**
+     * Units this person was allowed to open, plus every unit under those.
+     * Review slots are not included here.
+     */
+    public static function watchedIds(int $userId): array
+    {
+        $roots = OrgUnitViewer::query()
+            ->where('user_id', $userId)
+            ->pluck('org_unit_id')
+            ->map(fn ($id) => (int) $id)
+            ->all();
+
+        return static::subtreeIds($roots);
+    }
+
+    /** The person named for a review step. Every slot, including head, dean, and VP, is one reviewer row. */
     public function reviewerIdForSlot(string $slot): ?int
     {
-        if (in_array($slot, ['head_user_id', 'dean_user_id', 'vp_user_id'], true)) {
-            return $this->{$slot} ? (int) $this->{$slot} : null;
+        if (array_key_exists($slot, $this->pendingReviewerSlots)) {
+            return $this->pendingReviewerSlots[$slot];
         }
 
-        $named = $this->relationLoaded('reviewers')
-            ? $this->reviewers->firstWhere('slot', $slot)
-            : $this->reviewers()->where('slot', $slot)->first();
+        $named = $this->reviewerRows()->firstWhere('slot', $slot);
 
         return $named?->user_id ? (int) $named->user_id : null;
     }
@@ -105,17 +128,12 @@ class OrgUnit extends Model
     }
 
     /**
-     * Offices where this person is the head, dean, director, or VP.
+     * Offices where this person is named on any review slot.
      */
     public function scopeWhereLedBy($query, int $userId)
     {
-        return $query->where(function ($inner) use ($userId) {
-            $inner->where('head_user_id', $userId)
-                ->orWhere('dean_user_id', $userId)
-                ->orWhere('vp_user_id', $userId)
-                ->orWhereHas('reviewers', function ($reviewers) use ($userId) {
-                    $reviewers->where('slot', 'director_review')->where('user_id', $userId);
-                });
+        return $query->whereHas('reviewers', function ($reviewers) use ($userId) {
+            $reviewers->where('user_id', $userId);
         });
     }
 

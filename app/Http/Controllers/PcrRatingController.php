@@ -13,6 +13,7 @@ use App\Models\RatingPeriod;
 use App\Support\Html;
 use App\Services\PcrWorkflow;
 use App\Services\RatingScale;
+use App\Services\WorkflowSettings;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
@@ -20,14 +21,19 @@ class PcrRatingController extends Controller
 {
     public function store(Request $request)
     {
+        $scale  = app(WorkflowSettings::class);
+        [$min, $max] = $scale->ratingBounds();
+        $active = $scale->ratingDimensionKeys();
+        $bound  = 'nullable|integer|min:'.(int) $min.'|max:'.(int) $max;
+
         $data = $request->validate([
             'form_id'              => 'required|integer|exists:pcr_forms,id',
             'rating_period_id'     => 'required|integer|exists:rating_periods,id',
             'ratings'              => 'required|array|min:1',
             'ratings.*.indicator_id' => 'required|integer|exists:pcr_indicators,id',
-            'ratings.*.q'          => 'nullable|integer|min:1|max:5',
-            'ratings.*.e'          => 'nullable|integer|min:1|max:5',
-            'ratings.*.t'          => 'nullable|integer|min:1|max:5',
+            'ratings.*.q'          => in_array('q', $active, true) ? $bound : 'nullable',
+            'ratings.*.e'          => in_array('e', $active, true) ? $bound : 'nullable',
+            'ratings.*.t'          => in_array('t', $active, true) ? $bound : 'nullable',
             'ratings.*.remarks'    => 'nullable|string|max:2000',
         ]);
 
@@ -73,11 +79,11 @@ class PcrRatingController extends Controller
             }
         }
 
-        DB::transaction(function () use ($data, $period, $user) {
+        DB::transaction(function () use ($data, $period, $user, $active) {
             foreach ($data['ratings'] as $row) {
-                $q = $row['q'] ?? null;
-                $e = $row['e'] ?? null;
-                $t = $row['t'] ?? null;
+                $q = in_array('q', $active, true) ? ($row['q'] ?? null) : null;
+                $e = in_array('e', $active, true) ? ($row['e'] ?? null) : null;
+                $t = in_array('t', $active, true) ? ($row['t'] ?? null) : null;
 
                 PcrRating::updateOrCreate(
                     [

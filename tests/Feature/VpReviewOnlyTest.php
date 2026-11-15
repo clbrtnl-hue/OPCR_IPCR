@@ -150,28 +150,43 @@ class VpReviewOnlyTest extends PmsTestCase
         ])->assertStatus(201);
     }
 
-    public function test_a_vp_cannot_be_given_delegation_or_opcr_steps(): void
+    public function test_a_vp_can_be_given_a_whole_heading_and_the_opcr(): void
     {
-        $this->college();
+        ['vp' => $vp, 'vpIpcr' => $vpIpcr, 'head' => $head, 'year' => $year, 'college' => $college] = $this->college();
 
         $this->actingAsRole('admin');
 
         $this->postJson('/api/workflow-settings', [
             'key'   => 'delegation',
-            'value' => ['assign_outputs' => ['vp'], 'assign_indicators' => ['vp'], 'terminal_roles' => ['employee']],
-        ])->assertStatus(422);
-
-        $this->postJson('/api/workflow-settings', [
-            'key'   => 'delegation',
-            'value' => ['assign_outputs' => ['president'], 'assign_indicators' => ['vp', 'program_head'], 'terminal_roles' => ['employee']],
+            'value' => [
+                'assign_outputs'    => ['vp'],
+                'assign_indicators' => ['program_head'],
+                'terminal_roles'    => ['employee'],
+            ],
         ])->assertSuccessful();
 
+        $this->assertTrue($vp->fresh()->capabilities['assign_outputs']);
+        $this->assertFalse($vp->fresh()->capabilities['assign_indicators']);
+
+        $line = $this->makeIndicator($vpIpcr, 'core');
+        $this->approveCommitments($vpIpcr);
+
+        $this->actingAsUser($vp);
+        $this->postJson("/api/pcr-outputs/{$line->output_id}/assign", ['user_ids' => [$head->id]])->assertStatus(201);
+        $this->postJson("/api/pcr-indicators/{$line->id}/assign", ['user_ids' => [$head->id]])->assertStatus(403);
+
+        $this->actingAsRole('admin');
         $this->postJson('/api/workflow-settings', [
             'key'   => 'opcr',
             'value' => [
-                'creator_roles' => ['vp'], 'approver_roles' => ['qa'], 'publisher_roles' => ['president'],
+                'creator_roles' => ['vp'], 'approver_roles' => ['qa'], 'publisher_roles' => ['vp'],
                 'rating_trigger_roles' => ['president'], 'one_per' => 'organization',
             ],
-        ])->assertStatus(422);
+        ])->assertSuccessful();
+
+        $this->actingAsUser($vp);
+        $this->postJson('/api/pcr-forms', [
+            'type' => 'opcr', 'school_year_id' => $year->id, 'org_unit_id' => $college->id,
+        ])->assertStatus(409);
     }
 }

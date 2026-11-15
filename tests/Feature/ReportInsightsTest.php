@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Models\OrgUnitReviewer;
 use App\Models\PcrIndicator;
 use App\Models\PcrOutput;
 use App\Models\PcrPeriodSummary;
@@ -201,6 +202,42 @@ class ReportInsightsTest extends PmsTestCase
 
         $this->assertSame('College VP', $listed['vp']);
         $this->assertSame(60, $listed['progress_pct']);
+    }
+
+    public function test_a_dean_or_director_is_the_head_of_a_unit_with_no_head(): void
+    {
+        ['president' => $president, 'year' => $year, 'unit' => $unit] = $this->college();
+
+        $dean = User::factory()->create([
+            'role' => 'program_head', 'name' => 'College Dean', 'position_title' => 'Dean',
+        ]);
+        $director = User::factory()->create([
+            'role' => 'program_head', 'name' => 'Office Director', 'position_title' => 'Director',
+        ]);
+        $programHead = User::factory()->create([
+            'role' => 'program_head', 'name' => 'Program Head', 'position_title' => 'Program Head',
+        ]);
+
+        $college = $this->makeUnit(['name' => 'College of Information Technology', 'code' => 'CIT']);
+        $office  = $this->makeUnit(['name' => 'Center for ICT', 'code' => 'CICT']);
+
+        $college->update(['dean_user_id' => $dean->id]);
+        OrgUnitReviewer::updateOrCreate(
+            ['org_unit_id' => $office->id, 'slot' => 'director_review'],
+            ['user_id' => $director->id],
+        );
+        $unit->update(['head_user_id' => $programHead->id, 'dean_user_id' => $dean->id]);
+
+        $this->actingAsUser($president);
+
+        $heads = collect($this->getJson("/api/reports/summary?school_year_id={$year->id}")->json('heads'));
+
+        $this->assertSame('College Dean', $heads->firstWhere('id', $college->id)['head']);
+        $this->assertSame('Dean', $heads->firstWhere('id', $college->id)['position']);
+        $this->assertSame('Office Director', $heads->firstWhere('id', $office->id)['head']);
+        $this->assertSame('Director', $heads->firstWhere('id', $office->id)['position']);
+        $this->assertSame('Program Head', $heads->firstWhere('id', $unit->id)['head']);
+        $this->assertCount(3, $heads);
     }
 
     public function test_everyone_gets_their_own_counts(): void

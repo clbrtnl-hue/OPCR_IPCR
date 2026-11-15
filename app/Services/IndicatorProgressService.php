@@ -21,14 +21,17 @@ class IndicatorProgressService
     /** The written actual accomplishment is this share of a leaf's progress. */
     public const NARRATIVE_WEIGHT = 30;
 
-    /** An attached file is this share. Both together are 100. */
+    /** Attached files share this. Two files fill it; one file is half. */
     public const EVIDENCE_WEIGHT = 70;
 
+    /** A line needs this many files before the evidence share is full. */
+    public const EVIDENCE_FILES = 2;
+
     /**
-     * A leaf's percent is the narrative (30) plus the evidence file (70).
-     * Either piece counts on its own, and the line is finished only once both
-     * are there. A line that was handed on is not the writer's own number —
-     * it follows the people they named.
+     * A leaf's percent is the narrative (30) plus the evidence files (70).
+     * One file is half of that 70. The line is finished only once the narrative
+     * and both files are there. A line that was handed on is not the writer's
+     * own number — it follows the people they named.
      */
     public function syncFromRecord(PcrIndicator $line): void
     {
@@ -229,8 +232,8 @@ class IndicatorProgressService
     }
 
     /**
-     * The furthest a line has got across its records. A narrative is 30 and a
-     * file is 70, so one of each on the same record is 100.
+     * The furthest a line has got across its records. A narrative is 30. The
+     * two required files share 70, so one file is 35 and both are 70.
      */
     private function percentFor($records): int
     {
@@ -243,8 +246,10 @@ class IndicatorProgressService
                 $score += self::NARRATIVE_WEIGHT;
             }
 
-            if ((int) $record->attachments_count > 0) {
-                $score += self::EVIDENCE_WEIGHT;
+            $files = min((int) $record->attachments_count, self::EVIDENCE_FILES);
+
+            if ($files > 0) {
+                $score += (int) round(self::EVIDENCE_WEIGHT * $files / self::EVIDENCE_FILES);
             }
 
             $best = max($best, $score);

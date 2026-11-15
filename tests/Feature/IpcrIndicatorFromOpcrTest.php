@@ -72,25 +72,36 @@ class IpcrIndicatorFromOpcrTest extends PmsTestCase
         $this->assertStringContainsString('Facilitate publication of 3 department articles.', $line->description);
     }
 
-    public function test_a_picked_target_still_needs_a_typed_description(): void
+    public function test_a_picked_target_does_not_copy_its_wording_into_a_blank_line(): void
     {
         ['employee' => $employee, 'heading' => $heading, 'target' => $target] = $this->college();
 
         $this->actingAsUser($employee);
 
-        $this->postJson('/api/pcr-indicators', [
+        $response = $this->postJson('/api/pcr-indicators', [
             'output_id'           => $heading->id,
+            'description'         => '',
             'parent_indicator_id' => $target->id,
-        ])->assertStatus(422);
+        ])->assertStatus(201);
+
+        $line = PcrIndicator::find($response->json('indicator.id'));
+
+        $this->assertSame('', $line->description);
+        $this->assertSame($target->id, $line->parent_indicator_id);
     }
 
-    public function test_a_line_without_a_target_still_needs_a_description(): void
+    public function test_a_blank_line_is_stored_for_the_sheet_to_fill_in(): void
     {
         ['employee' => $employee, 'heading' => $heading] = $this->college();
 
         $this->actingAsUser($employee);
 
-        $this->postJson('/api/pcr-indicators', ['output_id' => $heading->id])->assertStatus(422);
+        $response = $this->postJson('/api/pcr-indicators', [
+            'output_id'   => $heading->id,
+            'description' => '',
+        ])->assertStatus(201);
+
+        $this->assertSame('', PcrIndicator::find($response->json('indicator.id'))->description);
     }
 
     public function test_a_typed_line_under_a_core_heading_stays_the_ratees_own(): void

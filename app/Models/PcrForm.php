@@ -3,27 +3,33 @@
 namespace App\Models;
 
 use App\Models\Concerns\BelongsToOrganization;
+use App\Models\Concerns\StoresFormReviewers;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 
 class PcrForm extends Model
 {
     use BelongsToOrganization;
+    use StoresFormReviewers;
 
     protected $table = 'pcr_forms';
 
     protected $guarded = [];
 
-    protected $appends = ['status_label'];
+    protected $appends = [
+        'status_label',
+        'head_reviewer_id', 'dean_reviewer_id', 'vp_reviewer_id',
+        'reviewed_by', 'reviewed_by_name', 'reviewed_at',
+        'dean_reviewed_by', 'dean_reviewed_by_name', 'dean_reviewed_at',
+        'vp_reviewed_by', 'vp_reviewed_by_name', 'vp_reviewed_at',
+    ];
 
     /** Resolved this request only. Not a column. */
     public array $resolvedReviewerMap = [];
 
     protected $casts = [
-        'submitted_at'   => 'datetime',
-        'reviewed_at'      => 'datetime',
-        'dean_reviewed_at' => 'datetime',
-        'vp_reviewed_at'   => 'datetime',
-        'rated_at'       => 'datetime',
+        'submitted_at'           => 'datetime',
+        'rated_at'               => 'datetime',
         'commitment_approved_at' => 'datetime',
     ];
 
@@ -54,6 +60,19 @@ class PcrForm extends Model
     public function owner()
     {
         return $this->belongsTo(User::class, 'user_id');
+    }
+
+    /** This person is named in the Accountable column of the form. */
+    public function scopeAccountableTo(Builder $query, int $userId): Builder
+    {
+        return $query->whereExists(function ($inner) use ($userId) {
+            $inner->selectRaw('1')
+                ->from('pcr_target_assignments')
+                ->join('pcr_indicators', 'pcr_indicators.id', '=', 'pcr_target_assignments.indicator_id')
+                ->join('pcr_outputs', 'pcr_outputs.id', '=', 'pcr_indicators.output_id')
+                ->whereColumn('pcr_outputs.form_id', 'pcr_forms.id')
+                ->where('pcr_target_assignments.user_id', $userId);
+        });
     }
 
     /** Faculty and staff answer only what a head or VP assigned. They do not pick OPCR lines. */
