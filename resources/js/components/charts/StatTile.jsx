@@ -2,11 +2,23 @@ import React from "react";
 import { Card } from "antd";
 import { VIZ } from "~/utils/constants";
 
-export function Meter({ pct, color = VIZ.series[0], label, value }) {
+export function Meter({ pct, color = VIZ.series[0], label, value, onClick }) {
     const width = Math.max(0, Math.min(100, Number(pct ?? 0)));
+    const Tag = onClick ? "button" : "div";
 
     return (
-        <div className="viz-meter">
+        <Tag
+            type={onClick ? "button" : undefined}
+            className={onClick ? "viz-meter viz-meter-link" : "viz-meter"}
+            onClick={
+                onClick
+                    ? (event) => {
+                          event.stopPropagation();
+                          onClick(event);
+                      }
+                    : undefined
+            }
+        >
             {(label || value) && (
                 <div className="viz-meter-head">
                     <span>{label}</span>
@@ -16,7 +28,7 @@ export function Meter({ pct, color = VIZ.series[0], label, value }) {
             <span className="viz-bar-track">
                 <span className="viz-bar-fill" style={{ width: `${width}%`, background: color }} />
             </span>
-        </div>
+        </Tag>
     );
 }
 
@@ -29,6 +41,18 @@ export default function StatTile({ label, value, suffix, hint, tone, meter, onCl
                 .filter(Boolean)
                 .join(" ")}
             onClick={onClick}
+            onKeyDown={
+                onClick
+                    ? (event) => {
+                          if (event.key === "Enter" || event.key === " ") {
+                              event.preventDefault();
+                              onClick(event);
+                          }
+                      }
+                    : undefined
+            }
+            tabIndex={onClick ? 0 : undefined}
+            role={onClick ? "button" : undefined}
         >
             <div className="viz-tile-top">
                 <div className="viz-tile-label">{label}</div>

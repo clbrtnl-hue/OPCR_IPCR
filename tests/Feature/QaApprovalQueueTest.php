@@ -51,6 +51,32 @@ class QaApprovalQueueTest extends PmsTestCase
         $this->assertSame(collect([$opcr->id, $toRate->id])->sort()->values()->all(), $ids->all());
     }
 
+    public function test_a_rated_form_stays_in_the_qa_queue_until_it_is_closed(): void
+    {
+        ['unit' => $unit, 'year' => $year, 'qa' => $qa, 'president' => $president] = $this->college();
+
+        $openOwner = User::factory()->create(['role' => 'employee', 'org_unit_id' => $unit->id]);
+        $closedOwner = User::factory()->create(['role' => 'employee', 'org_unit_id' => $unit->id]);
+        $rated = $this->makeForm([
+            'org_unit_id' => $unit->id, 'school_year_id' => $year->id,
+            'user_id' => $openOwner->id, 'status' => 'rated',
+        ]);
+        $closed = $this->makeForm([
+            'org_unit_id' => $unit->id, 'school_year_id' => $year->id,
+            'user_id' => $closedOwner->id, 'status' => 'final',
+        ]);
+
+        $this->actingAsUser($qa);
+        $ids = array_column($this->getJson('/api/pcr-forms?queue=1')->assertSuccessful()->json(), 'id');
+        $this->assertContains($rated->id, $ids);
+        $this->assertNotContains($closed->id, $ids);
+
+        $this->actingAsUser($president);
+        $presidentIds = array_column($this->getJson('/api/pcr-forms?queue=1')->assertSuccessful()->json(), 'id');
+        $this->assertNotContains($rated->id, $presidentIds);
+        $this->assertNotContains($closed->id, $presidentIds);
+    }
+
     public function test_sending_the_opcr_for_approval_notifies_every_qa(): void
     {
         ['president' => $president, 'qa' => $qa, 'otherQa' => $otherQa, 'opcr' => $opcr] = $this->college();

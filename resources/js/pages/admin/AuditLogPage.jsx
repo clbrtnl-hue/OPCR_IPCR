@@ -291,7 +291,7 @@ export default function AuditLogPage() {
                 )}
             </Card>
 
-            <Card>
+            <Card className="pms-list-panel">
                 <div className="pms-mobile-only pms-pds-cards">
                     {logs.length === 0 ? (
                         <Empty

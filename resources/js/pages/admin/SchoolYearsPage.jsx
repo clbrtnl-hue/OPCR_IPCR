@@ -138,7 +138,7 @@ export default function SchoolYearsPage() {
                 description="You can add next year's cycle now and leave it inactive. Forms can still be written against it; the active flag only tells everyone which cycle is current."
             />
 
-            <Card>
+            <Card className="pms-list-panel">
                 <div className="pms-mobile-only pms-pds-cards">
                     {years.map((record) => (
                         <article key={record.id} className="pms-pds-card">

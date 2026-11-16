@@ -15,7 +15,6 @@ import MyIpcrPage from "~/pages/MyIpcrPage";
 import MyTeamPage from "~/pages/MyTeamPage";
 import FormEditorPage from "~/pages/FormEditorPage";
 import ReviewQueuePage from "~/pages/ReviewQueuePage";
-import RatingPage from "~/pages/RatingPage";
 import ReportsPage from "~/pages/ReportsPage";
 import PrintFormPage from "~/pages/PrintFormPage";
 import AuditLogPage from "~/pages/admin/AuditLogPage";
@@ -78,19 +77,12 @@ export default function AppRoutes() {
                                 <Route
                                     path="/review-queue"
                                     element={
-                                        <Protected roles={["program_head", "vp", "qa", "president", "hr"]}>
+                                        <Protected roles={["employee", "program_head", "vp", "qa", "president", "hr"]}>
                                             <ReviewQueuePage />
                                         </Protected>
                                     }
                                 />
-                                <Route
-                                    path="/rating"
-                                    element={
-                                        <Protected roles={["employee", "program_head", "vp", "qa", "hr", "president"]}>
-                                            <RatingPage />
-                                        </Protected>
-                                    }
-                                />
+                                <Route path="/rating" element={<Navigate to="/review-queue?tab=rating" replace />} />
                                 <Route path="/notifications" element={<NotificationsPage />} />
                                 <Route
                                     path="/reports"

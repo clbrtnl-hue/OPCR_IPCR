@@ -172,7 +172,10 @@ class ReportController extends Controller
             'evidence'    => $this->evidenceFor($work['leaves'], $periodId),
             'deadlines'   => $this->deadlinesFor($forms, $year, $periodId),
             'forms'       => $this->formRowsFor($forms, $summaries, $work['leaves'], $units),
-            'commitments' => $work['leaves']->values()->all(),
+            'commitments' => $work['leaves']
+                ->sortBy(fn ($row) => [$row['target_date'] ?? '9999-12-31', $row['owner'] ?? '', $row['id']])
+                ->values()
+                ->all(),
             'people'      => $this->applySupervisorProgress(
                 $this->peopleFor($forms, $summaries, $work['leaves']),
                 $units,

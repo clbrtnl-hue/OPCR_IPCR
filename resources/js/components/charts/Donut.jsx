@@ -3,13 +3,16 @@ import { Pie } from "@ant-design/charts";
 import { Empty } from "antd";
 import { VIZ } from "~/utils/constants";
 import { colorScale } from "~/components/charts/plotTheme";
+import { useTheme } from "~/hooks/useTheme";
 
 export default function Donut({
     data = [],
+    height = 210,
     format = (value) => value,
     emptyText = "Nothing to show yet.",
     onSelect,
 }) {
+    const { viz } = useTheme();
     const formatRef = useRef(format);
     formatRef.current = format;
     const selectRef = useRef(onSelect);
@@ -29,7 +32,7 @@ export default function Donut({
             colorField: "label",
             radius: 0.9,
             innerRadius: 0.68,
-            height: 210,
+            height,
             autoFit: true,
             legend: false,
             label: false,
@@ -46,9 +49,9 @@ export default function Donut({
                         x: "50%",
                         y: "46%",
                         textAlign: "center",
-                        fontSize: 22,
+                        fontSize: height < 180 ? 18 : 22,
                         fontWeight: 600,
-                        fill: VIZ.ink,
+                        fill: viz.ink,
                     },
                 },
                 {
@@ -59,12 +62,12 @@ export default function Donut({
                         y: "58%",
                         textAlign: "center",
                         fontSize: 11,
-                        fill: VIZ.muted,
+                        fill: viz.muted,
                     },
                 },
             ],
         };
-    }, [signature]);
+    }, [signature, height, viz]);
 
     if (!slices.length) {
         return <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={emptyText} />;
@@ -81,7 +84,18 @@ export default function Donut({
     };
 
     return (
-        <div className="viz-donut">
+        <div
+            className={onSelect ? "viz-donut viz-plot-click" : "viz-donut"}
+            onClick={
+                onSelect
+                    ? (event) => {
+                          event.stopPropagation();
+                          if (event.target.closest("button")) return;
+                          onSelect();
+                      }
+                    : undefined
+            }
+        >
             <Pie {...config} {...(onSelect ? { onEvent } : {})} />
             <div className="viz-legend viz-donut-legend">
                 {data.map((row, index) => {
@@ -94,7 +108,14 @@ export default function Donut({
                             key={row.key}
                             type={clickable ? "button" : undefined}
                             className={value > 0 ? "viz-legend-item" : "viz-legend-item is-zero"}
-                            onClick={clickable ? () => onSelect(row) : undefined}
+                            onClick={
+                                clickable
+                                    ? (event) => {
+                                          event.stopPropagation();
+                                          onSelect(row);
+                                      }
+                                    : undefined
+                            }
                         >
                             <span
                                 className="viz-swatch"

@@ -2,10 +2,12 @@
 
 namespace App\Models;
 
+use App\Mail\PmsNotificationMail;
 use App\Support\Html;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Mail;
 
 class Notification extends Model
 {
@@ -34,20 +36,28 @@ class Notification extends Model
             return;
         }
 
+        $body = static::plain($body);
+        $link = static::formLink($link, $formId);
+        $actorName = Auth::user()?->name;
+
         try {
             static::create([
                 'user_id'    => $userId,
                 'type'       => $type,
                 'title'      => $title,
-                'body'       => $body ? mb_substr(Html::toText($body), 0, 500) : null,
-                'link'       => $link ?? ($formId ? "/forms/{$formId}" : null),
+                'body'       => $body,
+                'link'       => $link,
                 'form_id'    => $formId,
                 'actor_id'   => Auth::id(),
-                'actor_name' => Auth::user()->name ?? null,
+                'actor_name' => $actorName,
             ]);
         } catch (\Throwable $e) {
             Log::warning('Notification failed: ' . $e->getMessage());
+
+            return;
         }
+
+        static::deliverMail($userId, $title, $body, $link, $actorName);
     }
 
     public static function sendMany(array $userIds, string $type, string $title, ?string $body = null, ?int $formId = null, ?string $link = null): void
@@ -73,7 +83,8 @@ class Notification extends Model
             return false;
         }
 
-        $link = $link ?? ($formId ? "/forms/{$formId}" : null);
+        $body = static::plain($body);
+        $link = static::formLink($link, $formId);
 
         $already = static::query()
             ->where('user_id', $userId)
@@ -90,7 +101,7 @@ class Notification extends Model
                 'user_id' => $userId,
                 'type'    => $type,
                 'title'   => $title,
-                'body'    => $body ? mb_substr(Html::toText($body), 0, 500) : null,
+                'body'    => $body,
                 'link'    => $link,
                 'form_id' => $formId,
             ]);
@@ -100,6 +111,55 @@ class Notification extends Model
             return false;
         }
 
+        static::deliverMail($userId, $title, $body, $link);
+
         return true;
+    }
+
+    /**
+     * The in-app row is already saved. A mail failure is logged and does not
+     * undo the bell, so a review or reminder still completes.
+     */
+    private static function deliverMail(int $userId, string $title, ?string $body, ?string $link, ?string $actorName = null): void
+    {
+        try {
+            $email = User::query()->whereKey($userId)->value('email');
+
+            if (! is_string($email) || ! filter_var($email, FILTER_VALIDATE_EMAIL)) {
+                return;
+            }
+
+            Mail::to($email)->send(new PmsNotificationMail(
+                headline: $title,
+                detail: $body,
+                actionUrl: static::absoluteLink($link),
+                actorName: $actorName,
+            ));
+        } catch (\Throwable $e) {
+            Log::warning('Notification email failed: ' . $e->getMessage());
+        }
+    }
+
+    private static function plain(?string $body): ?string
+    {
+        return $body ? mb_substr(Html::toText($body), 0, 500) : null;
+    }
+
+    private static function formLink(?string $link, ?int $formId): ?string
+    {
+        return $link ?? ($formId ? "/forms/{$formId}" : null);
+    }
+
+    private static function absoluteLink(?string $link): ?string
+    {
+        if (! $link) {
+            return null;
+        }
+
+        if (str_starts_with($link, 'http://') || str_starts_with($link, 'https://')) {
+            return $link;
+        }
+
+        return url($link);
     }
 }

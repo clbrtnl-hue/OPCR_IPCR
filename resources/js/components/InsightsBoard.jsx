@@ -1,53 +1,126 @@
 import React from "react";
 import { Card, Col, Empty, List, Row, Space, Tag, Typography } from "antd";
-import {
-    CalendarOutlined,
-    ClockCircleOutlined,
-    FileExclamationOutlined,
-    HourglassOutlined,
-    RiseOutlined,
-    TrophyOutlined,
-    WarningOutlined,
-} from "@ant-design/icons";
-import dayjs from "dayjs";
+import { useNavigate } from "react-router-dom";
+import { RiseOutlined, TrophyOutlined, WarningOutlined } from "@ant-design/icons";
 import BarRows from "~/components/charts/BarRows";
-import ColumnChart from "~/components/charts/ColumnChart";
-import Donut from "~/components/charts/Donut";
 import StackedColumns from "~/components/charts/StackedColumns";
+import StatusRing from "~/components/charts/StatusRing";
 import TrendLine from "~/components/charts/TrendLine";
-import StatTile, { Meter } from "~/components/charts/StatTile";
-import { ADJECTIVAL_COLORS, RATING_LEGEND, SECTION_LABELS, STATUS_META, VIZ } from "~/utils/constants";
+import StatTile from "~/components/charts/StatTile";
+import { ADJECTIVAL_COLORS, RATING_LEGEND, STATUS_META } from "~/utils/constants";
+import { useTheme } from "~/hooks/useTheme";
 
-const STAGES = [
-    { key: "drafting", label: "Drafting", color: VIZ.ordinal[0] },
-    { key: "submitted", label: "Submitted", color: VIZ.ordinal[2] },
-    { key: "rated", label: "Rated", color: VIZ.ordinal[4] },
-];
+function reportPath(tab, q) {
+    const params = new URLSearchParams({ tab });
 
-const BAND_FILL = {
-    Outstanding: VIZ.good,
-    "Very Satisfactory": VIZ.series[2],
-    Satisfactory: VIZ.series[0],
-    Unsatisfactory: VIZ.warning,
-    Poor: VIZ.critical,
-};
+    if (q) params.set("q", q);
 
-const STATUS_FILL = {
-    draft: VIZ.ordinal[1],
-    returned: VIZ.critical,
-    head_review: VIZ.ordinal[0],
-    dean_review: VIZ.ordinal[2],
-    vp_review: VIZ.series[0],
-    qa_approval: VIZ.warning,
-    approved: VIZ.series[2],
-    published: VIZ.good,
-    qa_rating: VIZ.series[1],
-    rated: VIZ.ordinal[4],
-    final: VIZ.ink,
-};
+    return `/reports?${params.toString()}`;
+}
+
+function SpreadRing({ slices, caption, onOpen }) {
+    const total = slices.reduce((sum, slice) => sum + Number(slice.value ?? 0), 0);
+
+    return (
+        <div className="pms-status-top">
+            <StatusRing slices={slices} total={total} caption={caption} onSelect={onOpen} />
+            <div className="pms-status-legend">
+                {slices.map((slice) => (
+                    <button
+                        key={slice.key}
+                        type="button"
+                        disabled={Number(slice.value) === 0}
+                        onClick={(event) => {
+                            event.stopPropagation();
+                            if (Number(slice.value) > 0) onOpen(slice);
+                        }}
+                    >
+                        <i style={{ background: slice.color }} />
+                        <span>{slice.label}</span>
+                        <strong>{slice.value}</strong>
+                    </button>
+                ))}
+            </div>
+        </div>
+    );
+}
+
+function latePath(q) {
+    const params = new URLSearchParams({ tab: "commitments", late: "1" });
+
+    if (q) params.set("q", q);
+
+    return `/reports?${params.toString()}`;
+}
+
+function stagesFor(viz) {
+    return [
+        { key: "drafting", label: "Drafting", color: viz.ordinal[0] },
+        { key: "submitted", label: "Submitted", color: viz.ordinal[2] },
+        { key: "rated", label: "Rated", color: viz.ordinal[4] },
+    ];
+}
+
+function bandFillFor(viz) {
+    return {
+        Outstanding: viz.good,
+        "Very Satisfactory": viz.series[2],
+        Satisfactory: viz.series[0],
+        Unsatisfactory: viz.warning,
+        Poor: viz.critical,
+    };
+}
+
+function statusFillFor(viz) {
+    return {
+        draft: viz.ordinal[1],
+        returned: viz.critical,
+        head_review: viz.ordinal[0],
+        dean_review: viz.ordinal[2],
+        vp_review: viz.series[0],
+        qa_approval: viz.warning,
+        approved: viz.series[2],
+        published: viz.good,
+        qa_rating: viz.series[1],
+        rated: viz.ordinal[4],
+        final: viz.ink,
+    };
+}
+
+function useCompactCharts() {
+    const query = "(max-width: 991px)";
+    const [compact, setCompact] = React.useState(() =>
+        typeof window !== "undefined" ? window.matchMedia(query).matches : false
+    );
+
+    React.useEffect(() => {
+        const media = window.matchMedia(query);
+        const onChange = () => setCompact(media.matches);
+        media.addEventListener("change", onChange);
+        return () => media.removeEventListener("change", onChange);
+    }, []);
+
+    return compact;
+}
 
 export default function InsightsBoard({ data }) {
+    const navigate = useNavigate();
+    const { viz } = useTheme();
+    const compact = useCompactCharts();
+    const chartHeight = {
+        trend: compact ? 156 : 220,
+        columns: compact ? 176 : 260,
+    };
+    const stages = stagesFor(viz);
+    const bandFill = bandFillFor(viz);
+    const statusFill = statusFillFor(viz);
+    const [scene, setScene] = React.useState("look");
     const totals = data?.totals;
+    const open = (target) => {
+        const href = typeof target === "string" ? target : target?.href;
+
+        if (href) navigate(href);
+    };
 
     if (!totals) {
         return <Empty description="Pick a school year to see its insights." />;
@@ -60,54 +133,26 @@ export default function InsightsBoard({ data }) {
             key: status,
             label: STATUS_META[status]?.label ?? status,
             value: count,
-            color: STATUS_FILL[status] ?? VIZ.series[0],
+            color: statusFill[status] ?? viz.series[0],
             hint: `${count} form${count === 1 ? "" : "s"} — ${STATUS_META[status]?.who ?? ""}`,
+            href: reportPath("forms", status),
         }));
 
     const bands = RATING_LEGEND.map((band) => ({
         key: band.label,
         label: band.label,
         value: data.adjectival?.[band.label] ?? 0,
-        color: BAND_FILL[band.label] ?? VIZ.ordinal[band.value - 1],
+        color: bandFill[band.label] ?? viz.ordinal[band.value - 1],
         hint: `${data.adjectival?.[band.label] ?? 0} form(s) rated ${band.label} (${band.range})`,
+        href: reportPath("ratings", band.label),
     }));
 
     const trend = (data.trend ?? []).map((point) => ({
         label: point.short ?? point.label,
         hint: point.label,
         value: point.average,
+        href: reportPath("ratings"),
     }));
-
-    const submissions = (data.submissions ?? []).map((month) => ({
-        label: month.label,
-        hint: month.full_label,
-        value: month.cumulative,
-    }));
-
-    const monthly = (data.submissions ?? []).map((month) => ({
-        key: month.month,
-        label: month.label,
-        value: month.submitted,
-        color: month.month === data.deadlines?.active?.month ? VIZ.warning : VIZ.series[0],
-        hint:
-            month.month === data.deadlines?.active?.month
-                ? `${month.full_label} — ${month.submitted} filed · the period closes this month`
-                : `${month.full_label} — ${month.submitted} filed`,
-    }));
-
-    const turnaround = (data.turnaround?.stages ?? [])
-        .filter((stage) => stage.key !== "end_to_end" && stage.median_days !== null)
-        .map((stage, index) => ({
-            key: stage.key,
-            label: stage.label,
-            value: stage.median_days,
-            color: VIZ.ordinal[index * 2],
-            hint: `${stage.label} — median ${stage.median_days}d, mean ${stage.mean_days}d across ${stage.forms} form${
-                stage.forms === 1 ? "" : "s"
-            }${stage.skipped ? ` · ${stage.skipped} skipped this stage` : ""}`,
-        }));
-
-    const endToEnd = (data.turnaround?.stages ?? []).find((stage) => stage.key === "end_to_end");
 
     const waiting = (data.turnaround?.waiting ?? [])
         .filter((row) => row.forms > 0)
@@ -115,34 +160,11 @@ export default function InsightsBoard({ data }) {
             key: row.status,
             label: row.label,
             value: row.median_age_days ?? 0,
-            color: VIZ.warning,
+            color: viz.warning,
             hint: `${row.forms} form${row.forms === 1 ? "" : "s"} waiting — median ${
                 row.median_age_days ?? 0
             }d, oldest ${row.oldest_days ?? 0}d`,
-        }));
-
-    const dimensions = (data.dimensions?.college ?? []).map((dimension, index) => ({
-        key: dimension.key,
-        label: dimension.label,
-        value: dimension.mean ?? 0,
-        color: VIZ.series[index % VIZ.series.length],
-        hint: `${dimension.label} — ${dimension.mean ?? "not yet rated"} across ${dimension.rated} rated line${
-            dimension.rated === 1 ? "" : "s"
-        }`,
-    }));
-
-    const weakest = dimensions.length
-        ? dimensions.reduce((low, row) => (row.value < low.value ? row : low))
-        : null;
-
-    const evidenceGaps = (data.evidence?.units ?? [])
-        .filter((unit) => unit.missing_evidence > 0 || unit.blank_narrative > 0)
-        .map((unit) => ({
-            key: unit.id,
-            label: unit.name,
-            value: unit.completed - unit.compliant,
-            color: VIZ.serious,
-            hint: `${unit.name} — ${unit.missing_evidence} without a file, ${unit.blank_narrative} without a narrative, of ${unit.completed} completed`,
+            href: reportPath("forms", row.status),
         }));
 
     const unitRows = (data.units ?? [])
@@ -155,22 +177,25 @@ export default function InsightsBoard({ data }) {
                 submitted: unit.submitted - unit.rated,
                 rated: unit.rated,
             },
+            href: reportPath("units", unit.name),
         }));
 
-    const overdueTone = totals.overdue > 0 ? VIZ.critical : VIZ.good;
+    const overdueTone = totals.overdue > 0 ? viz.critical : viz.good;
 
     const people = data.people ?? [];
 
-    const rank = (rows, value, hint, limit = 6, keepZero = false) =>
+    const rank = (rows, value, hint, to, limit = 6, keepZero = false) =>
         rows
             .filter((row) => value(row) != null && (keepZero || value(row) > 0))
             .sort((a, b) => value(b) - value(a))
             .slice(0, limit)
-            .map((row) => ({
-                key: row.id,
+            .map((row, index) => ({
+                key: `${row.id}-${index}`,
                 label: row.name ?? row.head,
                 value: value(row),
                 hint: hint(row),
+                href: to(row),
+                rank: index + 1,
             }));
 
     const laggards = rank(
@@ -179,34 +204,33 @@ export default function InsightsBoard({ data }) {
         (person) =>
             `${person.name} — ${person.overdue} line${person.overdue === 1 ? "" : "s"} past target, ${person.days_late} day${
                 person.days_late === 1 ? "" : "s"
-            } late in total`
+            } late in total`,
+        (person) => latePath(person.name)
     );
 
     const movers = rank(
         people,
         (person) => person.progress_pct,
         (person) =>
-            `${person.name} — ${person.completed} of ${person.commitments} lines done (${person.progress_pct}%)`
+            `${person.name} — ${person.completed} of ${person.commitments} lines done (${person.progress_pct}%)`,
+        (person) => reportPath("people", person.name)
     );
 
     const topRated = rank(
         people,
         (person) => person.average,
-        (person) => `${person.name} — ${Number(person.average).toFixed(2)} · ${person.adjectival ?? ""}`
+        (person) => `${person.name} — ${Number(person.average).toFixed(2)} · ${person.adjectival ?? ""}`,
+        (person) => reportPath("ratings", person.name)
     );
 
-    const headProgress = rank(
-        data.heads ?? [],
-        (head) => head.progress_pct,
-        (head) =>
-            `${head.head} · ${head.unit} — ${head.progress_pct}% across ${head.commitments} line${
-                head.commitments === 1 ? "" : "s"
-            }, ${head.overdue} overdue`,
-        10,
-        true
-    );
+    const scenes = [
+        { key: "look", label: "Overview" },
+        { key: "flow", label: "Pipeline" },
+        { key: "people", label: "People" },
+    ];
+    const sceneIndex = Math.max(0, scenes.findIndex((item) => item.key === scene));
 
-    const tiles = (
+    const lookTiles = (
         <div className="pms-cycle-grid pms-glance-grid">
             <StatTile
                 label="College average"
@@ -217,22 +241,14 @@ export default function InsightsBoard({ data }) {
                     ) : null
                 }
                 hint={`${totals.rated} of ${totals.forms} forms rated so far`}
+                onClick={() => open(reportPath("ratings"))}
             />
             <StatTile
                 label="Commitments completed"
                 value={totals.progress_pct != null ? `${totals.progress_pct}%` : "—"}
                 meter={{ pct: totals.progress_pct ?? 0 }}
                 hint={`${totals.completed} of ${totals.commitments} committed lines are done`}
-            />
-            <StatTile
-                label="Forms submitted"
-                value={`${totals.submitted}/${totals.forms}`}
-                meter={{ pct: totals.forms ? (totals.submitted / totals.forms) * 100 : 0 }}
-                hint={
-                    coverage.expected
-                        ? `${coverage.filed} of ${coverage.expected} staff have opened an IPCR (${coverage.pct}%)`
-                        : undefined
-                }
+                onClick={() => open(reportPath("commitments"))}
             />
             <StatTile
                 label={
@@ -243,105 +259,66 @@ export default function InsightsBoard({ data }) {
                 value={totals.overdue}
                 tone={overdueTone}
                 hint={`${totals.due_soon} more fall due within seven days`}
+                onClick={() => open(latePath())}
             />
             <StatTile
-                label="Waiting for QA"
-                value={totals.awaiting_rating}
-                hint={`${totals.in_review} still with a head or VP`}
-            />
-            <StatTile
-                label="Returned for correction"
-                value={totals.returned}
-                tone={totals.returned > 0 ? VIZ.serious : undefined}
-                hint="Sent back by a reviewer and not yet resubmitted"
-            />
-            <StatTile
-                label="Due within seven days"
-                value={totals.due_soon}
-                tone={totals.due_soon > 0 ? VIZ.warning : undefined}
-                hint={`${totals.not_started} lines have not been started at all`}
-            />
-            <StatTile
-                label="Staff without an IPCR"
-                value={coverage.missing ?? 0}
-                tone={(coverage.missing ?? 0) > 0 ? VIZ.serious : VIZ.good}
-                hint={`${totals.units_reporting} of ${totals.units_total} units have opened a form`}
-            />
-            <StatTile
-                label="Submitted → rated"
-                value={endToEnd?.median_days != null ? `${endToEnd.median_days}d` : "—"}
+                label="Forms submitted"
+                value={`${totals.submitted}/${totals.forms}`}
+                meter={{ pct: totals.forms ? (totals.submitted / totals.forms) * 100 : 0 }}
                 hint={
-                    endToEnd?.forms
-                        ? `Median across ${endToEnd.forms} rated form${endToEnd.forms === 1 ? "" : "s"}`
-                        : "Nothing has gone all the way through yet"
+                    coverage.expected
+                        ? `${coverage.filed} of ${coverage.expected} staff have opened an IPCR (${coverage.pct}%)`
+                        : undefined
                 }
-            />
-            <StatTile
-                label={weakest ? `Weakest: ${weakest.label}` : "Rating profile"}
-                value={weakest ? Number(weakest.value).toFixed(2) : "—"}
-                hint={
-                    data.dimensions?.rated_lines
-                        ? `Lowest of the ${data.dimensions.keys.length} rated dimensions, across ${data.dimensions.rated_lines} lines`
-                        : "Nothing has been rated yet"
-                }
-            />
-            <StatTile
-                label={
-                    <span className="pms-tile-label-icon">
-                        <FileExclamationOutlined /> Accomplishment without a file
-                    </span>
-                }
-                value={data.evidence?.awaiting_file ?? 0}
-                tone={(data.evidence?.awaiting_file ?? 0) > 0 ? VIZ.serious : VIZ.good}
-                hint="A narrative counts as 30%. Attaching a file adds the other 70%."
-            />
-            <StatTile
-                label={
-                    <span className="pms-tile-label-icon">
-                        <CalendarOutlined /> Filed after the deadline
-                    </span>
-                }
-                value={data.deadlines?.late?.forms ?? 0}
-                tone={(data.deadlines?.late?.forms ?? 0) > 0 ? VIZ.warning : VIZ.good}
-                hint={
-                    data.deadlines?.active?.closes_at
-                        ? `${data.deadlines.active.label} closes ${dayjs(data.deadlines.active.closes_at).format(
-                              "MMM D, YYYY"
-                          )} · ${data.deadlines.late?.judged ?? 0} forms judged against it`
-                        : "No period has a closing date set"
-                }
+                onClick={() => open(reportPath("forms"))}
             />
         </div>
     );
 
-    const turnaroundCard = (
-        <Card
-            className="viz-card"
-            title={
-                <Space size={6}>
-                    <HourglassOutlined /> Where forms wait
-                </Space>
-            }
-            extra={<Typography.Text type="secondary">Median days at each stage</Typography.Text>}
-        >
-            <BarRows
-                data={turnaround}
-                format={(value) => `${value}d`}
-                emptyText="No form has been through a review stage yet."
+    const flowTiles = (
+        <div className="pms-cycle-grid pms-glance-grid">
+            <StatTile
+                label="Waiting for QA"
+                value={totals.awaiting_rating}
+                hint={`${totals.in_review} still with a head or VP`}
+                onClick={() => open(reportPath("forms", "qa_rating"))}
             />
-        </Card>
+            <StatTile
+                label="Returned for correction"
+                value={totals.returned}
+                tone={totals.returned > 0 ? viz.serious : undefined}
+                hint="Sent back by a reviewer and not yet resubmitted"
+                onClick={() => open(reportPath("forms", "returned"))}
+            />
+            <StatTile
+                label="Due within seven days"
+                value={totals.due_soon}
+                tone={totals.due_soon > 0 ? viz.warning : undefined}
+                hint={`${totals.not_started} lines have not been started at all`}
+                onClick={() => open(reportPath("commitments"))}
+            />
+            <StatTile
+                label="Staff without an IPCR"
+                value={coverage.missing ?? 0}
+                tone={(coverage.missing ?? 0) > 0 ? viz.serious : viz.good}
+                hint={`${totals.units_reporting} of ${totals.units_total} units have opened a form`}
+                onClick={() => open(reportPath("units"))}
+            />
+        </div>
     );
 
     const waitingCard = (
         <Card
-            className="viz-card"
             title="Sitting in a queue right now"
             extra={<Typography.Text type="secondary">Median age</Typography.Text>}
+            className="viz-card viz-card-link"
+            onClick={() => open(reportPath("forms"))}
         >
             <BarRows
                 data={waiting}
                 format={(value) => `${value}d`}
                 emptyText="Nothing is waiting on a reviewer."
+                onSelect={open}
             />
 
             {(data.turnaround?.reviewers ?? []).filter((row) => row.pending > 0).length > 0 && (
@@ -354,6 +331,15 @@ export default function InsightsBoard({ data }) {
                         .slice(0, 5)}
                     renderItem={(row) => (
                         <List.Item
+                            className={row.name ? "pms-click-row" : undefined}
+                            onClick={
+                                row.name
+                                    ? (event) => {
+                                          event.stopPropagation();
+                                          open(reportPath("people", row.name));
+                                      }
+                                    : undefined
+                            }
                             actions={[
                                 <Typography.Text key="oldest" type="secondary">
                                     oldest {Math.round(row.oldest_pending_days ?? 0)}d
@@ -375,204 +361,117 @@ export default function InsightsBoard({ data }) {
         </Card>
     );
 
-    const dimensionsCard = (
-        <Card
-            className="viz-card"
-            title="Quality, efficiency, timeliness"
-            extra={
-                <Typography.Text type="secondary">
-                    {data.dimensions?.rated_lines
-                        ? `${data.dimensions.rated_lines} rated lines`
-                        : "the rating instrument"}
-                </Typography.Text>
-            }
-        >
-            <BarRows
-                data={dimensions}
-                max={data.dimensions?.bounds?.max ?? 5}
-                format={(value) => Number(value).toFixed(2)}
-                emptyText="Nothing has been rated yet."
-            />
-        </Card>
-    );
-
-    const evidenceCard = (
-        <Card
-            className="viz-card"
-            title={
-                <Space size={6}>
-                    <FileExclamationOutlined /> Completed work missing its paperwork
-                </Space>
-            }
-            extra={<Typography.Text type="secondary">by unit</Typography.Text>}
-        >
-            <BarRows
-                data={evidenceGaps}
-                emptyText="Every completed commitment has a file and a written accomplishment."
-            />
-        </Card>
-    );
-
-    const velocityCard = (
-        <Card
-            className="viz-card"
-            title="Filed each month"
-            extra={
-                <Typography.Text type="secondary">
-                    {data.deadlines?.active?.closes_at
-                        ? `${data.deadlines.active.label} closes ${dayjs(
-                              data.deadlines.active.closes_at
-                          ).format("MMM D")}`
-                        : "no deadline set"}
-                </Typography.Text>
-            }
-        >
-            <ColumnChart data={monthly} emptyText="Nothing has been submitted yet." />
-        </Card>
-    );
-
-    const atRisk = (
-        <Card
-            className="viz-card"
-            title={
-                <Space size={6}>
-                    <ClockCircleOutlined /> Commitments at risk
-                </Space>
-            }
-        >
-            {(data.at_risk ?? []).length === 0 ? (
-                <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="Nothing is past its target date." />
-            ) : (
-                <List
-                    size="small"
-                    dataSource={data.at_risk}
-                    renderItem={(line) => (
-                        <List.Item
-                            actions={[
-                                <Tag key="late" color="error">
-                                    {line.days_late} day{line.days_late === 1 ? "" : "s"} late
-                                </Tag>,
-                            ]}
-                        >
-                            <List.Item.Meta
-                                title={
-                                    <Typography.Text ellipsis={{ tooltip: line.description }}>
-                                        {line.description || "Untitled commitment"}
-                                    </Typography.Text>
-                                }
-                                description={`${line.owner ?? line.unit ?? "Unassigned"} · due ${
-                                    line.target_date ? dayjs(line.target_date).format("MMM D, YYYY") : "—"
-                                } · ${line.progress_pct}% done`}
-                            />
-                        </List.Item>
-                    )}
-                />
-            )}
-        </Card>
-    );
-
-    const sectionMeters = (
-        <Space direction="vertical" size={14} style={{ width: "100%" }}>
-            {(data.sections ?? []).map((section) => (
-                <Meter
-                    key={section.section}
-                    pct={section.progress_pct ?? 0}
-                    label={`${SECTION_LABELS[section.section] ?? section.section} — ${section.commitments} line${
-                        section.commitments === 1 ? "" : "s"
-                    }`}
-                    value={
-                        section.progress_pct != null
-                            ? `${section.progress_pct}%${
-                                  section.average != null
-                                      ? ` · rated ${Number(section.average).toFixed(2)}`
-                                      : ""
-                              }`
-                            : "—"
-                    }
-                />
-            ))}
-        </Space>
-    );
-
     return (
         <>
-            {tiles}
+            <div className="pms-scenes">
+                <div className="pms-scene-switch" role="tablist" aria-label="Dashboard view">
+                    <i style={{ transform: `translateX(${sceneIndex * 100}%)` }} />
+                    {scenes.map((item) => (
+                        <button
+                            key={item.key}
+                            type="button"
+                            role="tab"
+                            aria-selected={scene === item.key}
+                            className={scene === item.key ? "is-on" : ""}
+                            onClick={() => setScene(item.key)}
+                        >
+                            {item.label}
+                        </button>
+                    ))}
+                </div>
 
-            <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
-                <Col xs={24} lg={8}>
-                    {turnaroundCard}
-                </Col>
-                <Col xs={24} lg={8}>
-                    {waitingCard}
-                </Col>
-                <Col xs={24} lg={8}>
-                    {dimensionsCard}
-                </Col>
-            </Row>
+                <div key={scene} className="pms-scene">
+                    {scene === "look" && (
+                        <>
+                            {lookTiles}
+                            <Row gutter={[16, 16]}>
+                                <Col xs={24} lg={12}>
+                                    <Card
+                                        title="Rating spread"
+                                        className="viz-card viz-card-link"
+                                        onClick={() => open(reportPath("ratings"))}
+                                    >
+                                        <SpreadRing
+                                            slices={bands}
+                                            caption="rated"
+                                            onOpen={open}
+                                        />
+                                    </Card>
+                                </Col>
+                                <Col xs={24} lg={12}>
+                                    <Card
+                                        className="viz-card viz-card-link"
+                                        title="Rating trend"
+                                        extra={<Typography.Text type="secondary">Average of every rated form</Typography.Text>}
+                                        onClick={() => open(reportPath("ratings"))}
+                                    >
+                                        <TrendLine
+                                            points={trend}
+                                            height={chartHeight.trend}
+                                            min={0}
+                                            max={5}
+                                            format={(value) => Number(value).toFixed(2)}
+                                            emptyText="No period has been rated yet."
+                                            onSelect={(datum) => open(datum?.href || reportPath("ratings"))}
+                                        />
+                                    </Card>
+                                </Col>
+                            </Row>
+                        </>
+                    )}
 
-            <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
-                <Col xs={24} lg={12}>
-                    {velocityCard}
-                </Col>
-                <Col xs={24} lg={12}>
-                    {evidenceCard}
-                </Col>
-            </Row>
+                    {scene === "flow" && (
+                        <>
+                            {flowTiles}
+                            <Row gutter={[16, 16]}>
+                                <Col xs={24} lg={12}>
+                                    <Card
+                                        title="Where the forms are"
+                                        className="viz-card viz-card-link pms-forms-where"
+                                        onClick={() => open(reportPath("forms"))}
+                                    >
+                                        <SpreadRing slices={pipeline} caption="forms" onOpen={open} />
+                                    </Card>
+                                </Col>
+                                <Col xs={24} lg={12}>{waitingCard}</Col>
+                            </Row>
+                        </>
+                    )}
 
-            <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
-                <Col xs={24} lg={12}>
-                    <Card className="viz-card" title="Rating trend" extra={<Typography.Text type="secondary">Average of every rated form</Typography.Text>}>
-                        <TrendLine
-                            points={trend}
-                            min={0}
-                            max={5}
-                            format={(value) => Number(value).toFixed(2)}
-                            emptyText="No period has been rated yet."
-                        />
-                    </Card>
-                </Col>
-                <Col xs={24} lg={12}>
-                    <Card title="Rating spread" className="viz-card">
-                        <Donut data={bands} emptyText="Nothing has been rated yet." />
-                    </Card>
-                </Col>
-            </Row>
+                    {scene === "people" && (
+                        <>
+                            <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
+                                <Col span={24}>
+                                    <Card
+                                        title="How each unit is tracking"
+                                        className="viz-card viz-card-link"
+                                        onClick={() => open(reportPath("units"))}
+                                    >
+                                        <StackedColumns
+                                            rows={unitRows}
+                                            series={stages}
+                                            height={chartHeight.columns}
+                                            emptyText="No unit has opened a form yet."
+                                            onSelect={(datum) => {
+                                                if (!datum?.unit && !datum?.label) {
+                                                    open(reportPath("units"));
+                                                    return;
+                                                }
 
-            <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
-                <Col xs={24} lg={12}>
-                    <Card title="Where the forms are" className="viz-card">
-                        <Donut data={pipeline} emptyText="No forms in this cycle yet." />
-                    </Card>
-                </Col>
-                <Col xs={24} lg={12}>
-                    <Card className="viz-card" title="Forms submitted through the year" extra={<Typography.Text type="secondary">Running total</Typography.Text>}>
-                        <TrendLine
-                            points={submissions}
-                            filled
-                            format={(value) => Math.round(value)}
-                            emptyText="Nothing has been submitted yet."
-                        />
-                    </Card>
-                </Col>
-            </Row>
+                                                const unit = datum.unit ?? datum.label;
+                                                const row = unitRows.find((item) => item.label === unit);
 
-            <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
-                <Col xs={24} lg={14}>
-                    <Card title="How each unit is tracking" className="viz-card">
-                        <StackedColumns rows={unitRows} series={STAGES} emptyText="No unit has opened a form yet." />
-                    </Card>
-                </Col>
-                <Col xs={24} lg={10}>
-                    <Card title="Commitments by section" className="viz-card">
-                        {sectionMeters}
-                    </Card>
-                </Col>
-            </Row>
-
-            <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
-                <Col xs={24} lg={8}>
+                                                open(row?.href ? row : reportPath("units"));
+                                            }}
+                                        />
+                                    </Card>
+                                </Col>
+                            </Row>
+                            <Row gutter={[16, 16]}>
+                                <Col xs={24} lg={8}>
                     <Card
-                        className="viz-card"
+                        className="viz-card viz-card-link"
+                        onClick={() => open(reportPath("people"))}
                         title={
                             <Space size={6}>
                                 <RiseOutlined /> Furthest along
@@ -585,12 +484,14 @@ export default function InsightsBoard({ data }) {
                             max={100}
                             format={(value) => `${value}%`}
                             emptyText="Nobody has recorded progress yet."
+                            onSelect={open}
                         />
                     </Card>
                 </Col>
                 <Col xs={24} lg={8}>
                     <Card
-                        className="viz-card"
+                        className="viz-card viz-card-link"
+                        onClick={() => open(latePath())}
                         title={
                             <Space size={6}>
                                 <WarningOutlined /> Running late
@@ -600,14 +501,16 @@ export default function InsightsBoard({ data }) {
                     >
                         <BarRows
                             data={laggards}
-                            color={VIZ.critical}
+                            color={viz.critical}
                             emptyText="Nobody is past a target date."
+                            onSelect={open}
                         />
                     </Card>
                 </Col>
                 <Col xs={24} lg={8}>
                     <Card
-                        className="viz-card"
+                        className="viz-card viz-card-link"
+                        onClick={() => open(reportPath("ratings"))}
                         title={
                             <Space size={6}>
                                 <TrophyOutlined /> Best rated
@@ -620,28 +523,15 @@ export default function InsightsBoard({ data }) {
                             max={5}
                             format={(value) => Number(value).toFixed(2)}
                             emptyText="Nothing has been rated yet."
+                            onSelect={open}
                         />
                     </Card>
-                </Col>
-            </Row>
-
-            <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
-                <Col xs={24} lg={12}>
-                    <Card
-                        className="viz-card"
-                        title="How each head's unit is tracking"
-                        extra={<Typography.Text type="secondary">progress across the unit</Typography.Text>}
-                    >
-                        <BarRows
-                            data={headProgress}
-                            max={100}
-                            format={(value) => `${value}%`}
-                            emptyText="No head has any commitment recorded yet."
-                        />
-                    </Card>
-                </Col>
-                <Col xs={24} lg={12}>{atRisk}</Col>
-            </Row>
+                                </Col>
+                            </Row>
+                        </>
+                    )}
+                </div>
+            </div>
         </>
     );
 }

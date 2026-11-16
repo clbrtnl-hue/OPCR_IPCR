@@ -79,6 +79,29 @@ class HrAccessTest extends PmsTestCase
         $this->getJson("/api/pcr-forms/{$other->id}")->assertOk();
     }
 
+    public function test_the_hr_head_sees_the_office_roster(): void
+    {
+        ['hr' => $hr, 'staff' => $staff, 'faculty' => $faculty] = $this->office();
+
+        $this->actingAsUser($hr);
+
+        $team = $this->getJson('/api/my-team')->assertOk();
+        $ids  = array_column($team->json('members'), 'id');
+
+        $this->assertContains($staff->id, $ids);
+        $this->assertNotContains($faculty->id, $ids);
+        $this->assertNotContains($hr->id, $ids);
+        $this->assertSame('head', $team->json('units.0.as'));
+    }
+
+    public function test_an_hr_who_heads_no_office_cannot_open_the_roster(): void
+    {
+        $this->makeOrganization();
+        $this->actingAsRole('hr');
+
+        $this->getJson('/api/my-team')->assertStatus(403);
+    }
+
     public function test_an_employee_cannot_read_another_offices_form(): void
     {
         ['faculty' => $faculty, 'staffForm' => $staffForm] = $this->office();

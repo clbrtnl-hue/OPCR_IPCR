@@ -176,7 +176,14 @@ export default function OrgUnitsPage() {
     };
 
     const columns = [
-        { title: "Unit", dataIndex: "name" },
+        {
+            title: "Unit",
+            dataIndex: "name",
+            width: 580,
+            ellipsis: false,
+            onCell: () => ({ className: "pms-unit-cell" }),
+            onHeaderCell: () => ({ className: "pms-unit-cell" }),
+        },
         { title: "Code", dataIndex: "code", render: (v) => v || "—" },
         {
             title: "Type",
@@ -251,18 +258,18 @@ export default function OrgUnitsPage() {
                 description="Employee submits → Head → Dean → Director → VP → QA. Name the Head on this unit. Colleges fill Dean and leave Director empty. Offices fill Director and leave Dean empty. Empty Dean, Director, or VP uses the parent. A person's own form skips the step they themselves would fill."
             />
 
-            <Card>
+            <Card className="pms-list-panel">
                 <div className="pms-mobile-only pms-pds-cards">
                     {flattenNodes(tree).length === 0 && !isLoading ? (
                         <Empty description="No units yet." />
                     ) : (
                         flattenNodes(tree).map((record) => (
                             <article key={record.id} className="pms-pds-card pms-unit-card">
-                                <div className="pms-pds-line">
+                                <div className="pms-pds-line pms-unit-name-line">
                                     <span>Unit</span>
                                     <strong>{record.name}</strong>
                                 </div>
-                                <div className="pms-pds-line">
+                                <div className="pms-pds-line pms-unit-name-line">
                                     <span>Under</span>
                                     <strong>{record.parentName || "Top"}</strong>
                                 </div>
@@ -312,12 +319,13 @@ export default function OrgUnitsPage() {
                 </div>
                 <div className="pms-desktop-only">
                     <Table
+                        className="pms-org-table"
                         rowKey="id"
                         loading={isLoading}
                         dataSource={tree}
                         columns={columns}
                         pagination={false}
-                        scroll={{ x: 900 }}
+                        scroll={{ x: 1680 }}
                         indentSize={24}
                         expandable={{
                             expandedRowKeys,

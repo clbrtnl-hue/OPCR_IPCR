@@ -6,7 +6,7 @@ import { useNavigate } from "react-router-dom";
 import dayjs from "dayjs";
 import relativeTime from "dayjs/plugin/relativeTime";
 import api from "~/utils/api";
-import { notificationHref, notificationMeta } from "~/utils/notifications";
+import { notificationHref, notificationMeta, notificationNavState } from "~/utils/notifications";
 
 dayjs.extend(relativeTime);
 
@@ -47,7 +47,7 @@ export default function NotificationBell() {
         const href = notificationHref(item);
 
         if (href) {
-            navigate(href);
+            navigate(href, { state: notificationNavState(item) });
         }
     };
 

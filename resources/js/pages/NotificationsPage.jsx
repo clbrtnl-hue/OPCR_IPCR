@@ -7,7 +7,7 @@ import dayjs from "dayjs";
 import api from "~/utils/api";
 import PageHeader from "~/components/PageHeader";
 import UserAvatar from "~/components/UserAvatar";
-import { dayLabel, notificationHref, notificationMeta } from "~/utils/notifications";
+import { dayLabel, notificationHref, notificationMeta, notificationNavState } from "~/utils/notifications";
 
 const PAGE = 25;
 
@@ -143,7 +143,7 @@ export default function NotificationsPage() {
         const href = notificationHref(item);
 
         if (href) {
-            navigate(href);
+            navigate(href, { state: notificationNavState(item) });
         }
     };
 

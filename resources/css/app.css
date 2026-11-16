@@ -1,3 +1,7 @@
+html[data-theme="light"] {
+    color-scheme: light;
+}
+
 body {
     margin: 0;
     background: #eef1f6;
@@ -292,6 +296,13 @@ body::-webkit-scrollbar-thumb:hover {
     margin-bottom: 24px;
 }
 
+.pms-login-heading-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+}
+
 .pms-login-heading h1 {
     font-size: 24px;
     font-weight: 700;
@@ -335,6 +346,9 @@ body::-webkit-scrollbar-thumb:hover {
 @media (max-width: 900px) {
     .pms-login {
         grid-template-columns: 1fr;
+        min-height: 100dvh;
+        padding-top: env(safe-area-inset-top);
+        padding-bottom: env(safe-area-inset-bottom);
         background: linear-gradient(160deg, #12332a 0%, #1e3a72 100%);
     }
 
@@ -1073,7 +1087,6 @@ body::-webkit-scrollbar-thumb:hover {
     font-style: italic;
 }
 
-/* Row tools stay out of the way until the row is under the pointer. */
 .pms-sheet-rowtools {
     opacity: 0;
     transition: opacity 0.15s;
@@ -1327,9 +1340,15 @@ td.pms-flag {
 
 .pms-cascade-foot {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
     justify-content: space-between;
     gap: 12px;
+}
+
+.pms-cascade-foot > div:first-child {
+    min-width: 0;
+    flex: 1 1 140px;
 }
 
 .pms-cascade-foot strong,
@@ -1381,6 +1400,44 @@ td.pms-flag {
     flex-wrap: nowrap;
     align-items: center;
     gap: 8px;
+}
+
+/* Long commitment titles sit beside the close control. Let them wrap
+   instead of pushing that control off the panel. */
+.ant-drawer-header-title {
+    min-width: 0;
+    align-items: flex-start;
+}
+
+.ant-drawer-title {
+    min-width: 0;
+    overflow-wrap: anywhere;
+}
+
+.ant-drawer .ant-card-head-wrapper {
+    flex-wrap: wrap;
+    align-items: flex-start;
+    gap: 8px;
+}
+
+.ant-drawer .ant-card-head-title {
+    flex: 1 1 180px;
+    min-width: 0;
+    white-space: normal;
+    overflow: visible;
+}
+
+.ant-drawer .ant-card-extra {
+    margin-inline-start: 0;
+    max-width: 100%;
+}
+
+.pms-drawer-panel {
+    min-width: 0;
+}
+
+.pms-drawer-actions {
+    margin-bottom: 12px;
 }
 
 /* The bands the paper form closes each block with. */
@@ -1817,6 +1874,34 @@ td.pms-flag {
         grid-template-columns: repeat(4, minmax(0, 1fr));
         gap: 16px;
     }
+
+    /* Donut on top, status list underneath, and the card stretches to the queue card beside it. */
+    .pms-forms-where.viz-card {
+        display: flex;
+        flex-direction: column;
+        height: 100%;
+    }
+
+    .pms-forms-where.viz-card > .ant-card-body {
+        display: flex;
+        flex: 1;
+        flex-direction: column;
+    }
+
+    .pms-forms-where .pms-status-top {
+        flex: 1;
+        flex-direction: column;
+        flex-wrap: nowrap;
+        align-items: center;
+        justify-content: flex-start;
+        gap: 18px;
+    }
+
+    .pms-forms-where .pms-status-legend {
+        width: 100%;
+        flex: 1;
+        align-content: start;
+    }
 }
 
 .pms-board-head {
@@ -2001,6 +2086,10 @@ td.pms-flag {
     background: rgba(255, 255, 255, 0.96);
 }
 
+.pms-hero-extra .pms-hero-periods.ant-segmented {
+    display: none !important;
+}
+
 @media (max-width: 991px) {
     .pms-hero {
         flex-direction: column;
@@ -2013,22 +2102,52 @@ td.pms-flag {
         font-size: 22px;
     }
 
+    .pms-hero-wide {
+        display: none !important;
+    }
+
     .pms-hero-extra {
         align-items: stretch;
         max-width: none;
     }
 
-    .pms-hero-extra .ant-segmented {
+    .pms-hero-extra .pms-hero-periods.ant-segmented {
+        display: flex !important;
+        width: 100%;
         max-width: 100%;
+        overflow: hidden;
     }
 
-    .pms-hero-extra .ant-segmented-group {
-        flex-wrap: wrap;
+    .pms-hero-extra .pms-hero-periods .ant-segmented-group {
+        display: flex;
+        flex-wrap: nowrap;
+        width: 100%;
+    }
+
+    .pms-hero-extra .pms-hero-periods .ant-segmented-item {
+        flex: 1 1 0;
+        min-width: 0;
+    }
+
+    .pms-hero-extra .pms-hero-periods .ant-segmented-item-label {
+        white-space: nowrap;
+        padding-inline: 4px;
+        font-size: 12px;
     }
 }
 
 .viz-card {
     height: 100%;
+}
+
+.viz-card-link {
+    cursor: pointer;
+    transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.viz-card-link:hover {
+    border-color: #c5d4ee;
+    box-shadow: 0 10px 24px rgba(30, 58, 114, 0.08);
 }
 
 button.viz-legend-item,
@@ -3165,15 +3284,24 @@ button.viz-bar-row:focus-visible,
         max-width: 100%;
     }
 
+    .pms-scene .viz-card > .ant-card-head {
+        min-height: 0;
+        padding: 10px 14px;
+    }
+
+    .pms-scene .viz-card > .ant-card-body {
+        padding: 8px 14px 12px;
+    }
+
     .pms-cycle-grid .viz-tile .ant-card-body {
         display: flex;
         flex-direction: column;
         height: 100%;
-        min-height: 172px;
+        padding: 12px 14px;
     }
 
-    .pms-cycle-grid .viz-tile-label {
-        min-height: 2.5em;
+    .pms-cycle-grid .viz-tile-label,
+    .pms-glance-grid .viz-tile-label {
         display: -webkit-box;
         -webkit-line-clamp: 2;
         -webkit-box-orient: vertical;
@@ -3184,7 +3312,7 @@ button.viz-bar-row:focus-visible,
         flex-wrap: wrap;
         align-items: center;
         gap: 6px;
-        min-height: 52px;
+        font-size: 24px;
     }
 
     .pms-cycle-grid .viz-tile-suffix .ant-tag {
@@ -3195,34 +3323,14 @@ button.viz-bar-row:focus-visible,
         margin-top: 8px;
     }
 
-    .pms-cycle-grid .viz-tile-hint {
+    .pms-cycle-grid .viz-tile-hint,
+    .pms-glance-grid .viz-tile-hint {
         margin-top: auto;
-        padding-top: 8px;
-        min-height: 2.8em;
+        padding-top: 6px;
         display: -webkit-box;
         -webkit-line-clamp: 2;
         -webkit-box-orient: vertical;
         overflow: hidden;
-    }
-
-    .pms-glance-grid .viz-tile-label {
-        min-height: 3.2em;
-        display: -webkit-box;
-        -webkit-line-clamp: 3;
-        -webkit-box-orient: vertical;
-        overflow: hidden;
-    }
-
-    .pms-glance-grid .viz-tile-hint {
-        min-height: 4.2em;
-        display: -webkit-box;
-        -webkit-line-clamp: 3;
-        -webkit-box-orient: vertical;
-        overflow: hidden;
-    }
-
-    .pms-glance-grid .viz-tile .ant-card-body {
-        min-height: 214px;
     }
 
     .pms-sider-desktop {
@@ -3245,7 +3353,11 @@ button.viz-bar-row:focus-visible,
 
     .pms-header {
         gap: 8px;
-        padding: 0 12px;
+        padding:
+            env(safe-area-inset-top)
+            max(12px, env(safe-area-inset-right))
+            0
+            max(12px, env(safe-area-inset-left));
     }
 
     .pms-header-user {
@@ -3472,11 +3584,30 @@ button.viz-bar-row:focus-visible,
 }
 
 .pms-unit-card .pms-pds-line strong {
-    display: -webkit-box;
-    -webkit-line-clamp: 2;
-    -webkit-box-orient: vertical;
-    overflow: hidden;
-    max-width: 68%;
+    flex: 1;
+    max-width: none;
+    overflow: visible;
+    overflow-wrap: break-word;
+    word-break: normal;
+}
+
+.pms-unit-card .pms-unit-name-line {
+    align-items: center;
+}
+
+.pms-unit-card .pms-unit-name-line strong {
+    text-align: right;
+    font-size: 14px;
+    line-height: 1.35;
+}
+
+.pms-org-table .pms-unit-cell {
+    width: 580px;
+    min-width: 580px;
+    white-space: nowrap !important;
+    word-break: normal;
+    overflow-wrap: normal;
+    vertical-align: middle;
 }
 
 .pms-admin-period {
@@ -3680,6 +3811,33 @@ button.viz-bar-row:focus-visible,
     gap: 6px;
 }
 
+.pms-form-card.is-side {
+    flex-direction: row;
+    align-items: center;
+    gap: 12px;
+}
+
+.pms-form-card-main {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    gap: 8px;
+    min-width: 0;
+}
+
+.pms-form-card-open.ant-btn {
+    flex: none;
+    height: auto;
+    padding: 8px 4px;
+    color: #3d4a63;
+    font-weight: 650;
+}
+
+.pms-form-card-open.ant-btn:hover {
+    color: #1e3a72;
+    background: transparent;
+}
+
 .pms-alerts {
     width: min(720px, 100%);
     margin-inline: auto;
@@ -3748,6 +3906,7 @@ button.viz-bar-row:focus-visible,
 
 .pms-report-bar {
     display: flex;
+    flex-wrap: wrap;
     align-items: flex-end;
     justify-content: space-between;
     gap: 16px;
@@ -3755,13 +3914,16 @@ button.viz-bar-row:focus-visible,
 }
 
 .pms-report-bar .pms-line-tabs {
-    flex: 1 1 auto;
+    flex: 1 1 280px;
     min-width: 0;
 }
 
 .pms-report-bar .ant-space {
-    flex: 0 0 auto;
+    flex: 0 1 auto;
+    justify-content: flex-end;
+    max-width: 100%;
     margin-bottom: 8px;
+    margin-left: auto;
 }
 
 .pms-report-tabs {
@@ -3869,7 +4031,11 @@ button.viz-bar-row:focus-visible,
     left: 0;
     justify-content: space-around;
     gap: 4px;
-    padding: 6px 8px calc(6px + env(safe-area-inset-bottom));
+    padding:
+        6px
+        max(8px, env(safe-area-inset-right))
+        calc(6px + env(safe-area-inset-bottom))
+        max(8px, env(safe-area-inset-left));
     background: #fff;
     border-top: 1px solid #e6e9e8;
 }
@@ -3955,6 +4121,12 @@ button.viz-bar-row:focus-visible,
 }
 
 @media (max-width: 991px) {
+    html[data-theme="dark"] .pms-content .pms-list-panel.ant-card {
+        background: transparent !important;
+        border: none !important;
+        box-shadow: none !important;
+    }
+
     .pms-sheet-drawer .ant-drawer-header {
         flex-wrap: wrap;
         align-items: flex-start;
@@ -4019,7 +4191,12 @@ button.viz-bar-row:focus-visible,
     }
 
     .pms-content {
-        padding-bottom: 76px;
+        padding-bottom: calc(76px + env(safe-area-inset-bottom));
+    }
+
+    .pms-nav-drawer .pms-sider {
+        padding-top: env(safe-area-inset-top);
+        padding-bottom: env(safe-area-inset-bottom);
     }
 }
 
@@ -4105,4 +4282,1202 @@ button.viz-bar-row:focus-visible,
     border-radius: 50%;
     background: #ff4d4f;
     box-shadow: 0 0 0 2px #fff;
+}
+
+.viz-tile-link {
+    cursor: pointer;
+    transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.viz-tile-link:hover {
+    border-color: #c5d4ee;
+    box-shadow: 0 10px 24px rgba(30, 58, 114, 0.08);
+}
+
+.viz-tile-link:focus-visible {
+    outline: 2px solid #2a78d6;
+    outline-offset: 2px;
+}
+
+.viz-plot-click,
+.viz-plot-click canvas,
+.viz-plot-click svg {
+    cursor: pointer;
+}
+
+.viz-bars.is-ranked .viz-bar-row {
+    grid-template-columns: 22px minmax(0, 138px) 1fr auto;
+}
+
+.viz-rank {
+    display: grid;
+    place-items: center;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: #eef2f8;
+    color: #52627f;
+    font-size: 11px;
+    font-weight: 700;
+}
+
+.viz-rank.is-1 {
+    background: #f6e3a1;
+    color: #8a5a00;
+}
+
+.viz-rank.is-2 {
+    background: #e4e8ef;
+    color: #4d596c;
+}
+
+.viz-rank.is-3 {
+    background: #f0d2ba;
+    color: #8a4b22;
+}
+
+button.viz-meter {
+    width: 100%;
+    margin: 0;
+    padding: 4px 6px;
+    border: 0;
+    border-radius: 8px;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+}
+
+button.viz-meter:hover {
+    background: #f4f7fb;
+}
+
+button.viz-meter:focus-visible {
+    outline: 2px solid #2a78d6;
+    outline-offset: 2px;
+}
+
+.pms-click-row {
+    cursor: pointer;
+}
+
+.pms-click-row:hover {
+    background: #f7f9fd;
+}
+
+.pms-play {
+    display: grid;
+    grid-template-columns: minmax(220px, 0.9fr) minmax(0, 1.4fr) minmax(200px, 0.8fr);
+    gap: 16px;
+    margin-bottom: 16px;
+    padding: 16px;
+    border: 1px solid #e6e8ee;
+    border-radius: 18px;
+    background:
+        radial-gradient(circle at 0% 0%, rgba(27, 175, 122, 0.16), transparent 36%),
+        radial-gradient(circle at 100% 0%, rgba(60, 98, 176, 0.14), transparent 32%),
+        linear-gradient(180deg, #f8faff 0%, #fff 70%);
+    box-shadow: 0 8px 24px rgba(16, 24, 40, 0.04);
+}
+
+.pms-play.is-solo {
+    grid-template-columns: minmax(220px, 0.8fr) minmax(0, 1.4fr);
+}
+
+.pms-play-score {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    min-width: 0;
+}
+
+.pms-play-ring {
+    position: relative;
+    display: grid;
+    place-items: center;
+    flex: none;
+    width: 112px;
+    height: 112px;
+}
+
+.pms-play-ring svg {
+    width: 112px;
+    height: 112px;
+    transform: rotate(-90deg);
+}
+
+.pms-ring-track,
+.pms-ring-value {
+    fill: none;
+    stroke-width: 8;
+}
+
+.pms-ring-track {
+    stroke: #e6ebf4;
+}
+
+.pms-ring-value {
+    stroke: #1baf7a;
+    stroke-linecap: round;
+    transition: stroke-dashoffset 0.9s cubic-bezier(0.22, 0.8, 0.24, 1);
+}
+
+.pms-play-ring > span {
+    position: absolute;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    width: 78px;
+    height: 78px;
+    border-radius: 50%;
+    background: #fff;
+}
+
+.pms-play-ring strong {
+    font-size: 20px;
+    line-height: 1;
+    color: #16315f;
+}
+
+.pms-play-ring em,
+.pms-play-quest-copy em,
+.pms-play-kicker {
+    font-style: normal;
+}
+
+.pms-play-ring em {
+    margin-top: 2px;
+    font-size: 11px;
+    color: #7b8494;
+}
+
+.pms-play-kicker {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: #6d7890;
+}
+
+.pms-play-score h2 {
+    margin: 2px 0 8px;
+    font-size: 22px;
+    line-height: 1.15;
+    color: #16315f;
+}
+
+.pms-play-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 3px 8px;
+    border-radius: 999px;
+    background: #1e3a72;
+    color: #fff;
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.pms-play-quests,
+.pms-play-podium {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    min-width: 0;
+}
+
+.pms-play-quests button,
+.pms-play-podium button {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+    margin: 0;
+    padding: 8px 10px;
+    border: 1px solid transparent;
+    border-radius: 12px;
+    background: rgba(255, 255, 255, 0.82);
+    color: inherit;
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+}
+
+.pms-play-quests button:hover,
+.pms-play-podium button:hover {
+    border-color: #d5deee;
+    background: #fff;
+}
+
+.pms-play-quests button:focus-visible,
+.pms-play-podium button:focus-visible {
+    outline: 2px solid #2a78d6;
+    outline-offset: 2px;
+}
+
+.pms-play-quests button.is-done {
+    background: rgba(27, 175, 122, 0.1);
+}
+
+.pms-play-mark,
+.pms-play-medal {
+    display: grid;
+    place-items: center;
+    flex: none;
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    background: #e8eef8;
+    color: #1e3a72;
+    font-size: 13px;
+    font-weight: 700;
+}
+
+.pms-play-quests button.is-done .pms-play-mark {
+    background: #1baf7a;
+    color: #fff;
+}
+
+.pms-play-medal.is-1 {
+    background: #f6e3a1;
+    color: #8a5a00;
+}
+
+.pms-play-medal.is-2 {
+    background: #e4e8ef;
+    color: #4d596c;
+}
+
+.pms-play-medal.is-3 {
+    background: #f0d2ba;
+    color: #8a4b22;
+}
+
+.pms-play-quest-copy {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+    flex: 1;
+}
+
+.pms-play-quest-copy strong,
+.pms-play-podium p {
+    color: #16315f;
+}
+
+.pms-play-quest-copy strong {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.pms-play-quest-copy em,
+.pms-play-podium p {
+    font-size: 12px;
+    color: #6d7890;
+}
+
+.pms-play-podium p {
+    margin: 4px 0 0;
+}
+
+.pms-play-quest-copy i {
+    display: block;
+    height: 5px;
+    margin-top: 4px;
+    border-radius: 999px;
+    background: #e6ebf4;
+    overflow: hidden;
+}
+
+.pms-play-quest-copy b {
+    display: block;
+    height: 100%;
+    border-radius: inherit;
+    background: #3c62b0;
+    transition: width 0.8s cubic-bezier(0.22, 0.8, 0.24, 1);
+}
+
+.pms-scene-switch {
+    position: relative;
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    max-width: 420px;
+    margin: 2px auto 18px;
+    padding: 4px;
+    border-radius: 999px;
+    background: rgba(22, 49, 95, 0.06);
+}
+
+.pms-scene-switch i {
+    position: absolute;
+    top: 4px;
+    bottom: 4px;
+    left: 4px;
+    width: calc((100% - 8px) / 3);
+    border-radius: 999px;
+    background: #fff;
+    box-shadow: 0 8px 18px rgba(22, 49, 95, 0.08);
+    transition: transform 0.4s cubic-bezier(0.22, 0.8, 0.24, 1);
+}
+
+.pms-scene-switch button {
+    position: relative;
+    z-index: 1;
+    margin: 0;
+    padding: 8px 12px;
+    border: 0;
+    border-radius: 999px;
+    background: transparent;
+    color: #5c6b86;
+    font: inherit;
+    font-size: 13px;
+    font-weight: 650;
+    cursor: pointer;
+}
+
+.pms-scene-switch button.is-on {
+    color: #16315f;
+}
+
+@keyframes pms-rise {
+    from {
+        opacity: 0;
+        transform: translateY(14px);
+    }
+
+    to {
+        opacity: 1;
+        transform: none;
+    }
+}
+
+.pms-play,
+.pms-rise,
+.pms-scene {
+    animation: pms-rise 0.55s cubic-bezier(0.22, 0.8, 0.24, 1) both;
+}
+
+.pms-scene .pms-cycle-grid > *,
+.pms-scene .ant-col,
+.pms-rise .viz-tile {
+    /* backwards keeps the delay hidden, then releases transform so hover can move the card */
+    animation: pms-rise 0.55s cubic-bezier(0.22, 0.8, 0.24, 1) backwards;
+}
+
+.pms-scene .pms-cycle-grid > *:nth-child(2),
+.pms-scene .ant-col:nth-child(2),
+.pms-rise .viz-tile:nth-child(2) {
+    animation-delay: 0.06s;
+}
+
+.pms-scene .pms-cycle-grid > *:nth-child(3),
+.pms-scene .ant-col:nth-child(3),
+.pms-rise .viz-tile:nth-child(3) {
+    animation-delay: 0.12s;
+}
+
+.pms-scene .pms-cycle-grid > *:nth-child(4),
+.pms-rise .viz-tile:nth-child(4) {
+    animation-delay: 0.18s;
+}
+
+.pms-scene .ant-row + .ant-row .ant-col {
+    animation-delay: 0.12s;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .pms-play,
+    .pms-rise,
+    .pms-scene,
+    .pms-scene .pms-cycle-grid > *,
+    .pms-scene .ant-col,
+    .pms-rise .viz-tile,
+    .pms-ring-value,
+    .pms-play-quest-copy b,
+    .pms-scene-switch i {
+        animation: none;
+        transition: none;
+    }
+}
+
+/* Hover lift is desktop only. Phones and tablets keep the static cards. */
+@media (min-width: 992px) and (prefers-reduced-motion: no-preference) {
+    .viz-tile-link,
+    .viz-card-link,
+    .pms-play-quests button,
+    .pms-play-podium button,
+    .pms-flow-side button,
+    .pms-status-legend button,
+    .pms-board-bars button,
+    .pms-board-bands button,
+    .pms-board-stats button,
+    .pms-board-table-row,
+    .pms-click-row {
+        position: relative;
+        transition:
+            transform 0.22s ease,
+            border-color 0.2s ease,
+            box-shadow 0.2s ease,
+            background 0.2s ease,
+            color 0.2s ease;
+    }
+
+    /* Keeps the pointer on the card after it lifts, so hover does not drop and replay. */
+    .viz-tile-link::after,
+    .viz-card-link::after,
+    .pms-play-quests button::after,
+    .pms-play-podium button::after,
+    .pms-status-legend button::after,
+    .pms-board-bars button::after,
+    .pms-board-bands button::after,
+    .pms-board-stats button::after,
+    .pms-board-table-row::after,
+    .pms-click-row::after {
+        content: "";
+        position: absolute;
+        left: 0;
+        right: 0;
+        top: 100%;
+        height: 6px;
+    }
+
+    .viz-tile-icon {
+        transition: transform 0.22s ease;
+    }
+
+    .viz-tile-link:hover,
+    .viz-card-link:hover {
+        transform: translateY(-4px);
+    }
+
+    .viz-tile-link:hover .viz-tile-icon {
+        transform: scale(1.08);
+    }
+
+    .pms-play-quests button:hover,
+    .pms-play-podium button:hover,
+    .pms-click-row:hover,
+    .pms-status-legend button:hover:not(:disabled),
+    .pms-board-bars button:hover,
+    .pms-board-bands button:hover,
+    .pms-board-stats button:hover,
+    .pms-board-table-row:hover {
+        transform: translateY(-3px);
+    }
+
+    .pms-flow-side.is-right button:hover {
+        transform: translateX(4px);
+    }
+
+    .pms-flow-side.is-left button:hover {
+        transform: translateX(-4px);
+    }
+}
+
+.pms-play-quests button.is-done .pms-play-quest-copy b {
+    background: #1baf7a;
+}
+
+@media (max-width: 1100px) {
+    .pms-play,
+    .pms-play.is-solo {
+        grid-template-columns: 1fr;
+    }
+}
+
+/* --- Night glass. The sun toggle sets data-theme="light" and these rules drop away. */
+
+html[data-theme="dark"] {
+    color-scheme: dark;
+}
+
+html[data-theme="dark"] body,
+html[data-theme="dark"] .pms-shell {
+    background:
+        radial-gradient(880px 420px at 100% -12%, rgba(48, 78, 130, 0.2), transparent 58%),
+        radial-gradient(680px 360px at -8% 108%, rgba(28, 72, 58, 0.16), transparent 52%),
+        #070b10;
+    color: #f5f7fb;
+}
+
+html[data-theme="dark"] .pms-shell > .ant-layout {
+    background: transparent;
+}
+
+html[data-theme="dark"] .pms-header {
+    background: rgba(7, 11, 16, 0.78);
+}
+
+html[data-theme="dark"] .pms-header-org,
+html[data-theme="dark"] .pms-page-title,
+html[data-theme="dark"] .pms-brand,
+html[data-theme="dark"] .pms-sider-name,
+html[data-theme="dark"] .pms-sider-cycle strong,
+html[data-theme="dark"] .viz-tile-value,
+html[data-theme="dark"] .viz-bar-value,
+html[data-theme="dark"] .viz-donut-legend .viz-legend-item strong,
+html[data-theme="dark"] .viz-meter-head strong,
+html[data-theme="dark"] .viz-radar-caption strong,
+html[data-theme="dark"] .pms-board-card-head h3,
+html[data-theme="dark"] .pms-board-unit-name,
+html[data-theme="dark"] .pms-board-score,
+html[data-theme="dark"] .pms-board-people strong,
+html[data-theme="dark"] .pms-board-progress strong,
+html[data-theme="dark"] .pms-board-bars strong,
+html[data-theme="dark"] .pms-board-bands strong,
+html[data-theme="dark"] .pms-board-stats strong,
+html[data-theme="dark"] .pms-status-legend strong,
+html[data-theme="dark"] .pms-status-piles strong,
+html[data-theme="dark"] .pms-note-title,
+html[data-theme="dark"] .pms-login-heading h1,
+html[data-theme="dark"] .pms-login-inline-mark span,
+html[data-theme="dark"] .pms-play-ring strong,
+html[data-theme="dark"] .ant-card-head-title,
+html[data-theme="dark"] .ant-list-item-meta-title,
+html[data-theme="dark"] .ant-statistic-content,
+html[data-theme="dark"] .pms-section-title {
+    color: #fff;
+}
+
+html[data-theme="dark"] .pms-page-subtitle,
+html[data-theme="dark"] .pms-header-sub,
+html[data-theme="dark"] .pms-sider-role,
+html[data-theme="dark"] .pms-sider-cycle,
+html[data-theme="dark"] .viz-tile-label,
+html[data-theme="dark"] .viz-tile-hint,
+html[data-theme="dark"] .viz-bar-label,
+html[data-theme="dark"] .viz-legend-item,
+html[data-theme="dark"] .viz-meter-head,
+html[data-theme="dark"] .viz-radar-caption span,
+html[data-theme="dark"] .pms-board-note,
+html[data-theme="dark"] .pms-board-unit-meta,
+html[data-theme="dark"] .pms-board-due,
+html[data-theme="dark"] .pms-note-text,
+html[data-theme="dark"] .pms-note-meta,
+html[data-theme="dark"] .pms-note-day,
+html[data-theme="dark"] .pms-login-heading p,
+html[data-theme="dark"] .pms-report-card > span,
+html[data-theme="dark"] .pms-report-card-stats,
+html[data-theme="dark"] .ant-list-item-meta-description,
+html[data-theme="dark"] .ant-card-extra,
+html[data-theme="dark"] .ant-empty-description {
+    color: rgba(255, 255, 255, 0.72);
+}
+
+html[data-theme="dark"] .pms-note.is-unread {
+    background: rgba(91, 134, 224, 0.16);
+}
+
+html[data-theme="dark"] .pms-note:hover,
+html[data-theme="dark"] .pms-note.is-unread:hover {
+    background: rgba(255, 255, 255, 0.08);
+}
+
+html[data-theme="dark"] .pms-note-row {
+    border-bottom-color: rgba(255, 255, 255, 0.08);
+}
+
+html[data-theme="dark"] .pms-progress-editable:hover,
+html[data-theme="dark"] .pms-pace-row:hover,
+html[data-theme="dark"] button.viz-meter:hover,
+html[data-theme="dark"] .pms-click-row:hover,
+html[data-theme="dark"] .pms-richtext-button:hover {
+    background: rgba(255, 255, 255, 0.08);
+}
+
+html[data-theme="dark"] .pms-play {
+    background:
+        radial-gradient(circle at 0% 0%, rgba(27, 175, 122, 0.14), transparent 36%),
+        radial-gradient(circle at 100% 0%, rgba(91, 134, 224, 0.16), transparent 32%),
+        linear-gradient(180deg, #1a2330 0%, #121922 100%);
+    border-color: rgba(255, 255, 255, 0.08);
+    box-shadow: 0 14px 32px rgba(0, 0, 0, 0.28);
+    color: #f5f7fb;
+}
+
+html[data-theme="dark"] .pms-play-kicker,
+html[data-theme="dark"] .pms-play-ring em,
+html[data-theme="dark"] .pms-play-quest-copy em {
+    color: rgba(245, 247, 251, 0.66);
+}
+
+html[data-theme="dark"] .pms-ring-track,
+html[data-theme="dark"] .pms-play-quest-copy i {
+    stroke: rgba(255, 255, 255, 0.16);
+    background: rgba(255, 255, 255, 0.14);
+}
+
+html[data-theme="dark"] .pms-play-quests button,
+html[data-theme="dark"] .pms-play-podium button {
+    background: rgba(255, 255, 255, 0.06);
+    border-color: transparent;
+}
+
+html[data-theme="dark"] .pms-play-quests button.is-done {
+    background: rgba(27, 175, 122, 0.16);
+}
+
+html[data-theme="dark"] .pms-play-quests button:hover,
+html[data-theme="dark"] .pms-play-podium button:hover {
+    background: rgba(255, 255, 255, 0.1);
+    border-color: rgba(255, 255, 255, 0.16);
+}
+
+html[data-theme="dark"] .ant-table-tbody > tr.ant-table-row:hover > td,
+html[data-theme="dark"] .ant-table-tbody > tr > td.ant-table-cell-row-hover,
+html[data-theme="dark"] .ant-list-item:hover {
+    background: rgba(255, 255, 255, 0.06) !important;
+}
+
+html[data-theme="dark"] .pms-theme-toggle {
+    color: #fff;
+}
+
+html[data-theme="dark"] .pms-header-cycle {
+    background: rgba(255, 255, 255, 0.16);
+    color: #fff;
+}
+
+html[data-theme="dark"] .pms-header-account:hover,
+html[data-theme="dark"] .pms-sider-user:hover {
+    background: rgba(255, 255, 255, 0.05);
+}
+
+html[data-theme="dark"] .pms-shell > .ant-layout-sider {
+    background: #0c1218 !important;
+    border-color: rgba(255, 255, 255, 0.08);
+    box-shadow: 0 18px 40px rgba(0, 0, 0, 0.35);
+}
+
+html[data-theme="dark"] .pms-shell .ant-layout-sider-children,
+html[data-theme="dark"] .pms-sider,
+html[data-theme="dark"] .pms-sider-nav,
+html[data-theme="dark"] .pms-sider .ant-menu,
+html[data-theme="dark"] .pms-sider .ant-menu-sub,
+html[data-theme="dark"] .pms-sider .ant-menu-inline,
+html[data-theme="dark"] .pms-nav-drawer .ant-drawer-content,
+html[data-theme="dark"] .pms-nav-drawer .ant-drawer-body {
+    background: transparent !important;
+}
+
+html[data-theme="dark"] .pms-nav-drawer .ant-drawer-content,
+html[data-theme="dark"] .pms-nav-drawer .ant-drawer-body {
+    background: #0c1218 !important;
+}
+
+html[data-theme="dark"] .pms-shell .ant-layout-sider-trigger {
+    background: transparent !important;
+    color: #fff !important;
+    border-top-color: rgba(255, 255, 255, 0.16);
+}
+
+html[data-theme="dark"] .pms-sider-nav::before,
+html[data-theme="dark"] .pms-sider-nav::after {
+    display: none;
+}
+
+html[data-theme="dark"] .pms-sider-foot {
+    border-top-color: rgba(255, 255, 255, 0.08);
+}
+
+html[data-theme="dark"] .pms-sider .ant-menu-item .pms-nav-icon,
+html[data-theme="dark"] .pms-sider .ant-menu-submenu-title .pms-nav-icon {
+    color: rgba(255, 255, 255, 0.72);
+}
+
+html[data-theme="dark"] .pms-sider .ant-menu-item-selected .pms-nav-icon,
+html[data-theme="dark"] .pms-sider .ant-menu-submenu-selected > .ant-menu-submenu-title .pms-nav-icon {
+    color: #fff;
+}
+
+html[data-theme="dark"] .pms-brand-logo {
+    background: rgba(255, 255, 255, 0.92);
+}
+
+html[data-theme="dark"] .pms-form-card-open.ant-btn {
+    color: rgba(255, 255, 255, 0.82);
+}
+
+html[data-theme="dark"] .pms-form-card-open.ant-btn:hover {
+    color: #fff;
+    background: transparent;
+}
+
+html[data-theme="dark"] .pms-content .ant-card,
+html[data-theme="dark"] .pms-login-card,
+html[data-theme="dark"] .pms-board-card,
+html[data-theme="dark"] .pms-line-card,
+html[data-theme="dark"] .pms-form-card,
+html[data-theme="dark"] .pms-report-card {
+    background: linear-gradient(180deg, #1a2330 0%, #121922 100%) !important;
+    border: 1px solid rgba(255, 255, 255, 0.08) !important;
+    box-shadow: 0 14px 32px rgba(0, 0, 0, 0.28);
+    color: #f5f7fb;
+}
+
+html[data-theme="dark"] .ant-btn-primary:not(:disabled):not(.ant-btn-dangerous) {
+    background: #5b86e0 !important;
+    border-color: #5b86e0 !important;
+    color: #fff !important;
+    box-shadow: none;
+}
+
+html[data-theme="dark"] .ant-btn-primary:not(:disabled):not(.ant-btn-dangerous):hover {
+    background: #7198ea !important;
+    border-color: #7198ea !important;
+    color: #fff !important;
+}
+
+html[data-theme="dark"] .ant-btn-default:not(:disabled):not(.ant-btn-dangerous) {
+    background: transparent !important;
+    border-color: rgba(255, 255, 255, 0.2) !important;
+    color: #f5f7fb !important;
+}
+
+html[data-theme="dark"] .ant-btn-default:not(:disabled):not(.ant-btn-dangerous):hover {
+    background: rgba(255, 255, 255, 0.08) !important;
+    border-color: rgba(255, 255, 255, 0.38) !important;
+    color: #fff !important;
+}
+
+html[data-theme="dark"] .ant-btn-link {
+    color: #c9d8f5;
+}
+
+html[data-theme="dark"] .ant-card-head,
+html[data-theme="dark"] .ant-card-body,
+html[data-theme="dark"] .ant-card-extra {
+    background: transparent !important;
+    color: #fff;
+    border-color: rgba(255, 255, 255, 0.12);
+}
+
+html[data-theme="dark"] .viz-card-link:hover {
+    border-color: rgba(255, 255, 255, 0.32) !important;
+    box-shadow: 0 16px 36px rgba(18, 40, 72, 0.34), inset 0 1px 0 rgba(255, 255, 255, 0.28);
+}
+
+html[data-theme="dark"] .viz-bar-track,
+html[data-theme="dark"] .pms-ring-track {
+    background: rgba(255, 255, 255, 0.08);
+    stroke: rgba(255, 255, 255, 0.1);
+}
+
+html[data-theme="dark"] .viz-bar-row:hover,
+html[data-theme="dark"] button.viz-legend-item:hover,
+html[data-theme="dark"] button.viz-bar-row:hover,
+html[data-theme="dark"] .pms-board-table-row:hover {
+    background: rgba(255, 255, 255, 0.05);
+}
+
+html[data-theme="dark"] .viz-tooltip {
+    background: #1c2633;
+    border-color: rgba(255, 255, 255, 0.16);
+    color: #fff;
+    box-shadow: 0 10px 28px rgba(18, 40, 72, 0.35);
+}
+
+html[data-theme="dark"] .pms-sheet-wrap,
+html[data-theme="dark"] .pms-sheet,
+html[data-theme="dark"] .pms-richtext,
+html[data-theme="dark"] .pms-mention-list,
+html[data-theme="dark"] .pms-cascade-output {
+    background: #10161d;
+    border-color: rgba(255, 255, 255, 0.08);
+    color: #f5f7fb;
+}
+
+html[data-theme="dark"] .pms-sheet th,
+html[data-theme="dark"] .pms-sheet td {
+    background: transparent;
+    border-color: rgba(255, 255, 255, 0.14);
+    color: #fff;
+}
+
+html[data-theme="dark"] .pms-sheet th,
+html[data-theme="dark"] .pms-sheet thead {
+    background: #1a2330;
+    color: rgba(245, 247, 251, 0.8);
+    box-shadow: inset 0 -1px 0 rgba(255, 255, 255, 0.16);
+}
+
+html[data-theme="dark"] .pms-sheet-section td,
+html[data-theme="dark"] .pms-section-heading td {
+    background: rgba(91, 134, 224, 0.16) !important;
+    color: #fff;
+}
+
+html[data-theme="dark"] .pms-sheet tbody tr:not(.pms-sheet-section):not(.pms-sheet-summary):not(.pms-sheet-total):hover > td {
+    background: rgba(255, 255, 255, 0.04);
+}
+
+html[data-theme="dark"] .pms-chain .ant-steps-item:has(.is-here) .ant-steps-item-title {
+    color: #fff;
+}
+
+html[data-theme="dark"] .pms-chain .ant-steps-item:has(.is-done) .ant-steps-item-title {
+    color: #f5f7fb;
+}
+
+html[data-theme="dark"] .pms-chain .ant-steps-item:has(.is-skipped) .ant-steps-item-title,
+html[data-theme="dark"] .pms-chain .ant-steps-item:has(.is-skipped) .ant-steps-item-description {
+    color: rgba(245, 247, 251, 0.55) !important;
+}
+
+html[data-theme="dark"] .pms-chain .ant-steps-item-description {
+    color: rgba(245, 247, 251, 0.66);
+}
+
+html[data-theme="dark"] .pms-chain .ant-steps-item-tail::after {
+    background: rgba(255, 255, 255, 0.16) !important;
+}
+
+html[data-theme="dark"] .pms-chain .ant-steps-item-finish .ant-steps-item-tail::after {
+    background: #5b86e0 !important;
+}
+
+html[data-theme="dark"] .pms-chain-dot.is-here {
+    background: #5b86e0;
+    box-shadow: 0 0 0 4px rgba(91, 134, 224, 0.28);
+}
+
+html[data-theme="dark"] .pms-chain-dot.is-skipped {
+    background: transparent;
+    border-color: rgba(255, 255, 255, 0.4);
+    color: rgba(245, 247, 251, 0.7);
+}
+
+html[data-theme="dark"] .pms-tabbar {
+    background: rgba(7, 11, 16, 0.94);
+    border-top-color: rgba(255, 255, 255, 0.16);
+}
+
+html[data-theme="dark"] .pms-tabbar button.is-active,
+html[data-theme="dark"] .pms-tabbar button.is-active .pms-nav-icon {
+    color: #fff;
+}
+
+html[data-theme="dark"] .pms-login {
+    background:
+        radial-gradient(880px 420px at 100% -12%, rgba(48, 78, 130, 0.2), transparent 58%),
+        radial-gradient(680px 360px at -8% 108%, rgba(28, 72, 58, 0.16), transparent 52%),
+        #070b10;
+}
+
+html[data-theme="dark"] .pms-scene-switch {
+    background: rgba(255, 255, 255, 0.06);
+}
+
+html[data-theme="dark"] .pms-scene-switch i {
+    background: rgba(255, 255, 255, 0.18);
+    box-shadow: none;
+}
+
+html[data-theme="dark"] .pms-scene-switch button {
+    color: rgba(255, 255, 255, 0.72);
+}
+
+html[data-theme="dark"] .pms-scene-switch button.is-on {
+    color: #fff;
+}
+
+html[data-theme="dark"] .pms-play-ring > span,
+html[data-theme="dark"] .pms-flow-badge,
+html[data-theme="dark"] .pms-board-faces span {
+    background: #1c2633;
+    border-color: rgba(255, 255, 255, 0.1);
+    color: #f5f7fb;
+}
+
+html[data-theme="dark"] .pms-sheet-subhead,
+html[data-theme="dark"] .pms-assigned-also,
+html[data-theme="dark"] .pms-line-section {
+    color: rgba(255, 255, 255, 0.72);
+}
+
+html[data-theme="dark"] .pms-report-card-stats em {
+    color: #fff;
+}
+
+html[data-theme="dark"] .ant-input,
+html[data-theme="dark"] .ant-input-affix-wrapper,
+html[data-theme="dark"] .ant-input-number,
+html[data-theme="dark"] .ant-select-selector,
+html[data-theme="dark"] .ant-picker,
+html[data-theme="dark"] .ant-mentions {
+    background: rgba(255, 255, 255, 0.08) !important;
+    border-color: rgba(255, 255, 255, 0.22) !important;
+    color: #fff !important;
+}
+
+html[data-theme="dark"] .ant-input-affix-wrapper > .ant-input,
+html[data-theme="dark"] .ant-input-affix-wrapper > textarea.ant-input {
+    background: transparent !important;
+    border: none !important;
+    box-shadow: none !important;
+}
+
+html[data-theme="dark"] .ant-input::placeholder,
+html[data-theme="dark"] .ant-select-selection-placeholder {
+    color: rgba(255, 255, 255, 0.5) !important;
+}
+
+html[data-theme="dark"] .ant-select-arrow,
+html[data-theme="dark"] .ant-picker-suffix,
+html[data-theme="dark"] .ant-input-password-icon {
+    color: rgba(255, 255, 255, 0.72);
+}
+
+html[data-theme="dark"] .ant-table,
+html[data-theme="dark"] .ant-table-container,
+html[data-theme="dark"] .ant-table-tbody > tr > td {
+    background: transparent !important;
+    color: #fff;
+}
+
+html[data-theme="dark"] .ant-table-thead > tr > th {
+    background: #1a2330 !important;
+    color: rgba(255, 255, 255, 0.8) !important;
+    border-color: rgba(255, 255, 255, 0.12) !important;
+}
+
+html[data-theme="dark"] .ant-table-tbody > tr > td {
+    color: #fff;
+    border-color: rgba(255, 255, 255, 0.12) !important;
+}
+
+html[data-theme="dark"] .ant-dropdown-menu-item,
+html[data-theme="dark"] .ant-dropdown-menu-submenu-title,
+html[data-theme="dark"] .ant-select-item,
+html[data-theme="dark"] .ant-modal-title,
+html[data-theme="dark"] .ant-modal-close,
+html[data-theme="dark"] .ant-picker-header,
+html[data-theme="dark"] .ant-picker-cell,
+html[data-theme="dark"] .ant-tabs-tab-btn {
+    color: #fff;
+}
+
+html[data-theme="dark"] .ant-tabs-tab:not(.ant-tabs-tab-active) .ant-tabs-tab-btn {
+    color: rgba(255, 255, 255, 0.72);
+}
+
+html[data-theme="dark"] .ant-modal-content,
+html[data-theme="dark"] .ant-modal-header,
+html[data-theme="dark"] .ant-dropdown-menu,
+html[data-theme="dark"] .ant-select-dropdown,
+html[data-theme="dark"] .ant-popover-inner,
+html[data-theme="dark"] .ant-picker-panel-container {
+    background: #161e28;
+    color: #f5f7fb;
+}
+
+html[data-theme="dark"] .pms-hero-extra .ant-select-selector,
+html[data-theme="dark"] .pms-hero-extra .ant-select-selection-item,
+html[data-theme="dark"] .pms-hero-extra .ant-typography,
+html[data-theme="dark"] .pms-hero-extra .ant-segmented,
+html[data-theme="dark"] .pms-hero-extra .ant-segmented-item,
+html[data-theme="dark"] .pms-hero-extra .ant-segmented-item-label {
+    color: #16315f !important;
+}
+
+html[data-theme="dark"] .pms-hero-extra .ant-select-selector {
+    background: #fff !important;
+    border-color: rgba(22, 49, 95, 0.16) !important;
+}
+
+html[data-theme="dark"] .pms-hero-extra .ant-select-arrow {
+    color: #16315f;
+}
+
+html[data-theme="dark"] .pms-hero-extra .ant-segmented {
+    background: rgba(22, 49, 95, 0.08) !important;
+}
+
+html[data-theme="dark"] .pms-hero-extra .ant-segmented-item-selected,
+html[data-theme="dark"] .pms-hero-extra .ant-segmented-thumb {
+    background: #fff !important;
+}
+
+html[data-theme="dark"] *:hover::-webkit-scrollbar-thumb,
+html[data-theme="dark"] *::-webkit-scrollbar-thumb:hover,
+html[data-theme="dark"] html:hover::-webkit-scrollbar-thumb,
+html[data-theme="dark"] body:hover::-webkit-scrollbar-thumb {
+    background: rgba(214, 226, 245, 0.35);
+}
+
+html[data-theme="dark"] .pms-pace-name > span:first-child,
+html[data-theme="dark"] .pms-status-ring-copy strong,
+html[data-theme="dark"] .pms-stage strong,
+html[data-theme="dark"] .pms-play-score h2,
+html[data-theme="dark"] .pms-play-quest-copy strong,
+html[data-theme="dark"] .pms-play-podium p,
+html[data-theme="dark"] .pms-line-score strong,
+html[data-theme="dark"] .pms-person-link,
+html[data-theme="dark"] .pms-mention,
+html[data-theme="dark"] .pms-richtext-view a,
+html[data-theme="dark"] .pms-delivery-count,
+html[data-theme="dark"] .pms-cascade-check,
+html[data-theme="dark"] .pms-cell-spinner,
+html[data-theme="dark"] .pms-status-piles button,
+html[data-theme="dark"] .pms-line-tabs .ant-tabs-tab-active .ant-tabs-tab-btn,
+html[data-theme="dark"] .pms-richtext-button.is-active,
+html[data-theme="dark"] .pms-flow-side.is-left strong,
+html[data-theme="dark"] .pms-flow-side.is-right strong {
+    color: #f5f7fb;
+}
+
+html[data-theme="dark"] .pms-flow-side.is-left span,
+html[data-theme="dark"] .pms-flow-copy em {
+    color: rgba(245, 247, 251, 0.66);
+}
+
+html[data-theme="dark"] .pms-flow-side button:hover strong,
+html[data-theme="dark"] .pms-flow-side button:hover span,
+html[data-theme="dark"] .pms-flow-side button:hover em {
+    color: #fff;
+}
+
+html[data-theme="dark"] .pms-status-ring-copy span,
+html[data-theme="dark"] .pms-pace-sub,
+html[data-theme="dark"] .pms-stage-label,
+html[data-theme="dark"] .pms-history-day,
+html[data-theme="dark"] .pms-cascade-label,
+html[data-theme="dark"] .pms-cascade-foot span,
+html[data-theme="dark"] .pms-cascade-person-text span,
+html[data-theme="dark"] .pms-richtext-count {
+    color: rgba(255, 255, 255, 0.72);
+}
+
+html[data-theme="dark"] .ant-drawer-content,
+html[data-theme="dark"] .ant-drawer-header,
+html[data-theme="dark"] .ant-drawer-footer {
+    background: #10161d;
+    color: #f5f7fb;
+}
+
+html[data-theme="dark"] .ant-drawer-header {
+    border-bottom-color: rgba(255, 255, 255, 0.08);
+}
+
+html[data-theme="dark"] .ant-drawer-footer {
+    border-top-color: rgba(255, 255, 255, 0.08);
+}
+
+html[data-theme="dark"] .ant-drawer-title,
+html[data-theme="dark"] .ant-drawer-close {
+    color: #f5f7fb;
+}
+
+html[data-theme="dark"] .ant-drawer .ant-card {
+    background: #161e28 !important;
+    border: 1px solid rgba(255, 255, 255, 0.08) !important;
+    color: #f5f7fb;
+}
+
+html[data-theme="dark"] .pms-history-dot {
+    background: #161e28;
+}
+
+html[data-theme="dark"] .pms-history-day-dot {
+    background: rgba(255, 255, 255, 0.35);
+}
+
+html[data-theme="dark"] .pms-history-detail {
+    color: rgba(245, 247, 251, 0.82);
+}
+
+html[data-theme="dark"] .pms-history-note {
+    background: rgba(255, 255, 255, 0.06);
+    border-left-color: rgba(140, 176, 255, 0.55);
+}
+
+html[data-theme="dark"] .pms-history-note.is-quiet {
+    border-left-color: rgba(255, 255, 255, 0.16);
+    color: rgba(255, 255, 255, 0.55);
+}
+
+html[data-theme="dark"] .pms-cascade-person {
+    background: rgba(255, 255, 255, 0.06);
+    border-color: rgba(255, 255, 255, 0.12);
+    color: #f5f7fb;
+}
+
+html[data-theme="dark"] .pms-cascade-person.is-on {
+    background: rgba(91, 134, 224, 0.22);
+    border-color: rgba(140, 176, 255, 0.55);
+}
+
+html[data-theme="dark"] .pms-cascade-person-text strong {
+    color: #f5f7fb;
+}
+
+html[data-theme="dark"] .pms-richtext-toolbar {
+    border-bottom-color: rgba(255, 255, 255, 0.12);
+}
+
+html[data-theme="dark"] .pms-richtext-button {
+    color: rgba(255, 255, 255, 0.82);
+}
+
+html[data-theme="dark"] .pms-richtext .ProseMirror p.is-editor-empty:first-child::before {
+    color: rgba(255, 255, 255, 0.45);
+}
+
+html[data-theme="dark"] .pms-richtext:focus-within {
+    border-color: #8cb0ff;
+    box-shadow: 0 0 0 2px rgba(140, 176, 255, 0.22);
+}
+
+html[data-theme="dark"] .pms-mention-item {
+    color: #f5f7fb;
+}
+
+html[data-theme="dark"] .pms-mention-item.is-active {
+    background: rgba(255, 255, 255, 0.12);
+}
+
+html[data-theme="dark"] .pms-sheet-summary td,
+html[data-theme="dark"] .pms-sheet-total td {
+    background: #1a2330;
+    color: #f5f7fb;
+}
+
+html[data-theme="dark"] .pms-status-meter-track,
+html[data-theme="dark"] .viz-bar-track {
+    background: rgba(255, 255, 255, 0.14);
+}
+
+html[data-theme="dark"] .pms-status-meter-pill,
+html[data-theme="dark"] .pms-stage,
+html[data-theme="dark"] .pms-play-mark,
+html[data-theme="dark"] .pms-play-medal,
+html[data-theme="dark"] .pms-return-section,
+html[data-theme="dark"] .pms-chain-dot.is-done {
+    background: rgba(255, 255, 255, 0.14);
+    color: #fff;
+    border-color: rgba(255, 255, 255, 0.16);
+}
+
+html[data-theme="dark"] .pms-status-legend button:hover:not(:disabled),
+html[data-theme="dark"] .pms-board-bars button:hover,
+html[data-theme="dark"] .pms-board-bands button:hover,
+html[data-theme="dark"] .pms-board-stats button:hover {
+    background: rgba(255, 255, 255, 0.08);
+}
+
+@media print {
+    html[data-theme="dark"] body,
+    html[data-theme="dark"] .pms-print-sheet,
+    html[data-theme="dark"] .pms-sheet,
+    html[data-theme="dark"] .pms-sheet th,
+    html[data-theme="dark"] .pms-sheet td,
+    html[data-theme="dark"] .pms-sheet thead,
+    html[data-theme="dark"] .pms-sheet-section td {
+        background: #fff !important;
+        color: #1a2333 !important;
+        box-shadow: none !important;
+    }
 }

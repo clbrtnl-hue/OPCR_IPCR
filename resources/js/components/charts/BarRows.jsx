@@ -15,9 +15,10 @@ export default function BarRows({
     }
 
     const ceiling = max ?? Math.max(1, ...data.map((row) => Number(row.value ?? 0)));
+    const ranked = data.some((row) => row.rank != null);
 
     return (
-        <div className="viz-bars">
+        <div className={ranked ? "viz-bars is-ranked" : "viz-bars"}>
             {data.map((row) => {
                 const value = Number(row.value ?? 0);
                 const width = ceiling > 0 ? (value / ceiling) * 100 : 0;
@@ -29,8 +30,18 @@ export default function BarRows({
                         <Item
                             type={onSelect ? "button" : undefined}
                             className="viz-bar-row"
-                            onClick={onSelect ? () => onSelect(row) : undefined}
+                            onClick={
+                                onSelect
+                                    ? (event) => {
+                                          event.stopPropagation();
+                                          onSelect(row);
+                                      }
+                                    : undefined
+                            }
                         >
+                            {row.rank != null && (
+                                <span className={row.rank <= 3 ? `viz-rank is-${row.rank}` : "viz-rank"}>{row.rank}</span>
+                            )}
                             <span className="viz-bar-label" title={row.label}>
                                 {row.label}
                             </span>

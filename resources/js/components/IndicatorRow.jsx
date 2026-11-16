@@ -2,7 +2,6 @@ import React, { useEffect, useRef, useState } from "react";
 import {
     Alert,
     Button,
-    Card,
     Descriptions,
     Input,
     Modal,
@@ -171,16 +170,9 @@ export default function IndicatorRow({
     const progressMeta = PROGRESS_META[indicator.progress_status];
 
     return (
-        <Card
-            size="small"
-            style={{ marginBottom: 12 }}
-            title={
-                <Typography.Text style={{ whiteSpace: "pre-wrap" }}>
-                    <RichTextView html={indicator.description} />
-                </Typography.Text>
-            }
-            extra={
-                <Space>
+        <div className="pms-drawer-panel">
+            <div className="pms-drawer-actions">
+                <Space wrap size={8}>
                     {indicator.delay && indicator.delay.state !== "no_date" && (
                         <Tooltip title={indicator.delay.label}>
                             <Tag
@@ -210,8 +202,7 @@ export default function IndicatorRow({
                         </Popconfirm>
                     )}
                 </Space>
-            }
-        >
+            </div>
             {isOpcr && (indicator.allotted_budget || indicator.accountable) && (
                 <Descriptions size="small" column={2} style={{ marginBottom: 12 }}>
                     {indicator.allotted_budget != null && (
@@ -390,6 +381,6 @@ export default function IndicatorRow({
                     </div>
                 )}
             </div>
-        </Card>
+        </div>
     );
 }

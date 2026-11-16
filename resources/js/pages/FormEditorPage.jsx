@@ -336,6 +336,8 @@ export default function FormEditorPage({ formId = null }) {
             message.success("Form updated.");
             setReturnModal(false);
             refresh();
+            queryClient.invalidateQueries({ queryKey: ["review-queue"] });
+            queryClient.invalidateQueries({ queryKey: ["qa-queue"] });
         },
     });
 
@@ -344,9 +346,11 @@ export default function FormEditorPage({ formId = null }) {
             api.post(`pcr-forms/${form.id}/finalize-rating`, { rating_period_id: activePeriodId }),
         onSuccess: ({ data }) => {
             message.success(
-                `Rated ${Number(data.summary.final_average).toFixed(2)} — ${data.summary.adjectival}.`
+                `Rated ${Number(data.summary.final_average).toFixed(2)} — ${data.summary.adjectival}. It stays in your queue until you close the form.`
             );
             refresh();
+            queryClient.invalidateQueries({ queryKey: ["review-queue"] });
+            queryClient.invalidateQueries({ queryKey: ["qa-queue"] });
         },
     });
 

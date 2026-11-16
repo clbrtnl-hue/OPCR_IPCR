@@ -37,6 +37,92 @@ const TABS = [
 ];
 
 const score = (value) => (value == null ? "—" : Number(value).toFixed(2));
+const emptyKind = {};
+
+const LEVEL_ORDER = ["college", "office", "program"];
+const LEVEL_LABELS = { college: "College", office: "Office", program: "Program" };
+const TYPE_ORDER = ["IPCR", "OPCR"];
+const RATING_ORDER = RATING_LEGEND.map((band) => band.label);
+const STATUS_ORDER = Object.keys(STATUS_META);
+const SECTION_ORDER = Object.keys(SECTION_LABELS);
+
+function byText(pick) {
+    return (a, b) =>
+        String(pick(a) ?? "").localeCompare(String(pick(b) ?? ""), undefined, {
+            numeric: true,
+            sensitivity: "base",
+        });
+}
+
+function byNumber(pick) {
+    return (a, b) => (Number(pick(a)) || 0) - (Number(pick(b)) || 0);
+}
+
+const ADJECTIVAL_SCORE = {
+    Poor: 1,
+    Unsatisfactory: 2,
+    Satisfactory: 3,
+    "Very Satisfactory": 4,
+    Outstanding: 5,
+};
+
+function byAdjectival(pick) {
+    return byNumber((row) => ADJECTIVAL_SCORE[pick(row)] ?? 0);
+}
+
+function standingRank(row) {
+    if (row.is_overdue) return 0;
+    if (row.due_soon) return 1;
+    if (row.progress_status === "completed") return 3;
+
+    return 2;
+}
+
+function byRank(pick, order) {
+    const rank = (row) => {
+        const index = order.indexOf(pick(row));
+
+        return index === -1 ? order.length : index;
+    };
+
+    return (a, b) => rank(a) - rank(b);
+}
+
+function orderedChoices(rows, order, pick, labelOf) {
+    const present = new Set(rows.map((row) => pick(row)).filter((value) => value != null && value !== ""));
+    const known = order.filter((value) => present.has(value));
+    const extra = [...present].filter((value) => !known.includes(value));
+
+    return [...known, ...extra].map((value) => ({ value, label: labelOf(value) }));
+}
+
+function KindSelect({ value, onChange, options, allLabel, width = 160 }) {
+    if (options.length < 2) return null;
+
+    const current = options.some((item) => item.value === value) ? value : "all";
+
+    return (
+        <Select
+            value={current}
+            onChange={onChange}
+            style={{ minWidth: width }}
+            options={[{ value: "all", label: allLabel }, ...options]}
+        />
+    );
+}
+
+function ReportKinds({ fields, kind, onChange }) {
+    return fields.map((field) => (
+        <KindSelect
+            key={field.key}
+            value={kind[field.key] ?? "all"}
+            onChange={(value) => onChange(field.key, value)}
+            options={field.options}
+            allLabel={field.all}
+            width={field.width}
+        />
+    ));
+}
 
 function progressBar(value, done = false) {
     if (value == null) return "—";
@@ -70,7 +156,7 @@ function ReportExport({ busy, onDownload }) {
     );
 }
 
-function ReportFilters({ search, onSearch, tab, lateOnly, onLateOnly }) {
+function ReportFilters({ search, onSearch, tab, lateOnly, onLateOnly, children }) {
     return (
         <>
             <Input.Search
@@ -79,6 +165,7 @@ function ReportFilters({ search, onSearch, tab, lateOnly, onLateOnly }) {
                 value={search}
                 onChange={(e) => onSearch(e.target.value)}
             />
+            {children}
             {tab === "commitments" && (
                 <label className="pms-late-only">
                     <Switch size="small" checked={lateOnly} onChange={onLateOnly} />
@@ -173,6 +260,7 @@ export default function ReportsPage() {
     });
     const [search, setSearch] = useState(() => searchParams.get("q") ?? "");
     const [lateOnly, setLateOnly] = useState(() => searchParams.has("late"));
+    const [kindByTab, setKindByTab] = useState({});
     const [busy, setBusy] = useState(false);
 
     useEffect(() => {
@@ -219,49 +307,152 @@ export default function ReportsPage() {
 
     const totals = data?.totals;
 
-    const matches = (row, fields) => {
-        const term = search.trim().toLowerCase();
-
-        if (!term) return true;
-
-        return fields.some((field) => String(row[field] ?? "").toLowerCase().includes(term));
-    };
-
-    const rows = useMemo(() => {
+    const tabRows = useMemo(() => {
         if (!data) return [];
 
+        if (tab === "units") return data.units ?? [];
+        if (tab === "heads") return data.heads ?? [];
+        if (tab === "vps") return data.vps ?? [];
+        if (tab === "people") return data.people ?? [];
+        if (tab === "forms") return data.forms ?? [];
+        if (tab === "ratings") return (data.forms ?? []).filter((row) => row.average != null);
+
+        return data.commitments ?? [];
+    }, [data, tab]);
+
+    const kindFields = useMemo(() => {
+        if (tab === "units") {
+            return [
+                {
+                    key: "level",
+                    all: "All levels",
+                    width: 150,
+                    pick: (row) => row.type,
+                    options: orderedChoices(tabRows, LEVEL_ORDER, (row) => row.type, (value) => LEVEL_LABELS[value] ?? value),
+                },
+            ];
+        }
+
+        if (tab === "forms") {
+            return [
+                {
+                    key: "type",
+                    all: "All forms",
+                    width: 150,
+                    pick: (row) => row.type,
+                    options: orderedChoices(tabRows, TYPE_ORDER, (row) => row.type, (value) => value),
+                },
+                {
+                    key: "status",
+                    all: "All statuses",
+                    width: 220,
+                    pick: (row) => row.status,
+                    options: orderedChoices(
+                        tabRows,
+                        STATUS_ORDER,
+                        (row) => row.status,
+                        (value) => STATUS_META[value]?.label ?? value
+                    ),
+                },
+            ];
+        }
+
+        if (tab === "ratings") {
+            return [
+                {
+                    key: "type",
+                    all: "All forms",
+                    width: 150,
+                    pick: (row) => row.type,
+                    options: orderedChoices(tabRows, TYPE_ORDER, (row) => row.type, (value) => value),
+                },
+                {
+                    key: "adjectival",
+                    all: "All ratings",
+                    width: 200,
+                    pick: (row) => row.adjectival,
+                    options: orderedChoices(tabRows, RATING_ORDER, (row) => row.adjectival, (value) => value),
+                },
+            ];
+        }
+
+        if (tab === "commitments") {
+            return [
+                {
+                    key: "section",
+                    all: "All sections",
+                    width: 200,
+                    pick: (row) => row.section,
+                    options: orderedChoices(
+                        tabRows,
+                        SECTION_ORDER,
+                        (row) => row.section,
+                        (value) => SECTION_LABELS[value] ?? value
+                    ),
+                },
+            ];
+        }
+
+        return [
+            {
+                key: "adjectival",
+                all: "All ratings",
+                width: 200,
+                pick: (row) => row.adjectival || "unrated",
+                options: orderedChoices(
+                    tabRows,
+                    [...RATING_ORDER, "unrated"],
+                    (row) => row.adjectival || "unrated",
+                    (value) => (value === "unrated" ? "Not yet rated" : value)
+                ),
+            },
+        ];
+    }, [tab, tabRows]);
+
+    const kind = kindByTab[tab] ?? emptyKind;
+    const setKindValue = (key, value) =>
+        setKindByTab((prev) => ({
+            ...prev,
+            [tab]: { ...prev[tab], [key]: value },
+        }));
+
+    const rows = useMemo(() => {
         const term = search.trim().toLowerCase();
         const exactBand = RATING_LEGEND.some((band) => band.label.toLowerCase() === term);
         const exactSection = ["strategic", "core", "support"].includes(term);
+        const picked = tabRows.filter((row) =>
+            kindFields.every((field) => {
+                const selected = kind[field.key] ?? "all";
 
-        if (tab === "units") return data.units.filter((row) => matches(row, ["name", "code"]));
+                if (selected === "all" || !field.options.some((item) => item.value === selected)) return true;
 
-        if (tab === "heads") return data.heads.filter((row) => matches(row, ["head", "unit", "unit_code", "position"]));
+                return field.pick(row) === selected;
+            })
+        );
+        const searched = (list, fields) => {
+            if (!term) return list;
 
-        if (tab === "vps") return (data.vps ?? []).filter((row) => matches(row, ["vp", "unit", "unit_code", "position"]));
+            return list.filter((row) => fields.some((field) => String(row[field] ?? "").toLowerCase().includes(term)));
+        };
 
-        if (tab === "people")
-            return data.people.filter((row) => matches(row, ["name", "unit", "position", "adjectival"]));
+        if (tab === "units") return searched(picked, ["name", "code"]);
+        if (tab === "heads") return searched(picked, ["head", "unit", "unit_code", "position"]);
+        if (tab === "vps") return searched(picked, ["vp", "unit", "unit_code", "position"]);
+        if (tab === "people") return searched(picked, ["name", "unit", "position", "adjectival"]);
+        if (tab === "forms") return searched(picked, ["owner", "unit", "type", "status"]);
 
-        if (tab === "forms") return data.forms.filter((row) => matches(row, ["owner", "unit", "type", "status"]));
+        if (tab === "ratings") {
+            return exactBand
+                ? picked.filter((row) => String(row.adjectival ?? "").toLowerCase() === term)
+                : searched(picked, ["owner", "unit", "type", "adjectival"]);
+        }
 
-        if (tab === "ratings")
-            return data.forms
-                .filter((row) => row.average != null)
-                .filter((row) =>
-                    exactBand
-                        ? String(row.adjectival ?? "").toLowerCase() === term
-                        : matches(row, ["owner", "unit", "type", "adjectival"])
-                );
+        const late = lateOnly ? picked.filter((row) => row.is_overdue) : picked;
 
-        return data.commitments
-            .filter((row) => (lateOnly ? row.is_overdue : true))
-            .filter((row) =>
-                exactSection
-                    ? String(row.section ?? "").toLowerCase() === term
-                    : matches(row, ["description", "owner", "unit", "section"])
-            );
-    }, [data, tab, search, lateOnly]);
+        return exactSection
+            ? late.filter((row) => String(row.section ?? "").toLowerCase() === term)
+            : searched(late, ["description", "owner", "unit", "section"]);
+    }, [tabRows, tab, search, lateOnly, kind, kindFields]);
 
     const download = async (kind) => {
         setBusy(true);
@@ -300,18 +491,16 @@ export default function ReportsPage() {
         [data]
     );
 
+    const adjectivalTag = (value) =>
+        value ? <Tag color={ADJECTIVAL_COLORS[value]}>{value}</Tag> : <Tag>Not yet rated</Tag>;
+
     const unitColumns = [
-        { title: "Unit", dataIndex: "name", sorter: (a, b) => a.name.localeCompare(b.name) },
-        { title: "Code", dataIndex: "code", render: (v) => v || "—" },
+        { title: "Unit", dataIndex: "name", sorter: byText((row) => row.name) },
+        { title: "Code", dataIndex: "code", sorter: byText((row) => row.code), render: (v) => v || "—" },
         {
             title: "Level",
             dataIndex: "type",
-            filters: [
-                { text: "College", value: "college" },
-                { text: "Office", value: "office" },
-                { text: "Program", value: "program" },
-            ],
-            onFilter: (value, record) => record.type === value,
+            sorter: byRank((row) => row.type, LEVEL_ORDER),
             render: (value, row) =>
                 row.parent_name ? (
                     <Tooltip title={`Under ${row.parent_name}`}>
@@ -321,66 +510,66 @@ export default function ReportsPage() {
                     <span style={{ textTransform: "capitalize" }}>{value ?? "—"}</span>
                 ),
         },
-        { title: "Forms", dataIndex: "total_forms", align: "right", sorter: (a, b) => a.total_forms - b.total_forms },
+        { title: "Forms", dataIndex: "total_forms", align: "right", sorter: byNumber((row) => row.total_forms) },
         {
             title: "Submitted",
             key: "submitted",
+            sorter: byNumber((row) => row.submitted),
             render: (_, row) => `${row.submitted} / ${row.total_forms}`,
         },
-        { title: "Rated", dataIndex: "rated", align: "right" },
-        { title: "Commitments", dataIndex: "commitments", align: "right" },
+        { title: "Rated", dataIndex: "rated", align: "right", sorter: byNumber((row) => row.rated) },
+        { title: "Commitments", dataIndex: "commitments", align: "right", sorter: byNumber((row) => row.commitments) },
         {
             title: "Progress",
             dataIndex: "progress_pct",
-            sorter: (a, b) => (a.progress_pct ?? 0) - (b.progress_pct ?? 0),
+            sorter: byNumber((row) => row.progress_pct),
             render: (value) => progressBar(value),
         },
         {
             title: "Overdue",
             dataIndex: "overdue",
             align: "right",
-            sorter: (a, b) => a.overdue - b.overdue,
+            sorter: byNumber((row) => row.overdue),
             render: (value) => (value > 0 ? <Tag color="error">{value}</Tag> : "—"),
         },
         {
             title: "Average",
             dataIndex: "average",
             align: "right",
-            sorter: (a, b) => (a.average ?? 0) - (b.average ?? 0),
+            sorter: byNumber((row) => row.average),
             render: score,
         },
         {
             title: "Adjectival",
             dataIndex: "adjectival",
-            render: (value) =>
-                value ? <Tag color={ADJECTIVAL_COLORS[value]}>{value}</Tag> : <Tag>Not yet rated</Tag>,
+            sorter: byAdjectival((row) => row.adjectival),
+            render: adjectivalTag,
         },
         ...(data?.dimensions?.keys ?? []).map((key) => ({
             title: data.dimensions.college.find((d) => d.key === key)?.label ?? key.toUpperCase(),
             key,
             align: "right",
-            sorter: (a, b) =>
-                (dimensionsByUnit[a.id]?.scores?.[key] ?? 0) - (dimensionsByUnit[b.id]?.scores?.[key] ?? 0),
+            sorter: byNumber((row) => row.dimension_scores?.[key]),
             render: (_, row) => score(dimensionsByUnit[row.id]?.scores?.[key]),
         })),
     ];
 
     const peopleColumns = [
-        { title: "Name", dataIndex: "name", sorter: (a, b) => a.name.localeCompare(b.name) },
-        { title: "Position", dataIndex: "position", render: (v) => v || "—" },
-        { title: "Unit", dataIndex: "unit", sorter: (a, b) => (a.unit ?? "").localeCompare(b.unit ?? "") },
-        { title: "Forms", dataIndex: "forms", align: "right" },
+        { title: "Name", dataIndex: "name", sorter: byText((row) => row.name) },
+        { title: "Position", dataIndex: "position", sorter: byText((row) => row.position), render: (v) => v || "—" },
+        { title: "Unit", dataIndex: "unit", sorter: byText((row) => row.unit) },
+        { title: "Forms", dataIndex: "forms", align: "right", sorter: byNumber((row) => row.forms) },
         {
             title: "Commitments",
             dataIndex: "commitments",
             align: "right",
-            sorter: (a, b) => a.commitments - b.commitments,
+            sorter: byNumber((row) => row.commitments),
             render: (value, row) => `${row.completed} / ${value}`,
         },
         {
             title: "Progress",
             dataIndex: "progress_pct",
-            sorter: (a, b) => (a.progress_pct ?? 0) - (b.progress_pct ?? 0),
+            sorter: byNumber((row) => row.progress_pct),
             render: (value) => progressBar(value),
         },
         {
@@ -388,7 +577,7 @@ export default function ReportsPage() {
             dataIndex: "overdue",
             align: "right",
             defaultSortOrder: "descend",
-            sorter: (a, b) => a.overdue - b.overdue || a.days_late - b.days_late,
+            sorter: (a, b) => byNumber((row) => row.overdue)(a, b) || byNumber((row) => row.days_late)(a, b),
             render: (value, row) =>
                 value > 0 ? (
                     <Tooltip title={`${row.days_late} day(s) late in total`}>
@@ -402,14 +591,14 @@ export default function ReportsPage() {
             title: "Average",
             dataIndex: "average",
             align: "right",
-            sorter: (a, b) => (a.average ?? 0) - (b.average ?? 0),
+            sorter: byNumber((row) => row.average),
             render: score,
         },
         {
             title: "Adjectival",
             dataIndex: "adjectival",
-            render: (value) =>
-                value ? <Tag color={ADJECTIVAL_COLORS[value]}>{value}</Tag> : <Tag>Not yet rated</Tag>,
+            sorter: byAdjectival((row) => row.adjectival),
+            render: adjectivalTag,
         },
     ];
 
@@ -417,43 +606,44 @@ export default function ReportsPage() {
         {
             title,
             dataIndex: field,
-            sorter: (a, b) => (a[field] ?? "").localeCompare(b[field] ?? ""),
+            sorter: byText((row) => row[field]),
         },
-        { title: "Position", dataIndex: "position", render: (v) => v || "—" },
-        { title: "Unit", dataIndex: "unit" },
-        { title: "Forms", dataIndex: "forms", align: "right" },
+        { title: "Position", dataIndex: "position", sorter: byText((row) => row.position), render: (v) => v || "—" },
+        { title: "Unit", dataIndex: "unit", sorter: byText((row) => row.unit) },
+        { title: "Forms", dataIndex: "forms", align: "right", sorter: byNumber((row) => row.forms) },
         {
             title: "Submitted",
             key: "submitted",
+            sorter: byNumber((row) => row.submitted),
             render: (_, row) => `${row.submitted} / ${row.forms}`,
         },
-        { title: "Rated", dataIndex: "rated", align: "right" },
-        { title: "Commitments", dataIndex: "commitments", align: "right" },
+        { title: "Rated", dataIndex: "rated", align: "right", sorter: byNumber((row) => row.rated) },
+        { title: "Commitments", dataIndex: "commitments", align: "right", sorter: byNumber((row) => row.commitments) },
         {
             title: "Progress",
             dataIndex: "progress_pct",
-            sorter: (a, b) => (a.progress_pct ?? 0) - (b.progress_pct ?? 0),
+            sorter: byNumber((row) => row.progress_pct),
             render: (value) => progressBar(value),
         },
         {
             title: "Overdue",
             dataIndex: "overdue",
             align: "right",
-            sorter: (a, b) => a.overdue - b.overdue,
+            sorter: byNumber((row) => row.overdue),
             render: (value) => (value > 0 ? <Tag color="error">{value}</Tag> : "—"),
         },
         {
             title: "Average",
             dataIndex: "average",
             align: "right",
-            sorter: (a, b) => (a.average ?? 0) - (b.average ?? 0),
+            sorter: byNumber((row) => row.average),
             render: score,
         },
         {
             title: "Adjectival",
             dataIndex: "adjectival",
-            render: (value) =>
-                value ? <Tag color={ADJECTIVAL_COLORS[value]}>{value}</Tag> : <Tag>Not yet rated</Tag>,
+            sorter: byAdjectival((row) => row.adjectival),
+            render: adjectivalTag,
         },
     ];
 
@@ -464,20 +654,15 @@ export default function ReportsPage() {
         {
             title: "Type",
             dataIndex: "type",
-            filters: [
-                { text: "IPCR", value: "IPCR" },
-                { text: "OPCR", value: "OPCR" },
-            ],
-            onFilter: (value, row) => row.type === value,
+            sorter: byText((row) => row.type),
             render: (value) => <Tag>{value}</Tag>,
         },
-        { title: "Owner", dataIndex: "owner", sorter: (a, b) => (a.owner ?? "").localeCompare(b.owner ?? "") },
-        { title: "Unit", dataIndex: "unit", sorter: (a, b) => (a.unit ?? "").localeCompare(b.unit ?? "") },
+        { title: "Owner", dataIndex: "owner", sorter: byText((row) => row.owner) },
+        { title: "Unit", dataIndex: "unit", sorter: byText((row) => row.unit) },
         {
             title: "Status",
             dataIndex: "status",
-            filters: Object.entries(STATUS_META).map(([value, meta]) => ({ text: meta.label, value })),
-            onFilter: (value, row) => row.status === value,
+            sorter: byRank((row) => row.status, STATUS_ORDER),
             render: (value) => (
                 <Tooltip title={STATUS_META[value]?.who}>
                     <Tag color={STATUS_META[value]?.color}>{STATUS_META[value]?.label ?? value}</Tag>
@@ -487,62 +672,63 @@ export default function ReportsPage() {
         {
             title: "Submitted",
             dataIndex: "submitted_at",
+            sorter: byText((row) => row.submitted_at),
             render: (value) => (value ? dayjs(value).format("MMM D, YYYY") : "—"),
-            sorter: (a, b) => (a.submitted_at ?? "").localeCompare(b.submitted_at ?? ""),
         },
-        { title: "Lines", dataIndex: "commitments", align: "right" },
+        { title: "Lines", dataIndex: "commitments", align: "right", sorter: byNumber((row) => row.commitments) },
         {
             title: "Progress",
             dataIndex: "progress_pct",
-            sorter: (a, b) => (a.progress_pct ?? 0) - (b.progress_pct ?? 0),
+            sorter: byNumber((row) => row.progress_pct),
             render: (value) => progressBar(value),
         },
         {
             title: "Overdue",
             dataIndex: "overdue",
             align: "right",
+            sorter: byNumber((row) => row.overdue),
             render: (value) => (value > 0 ? <Tag color="error">{value}</Tag> : "—"),
         },
         {
             title: "Final",
             dataIndex: "average",
             align: "right",
-            sorter: (a, b) => (a.average ?? 0) - (b.average ?? 0),
+            sorter: byNumber((row) => row.average),
             render: score,
         },
         {
             title: "Adjectival",
             dataIndex: "adjectival",
-            render: (value) =>
-                value ? <Tag color={ADJECTIVAL_COLORS[value]}>{value}</Tag> : <Tag>Not yet rated</Tag>,
+            sorter: byAdjectival((row) => row.adjectival),
+            render: adjectivalTag,
         },
     ];
 
     const ratingColumns = [
-        { title: "Type", dataIndex: "type", render: (value) => <Tag>{value}</Tag> },
-        { title: "Ratee", dataIndex: "owner" },
-        { title: "Unit", dataIndex: "unit" },
-        { title: "Strategic", dataIndex: "strategic", align: "right", render: score },
-        { title: "Core", dataIndex: "core", align: "right", render: score },
-        { title: "Support", dataIndex: "support", align: "right", render: score },
+        { title: "Type", dataIndex: "type", sorter: byText((row) => row.type), render: (value) => <Tag>{value}</Tag> },
+        { title: "Ratee", dataIndex: "owner", sorter: byText((row) => row.owner) },
+        { title: "Unit", dataIndex: "unit", sorter: byText((row) => row.unit) },
+        { title: "Strategic", dataIndex: "strategic", align: "right", sorter: byNumber((row) => row.strategic), render: score },
+        { title: "Core", dataIndex: "core", align: "right", sorter: byNumber((row) => row.core), render: score },
+        { title: "Support", dataIndex: "support", align: "right", sorter: byNumber((row) => row.support), render: score },
         {
             title: "Final",
             dataIndex: "average",
             align: "right",
             defaultSortOrder: "descend",
-            sorter: (a, b) => (a.average ?? 0) - (b.average ?? 0),
+            sorter: byNumber((row) => row.average),
             render: (value) => <strong>{score(value)}</strong>,
         },
         {
             title: "Adjectival",
             dataIndex: "adjectival",
-            filters: Object.keys(ADJECTIVAL_COLORS).map((value) => ({ text: value, value })),
-            onFilter: (value, row) => row.adjectival === value,
+            sorter: byAdjectival((row) => row.adjectival),
             render: (value) => <Tag color={ADJECTIVAL_COLORS[value]}>{value}</Tag>,
         },
         {
             title: "Rated on",
             dataIndex: "rated_at",
+            sorter: byText((row) => row.rated_at),
             render: (value) => (value ? dayjs(value).format("MMM D, YYYY") : "—"),
         },
     ];
@@ -552,36 +738,37 @@ export default function ReportsPage() {
             title: "Success indicator",
             dataIndex: "description",
             width: 320,
+            sorter: byText((row) => row.description),
             render: (value) => (
                 <Typography.Text ellipsis={{ tooltip: value }} style={{ maxWidth: 300 }}>
                     {value || "Untitled"}
                 </Typography.Text>
             ),
         },
-        { title: "Owner", dataIndex: "owner" },
-        { title: "Unit", dataIndex: "unit" },
+        { title: "Owner", dataIndex: "owner", sorter: byText((row) => row.owner) },
+        { title: "Unit", dataIndex: "unit", sorter: byText((row) => row.unit) },
         {
             title: "Section",
             dataIndex: "section",
-            filters: Object.entries(SECTION_LABELS).map(([value, text]) => ({ text, value })),
-            onFilter: (value, row) => row.section === value,
+            sorter: byRank((row) => row.section, SECTION_ORDER),
             render: (value) => SECTION_LABELS[value] ?? value,
         },
         {
             title: "Target date",
             dataIndex: "target_date",
-            sorter: (a, b) => (a.target_date ?? "").localeCompare(b.target_date ?? ""),
+            sorter: byText((row) => row.target_date),
             render: (value) => (value ? dayjs(value).format("MMM D, YYYY") : "—"),
         },
         {
             title: "Progress",
             dataIndex: "progress_pct",
-            sorter: (a, b) => a.progress_pct - b.progress_pct,
+            sorter: byNumber((row) => row.progress_pct),
             render: (value, row) => progressBar(value, row.progress_status === "completed"),
         },
         {
             title: "Standing",
             key: "standing",
+            sorter: (a, b) => standingRank(a) - standingRank(b) || byNumber((row) => row.days_late)(a, b),
             render: (_, row) =>
                 row.is_overdue ? (
                     <Tag color="error">{row.days_late} day{row.days_late === 1 ? "" : "s"} late</Tag>
@@ -664,6 +851,7 @@ export default function ReportsPage() {
                                     onChange={(e) => setSearch(e.target.value)}
                                     style={{ width: 220 }}
                                 />
+                                <ReportKinds fields={kindFields} kind={kind} onChange={setKindValue} />
                                 {tab === "commitments" && (
                                     <Space size={6}>
                                         <Switch size="small" checked={lateOnly} onChange={setLateOnly} />
@@ -679,8 +867,16 @@ export default function ReportsPage() {
                             {totals.progress_pct ?? 0}% · {totals.overdue} overdue
                         </Typography.Paragraph>
                         <Table
+                            key={tab}
                             rowKey={table.rowKey}
-                            dataSource={rows}
+                            dataSource={
+                                tab === "units"
+                                    ? rows.map((row) => ({
+                                          ...row,
+                                          dimension_scores: dimensionsByUnit[row.id]?.scores,
+                                      }))
+                                    : rows
+                            }
                             columns={table.columns}
                             loading={isLoading || isPlaceholderData}
                             size="small"
@@ -696,16 +892,12 @@ export default function ReportsPage() {
                     </div>
 
                     <div className="pms-mobile-only">
-                    <Card>
+                    <Card className="pms-list-panel">
                         <Typography.Paragraph type="secondary" style={{ marginTop: 0 }}>
                             {year?.label} · {period?.label ?? "whole year"} — {totals.forms} forms, {totals.submitted}{" "}
                             submitted, {totals.rated} rated · {totals.commitments} commitments at{" "}
                             {totals.progress_pct ?? 0}% · {totals.overdue} overdue
                         </Typography.Paragraph>
-
-                        <div className="pms-report-actions">
-                            <ReportExport busy={busy} onDownload={download} />
-                        </div>
 
                         <div className="pms-report-tabs">
                             <Tabs
@@ -726,7 +918,10 @@ export default function ReportsPage() {
                                 tab={tab}
                                 lateOnly={lateOnly}
                                 onLateOnly={setLateOnly}
-                            />
+                            >
+                                <ReportKinds fields={kindFields} kind={kind} onChange={setKindValue} />
+                            </ReportFilters>
+                            <ReportExport busy={busy} onDownload={download} />
                         </div>
 
                         <ReportCards tab={tab} rows={rows} onOpen={(id) => navigate(`/forms/${id}`, { state: { from: "/reports" } })} />

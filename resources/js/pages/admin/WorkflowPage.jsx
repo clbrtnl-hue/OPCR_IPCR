@@ -141,7 +141,7 @@ export default function WorkflowPage() {
                 description="A head's VP comes from Setup → Hierarchy, where each unit names its head and the VP it reports to. This page decides the stages and who fills them; that page decides the people."
             />
 
-            <Card title="Review chain" style={{ marginBottom: 16 }}>
+            <Card className="pms-list-panel" title="Review chain" style={{ marginBottom: 16 }}>
                 <div className="pms-pds-bar">
                     <ResetButton target="review_stages" />
                 </div>
@@ -401,7 +401,7 @@ export default function WorkflowPage() {
                 </Space>
             </Card>
 
-            <Card title="Rating scale">
+            <Card className="pms-list-panel" title="Rating scale">
                 <div className="pms-pds-bar">
                     <ResetButton target="rating" />
                 </div>

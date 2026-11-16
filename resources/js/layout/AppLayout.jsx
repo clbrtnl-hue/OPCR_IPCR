@@ -5,10 +5,12 @@ import { useLocation, useNavigate } from "react-router-dom";
 import api from "~/utils/api";
 import { useAuth } from "~/hooks/useAuth";
 import { useOrganization } from "~/hooks/useOrganization";
-import { ROLE_LABELS } from "~/utils/constants";
+import { APPROVAL_QUEUE_STATUSES, ROLE_LABELS } from "~/utils/constants";
 import UserAvatar from "~/components/UserAvatar";
 import NotificationBell from "~/components/NotificationBell";
 import NavIcon from "~/components/NavIcon";
+import ThemeToggle from "~/components/ThemeToggle";
+import { useTheme } from "~/hooks/useTheme";
 import { PersonProvider } from "~/hooks/usePerson";
 
 const { Sider, Header, Content } = Layout;
@@ -21,7 +23,6 @@ const ITEMS = {
     myTeam: { key: "/my-team", icon: <NavIcon name="team" />, label: "My Team" },
     collegeOpcr: { key: "/college-opcr", icon: <NavIcon name="college" />, label: "College OPCR" },
     reviewQueue: { key: "/review-queue", icon: <NavIcon name="review" />, label: "Review Queue" },
-    rating: { key: "/rating", icon: <NavIcon name="star" />, label: "Rating" },
     reports: { key: "/reports", icon: <NavIcon name="reports" />, label: "Reports" },
     users: { key: "/admin/users", icon: <NavIcon name="accounts" />, label: "Accounts" },
     orgUnits: { key: "/admin/org-units", icon: <NavIcon name="hierarchy" />, label: "Hierarchy" },
@@ -77,9 +78,9 @@ function formIsWithReviewer(user, form) {
 function menuFor(role, showCollegeOpcr, showTeam, showRating) {
     const menu = [...(MENUS[role] ?? MENUS.employee)];
 
-    if (showRating && !menu.some((item) => item.key === "/rating")) {
-        const reviewAt = menu.findIndex((item) => item.key === "/review-queue");
-        menu.splice(reviewAt >= 0 ? reviewAt + 1 : menu.length, 0, ITEMS.rating);
+    if (showRating && !menu.some((item) => item.key === "/review-queue")) {
+        const formsAt = menu.findIndex((item) => item.key === "/my-forms");
+        menu.splice(formsAt >= 0 ? formsAt + 1 : menu.length, 0, ITEMS.reviewQueue);
     }
 
     if (showCollegeOpcr && !menu.some((item) => item.key === "/college-opcr")) {
@@ -101,7 +102,6 @@ const MENUS = {
         ITEMS.collegeOpcr,
         ITEMS.forms,
         ITEMS.reviewQueue,
-        ITEMS.rating,
         ITEMS.reports,
         {
             key: "setup",
@@ -111,9 +111,9 @@ const MENUS = {
         },
     ],
     president: [ITEMS.dashboard, ITEMS.collegeOpcr, ITEMS.reviewQueue, ITEMS.myForms, ITEMS.reports],
-    qa: [ITEMS.dashboard, ITEMS.collegeOpcr, ITEMS.myIpcr, ITEMS.myForms, ITEMS.myTeam, ITEMS.reviewQueue, ITEMS.rating, ITEMS.reports],
-    vp: [ITEMS.dashboard, ITEMS.myIpcr, ITEMS.myForms, ITEMS.myTeam, ITEMS.reviewQueue, ITEMS.rating],
-    program_head: [ITEMS.dashboard, ITEMS.myIpcr, ITEMS.myForms, ITEMS.myTeam, ITEMS.reviewQueue, ITEMS.rating],
+    qa: [ITEMS.dashboard, ITEMS.collegeOpcr, ITEMS.myIpcr, ITEMS.myForms, ITEMS.myTeam, ITEMS.reviewQueue, ITEMS.reports],
+    vp: [ITEMS.dashboard, ITEMS.myIpcr, ITEMS.myForms, ITEMS.myTeam, ITEMS.reviewQueue],
+    program_head: [ITEMS.dashboard, ITEMS.myIpcr, ITEMS.myForms, ITEMS.myTeam, ITEMS.reviewQueue],
     hr: [ITEMS.dashboard, ITEMS.myIpcr, ITEMS.collegeOpcr, ITEMS.forms, ITEMS.reviewQueue, ITEMS.reports],
     employee: [ITEMS.dashboard, ITEMS.myIpcr, ITEMS.myForms],
 };
@@ -123,6 +123,8 @@ export default function AppLayout({ children }) {
     const organization = useOrganization();
     const navigate = useNavigate();
     const location = useLocation();
+    const { mode } = useTheme();
+    const menuTheme = mode === "dark" ? "dark" : "light";
     const [collapsed, setCollapsed] = useState(false);
     const [navOpen, setNavOpen] = useState(false);
 
@@ -149,6 +151,25 @@ export default function AppLayout({ children }) {
     );
     const hasCollegeMenu = COLLEGE_MENU_ROLES.includes(user?.role) || actsOnOpcr;
     const isRater = (user?.workflow?.rater_roles ?? (user?.role === "qa" ? ["qa"] : [])).includes(user?.role);
+    const seesQueueBadge =
+        Boolean(user) &&
+        user.role !== "admin" &&
+        (["president", "qa", "vp", "program_head", "hr"].includes(user.role) || isRater);
+    const { data: waiting = [] } = useQuery({
+        queryKey: ["review-queue", "mine", user?.id],
+        queryFn: () => api.get("pcr-forms?queue=1").then((r) => r.data),
+        enabled: seesQueueBadge,
+        refetchInterval: 4000,
+        refetchIntervalInBackground: true,
+    });
+    const queueCount =
+        user?.role === "president"
+            ? (Array.isArray(waiting) ? waiting : []).filter((form) =>
+                  APPROVAL_QUEUE_STATUSES.includes(form.status)
+              ).length
+            : Array.isArray(waiting)
+              ? waiting.length
+              : 0;
     const { data: accountableOpcrs = [] } = useQuery({
         queryKey: ["college-opcr-nav", user?.id],
         queryFn: () => api.get("pcr-forms?accountable=1").then((r) => r.data),
@@ -172,21 +193,36 @@ export default function AppLayout({ children }) {
     const items = useMemo(() => {
         const menu = menuFor(user?.role, seesCollegeOpcr, seesTeam, isRater);
 
-        return menu.map((item) =>
-            item.key === "/notifications"
-                ? {
-                      ...item,
-                      className: unread > 0 ? "pms-has-unread" : undefined,
-                      label: (
-                          <Space size={8}>
-                              <span>Notifications</span>
-                              {unread > 0 && <Badge count={unread} size="small" overflowCount={99} />}
-                          </Space>
-                      ),
-                  }
-                : item
-        );
-    }, [user?.role, unread, collapsed, seesCollegeOpcr, seesTeam, isRater]);
+        return menu.map((item) => {
+            if (item.key === "/notifications") {
+                return {
+                    ...item,
+                    className: unread > 0 ? "pms-has-unread" : undefined,
+                    label: (
+                        <Space size={8}>
+                            <span>Notifications</span>
+                            {unread > 0 && <Badge count={unread} size="small" overflowCount={99} />}
+                        </Space>
+                    ),
+                };
+            }
+
+            if (item.key === "/review-queue") {
+                return {
+                    ...item,
+                    className: queueCount > 0 ? "pms-has-unread" : undefined,
+                    label: (
+                        <Space size={8}>
+                            <span>Review Queue</span>
+                            {queueCount > 0 && <Badge count={queueCount} size="small" overflowCount={99} />}
+                        </Space>
+                    ),
+                };
+            }
+
+            return item;
+        });
+    }, [user?.role, unread, queueCount, collapsed, seesCollegeOpcr, seesTeam, isRater]);
 
     const selectedKey = useMemo(() => {
         const path = location.pathname;
@@ -204,15 +240,18 @@ export default function AppLayout({ children }) {
         // Team, and a form waiting on this person stays in the review queue.
         if (path.startsWith("/forms/")) {
             const from = location.state?.from;
-            if (typeof from === "string" && flat.some((item) => item.key === from)) {
+            const ownsForm = Boolean(openForm) && samePerson(openForm.user_id, user?.id);
+            const fromMenu = typeof from === "string" && flat.some((item) => item.key === from);
+
+            // A queue notice keeps this menu lit after the form has moved on.
+            // The writer's own form still belongs under My Forms.
+            if (fromMenu && !(from === "/review-queue" && ownsForm)) {
                 return from;
             }
 
             if (flat.some((item) => item.key === "/review-queue") && formIsWithReviewer(user, openForm)) {
                 return "/review-queue";
             }
-
-            const ownsForm = Boolean(openForm) && samePerson(openForm.user_id, user?.id);
 
             if (ownsForm) {
                 return "/my-forms";
@@ -253,10 +292,11 @@ export default function AppLayout({ children }) {
             : ["employee", "program_head", "vp", "qa", "hr"].includes(user?.role)
               ? { key: "/my-ipcr", icon: <NavIcon name="ipcr" />, label: "IPCR" }
               : { key: "/my-forms", icon: <NavIcon name="forms" />, label: "Forms" },
-        ["admin", "qa", "vp", "program_head", "president", "hr"].includes(user?.role) && {
+        (["admin", "qa", "vp", "program_head", "president", "hr"].includes(user?.role) || isRater) && {
             key: "/review-queue",
             icon: <NavIcon name="review" />,
             label: "Review",
+            badge: queueCount,
         },
         { key: "/notifications", icon: <NavIcon name="bell" />, label: "Alerts", badge: unread },
     ].filter(Boolean);
@@ -294,7 +334,7 @@ export default function AppLayout({ children }) {
 
             <div className="pms-sider-nav">
                 <Menu
-                    theme="light"
+                    theme={menuTheme}
                     mode="inline"
                     inlineCollapsed={isCollapsed}
                     selectedKeys={[selectedKey]}
@@ -343,7 +383,7 @@ export default function AppLayout({ children }) {
                 </Tooltip>
 
                 <Menu
-                    theme="light"
+                    theme={menuTheme}
                     mode="inline"
                     inlineCollapsed={isCollapsed}
                     selectable={false}
@@ -375,7 +415,7 @@ export default function AppLayout({ children }) {
                 collapsible
                 collapsed={collapsed}
                 onCollapse={setCollapsed}
-                theme="light"
+                theme={menuTheme}
                 width={248}
             >
                 {rail(collapsed)}
@@ -388,7 +428,7 @@ export default function AppLayout({ children }) {
                 onClose={() => setNavOpen(false)}
                 width={280}
                 closable={false}
-                styles={{ body: { padding: 0, background: "#fff" } }}
+                styles={{ body: { padding: 0, background: mode === "dark" ? "#0c1218" : "#fff" } }}
             >
                 {rail(
                     false,
@@ -431,6 +471,7 @@ export default function AppLayout({ children }) {
                                 {activePeriod ? ` · ${activePeriod.label}` : ""}
                             </Tag>
                         )}
+                        <ThemeToggle />
                         <span className="pms-desktop-only">
                             <NotificationBell />
                         </span>

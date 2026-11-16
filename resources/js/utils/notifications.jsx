@@ -47,6 +47,19 @@ export function notificationHref(item) {
     return null;
 }
 
+const QUEUE_MENU_TYPES = new Set(["approval", "rating", "review"]);
+
+/** Keep Review Queue highlighted when a queue notice opens the form. */
+export function notificationNavState(item) {
+    const href = notificationHref(item);
+
+    if (!href?.startsWith("/forms/") || !QUEUE_MENU_TYPES.has(item?.type)) {
+        return undefined;
+    }
+
+    return { from: "/review-queue" };
+}
+
 export function dayLabel(dayjsValue, now) {
     if (dayjsValue.isSame(now, "day")) return "Today";
     if (dayjsValue.isSame(now.subtract(1, "day"), "day")) return "Yesterday";

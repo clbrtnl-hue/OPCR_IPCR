@@ -70,7 +70,10 @@ class PcrFormController extends Controller
                     ['commitment_review', 'head_review', 'dean_review', 'vp_review', 'qa_approval', 'returned'],
                     array_diff(PcrWorkflow::stageStatuses(), ['qa_rating'])
                 ))),
-                'rating' => ['qa_rating', 'rated', 'final'],
+                'rating' => array_values(array_unique(array_merge(
+                    ['qa_rating', 'rated', 'final', 'returned'],
+                    PcrWorkflow::stageStatuses()
+                ))),
                 default  => null,
             };
 
@@ -2078,6 +2081,8 @@ class PcrFormController extends Controller
                 $rules    = app(WorkflowSettings::class);
                 $waiting  = array_values(array_filter([
                     $rules->isRater('qa') ? 'qa_rating' : null,
+                    // Rated, but not closed. It leaves the queue only at final.
+                    $rules->isRater('qa') ? 'rated' : null,
                     in_array('qa', $rules->opcr('approver_roles'), true) ? 'qa_approval' : null,
                 ]));
 
@@ -2103,6 +2108,7 @@ class PcrFormController extends Controller
             if ($rates || $approves) {
                 $waiting = array_values(array_filter([
                     $rates ? 'qa_rating' : null,
+                    $rates ? 'rated' : null,
                     $approves ? 'qa_approval' : null,
                 ]));
 

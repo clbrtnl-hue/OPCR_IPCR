@@ -1,5 +1,5 @@
 import React from "react";
-import { Alert, Card, Col, Empty, List, Row, Segmented, Select, Space, Tag, Typography } from "antd";
+import { Alert, Segmented, Select, Space, Tag, Typography } from "antd";
 import {
     CheckSquareOutlined,
     ClockCircleOutlined,
@@ -12,9 +12,10 @@ import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import dayjs from "dayjs";
 import api from "~/utils/api";
-import { ADJECTIVAL_COLORS, VIZ, statusMeta } from "~/utils/constants";
+import { ADJECTIVAL_COLORS, VIZ } from "~/utils/constants";
 import { useAuth } from "~/hooks/useAuth";
 import InsightsBoard from "~/components/InsightsBoard";
+import PlayBoard, { paceTitle } from "~/components/PlayBoard";
 import PresidentGlance from "~/components/PresidentGlance";
 import StatTile from "~/components/charts/StatTile";
 
@@ -30,6 +31,30 @@ function greeting() {
     }
 
     return "Good evening";
+}
+
+const SHORT_MONTH = {
+    January: "Jan",
+    February: "Feb",
+    March: "Mar",
+    April: "Apr",
+    May: "May",
+    June: "Jun",
+    July: "Jul",
+    August: "Aug",
+    September: "Sep",
+    October: "Oct",
+    November: "Nov",
+    December: "Dec",
+};
+
+function shortPeriod(label) {
+    return label
+        .replace(
+            /January|February|March|April|May|June|July|August|September|October|November|December/g,
+            (month) => SHORT_MONTH[month]
+        )
+        .replace(/\s+to\s+/g, "–");
 }
 
 export default function DashboardPage() {
@@ -49,6 +74,7 @@ export default function DashboardPage() {
     });
 
     const isAdmin = user?.role === "admin";
+    const ownWorkPath = isAdmin ? "/my-forms" : "/my-ipcr";
 
     const { data: queue = [] } = useQuery({
         queryKey: ["review-queue", isAdmin ? "oversight" : "mine"],
@@ -64,6 +90,8 @@ export default function DashboardPage() {
     const shownYear = years.find((y) => y.id === yearId) ?? activeYear;
     const isPresident = user?.role === "president";
     const leadsTheCollege = ["admin", "president", "qa", "hr"].includes(user?.role);
+    const playsOwnGame = ["program_head", "vp", "employee"].includes(user?.role);
+    const reviewsOwnQueue = ["program_head", "vp"].includes(user?.role);
 
     const periods = [...(shownYear?.periods ?? [])].sort((a, b) => a.seq - b.seq);
     const shownPeriodId = periods.some((p) => p.id === periodId) ? periodId : null;
@@ -105,7 +133,9 @@ export default function DashboardPage() {
     const myWork = mySummary?.commitments;
     const reviews = can("program_head", "vp", "qa", "hr");
 
-    const firstName = user?.name?.split(" ")[0] ?? "";
+    const title = user?.prefix?.trim() ?? "";
+    const givenName = user?.first_name?.trim() || "";
+    const greetedAs = [title, givenName].filter(Boolean).join(" ");
     const cycleLine = !yearsFetched
         ? "Where your performance commitments stand right now."
         : !activeYear
@@ -117,6 +147,14 @@ export default function DashboardPage() {
                       : ""
               }.`
             : `${activeYear.label} is the active cycle. No review period is open right now.`;
+    const cycleLineMobile =
+        activePeriod && yearsFetched && activeYear
+            ? `${years.length > 1 ? "" : `${activeYear.label} · `}${activePeriod.label} is open${
+                  activePeriod.closes_at
+                      ? ` until ${dayjs(activePeriod.closes_at).format("MMMM D")}`
+                      : ""
+              }.`
+            : cycleLine;
     const showPeriodSwitch = periods.length > 1;
     const showHeroExtra = years.length > 1 || showPeriodSwitch;
 
@@ -127,9 +165,10 @@ export default function DashboardPage() {
                     <div className="pms-hero-kicker">Performance commitment</div>
                     <h1>
                         {greeting()}
-                        {firstName ? `, ${firstName}` : ""}
+                        {greetedAs ? `, ${greetedAs}` : ""}
                     </h1>
-                    <p>{cycleLine}</p>
+                    <p className="pms-hero-wide">{cycleLine}</p>
+                    <p className="pms-mobile-only">{cycleLineMobile}</p>
                 </div>
                 {showHeroExtra && (
                     <div className="pms-hero-extra">
@@ -151,17 +190,33 @@ export default function DashboardPage() {
                             </Space>
                         )}
                         {showPeriodSwitch && (
-                            <Segmented
-                                value={shownPeriodId ?? "all"}
-                                onChange={(value) => setPeriodId(value === "all" ? null : value)}
-                                options={[
-                                    { value: "all", label: "Whole year" },
-                                    ...periods.map((p) => ({
-                                        value: p.id,
-                                        label: p.is_active ? `${p.label} ★` : p.label,
-                                    })),
-                                ]}
-                            />
+                            <>
+                                <Segmented
+                                    className="pms-hero-wide"
+                                    value={shownPeriodId ?? "all"}
+                                    onChange={(value) => setPeriodId(value === "all" ? null : value)}
+                                    options={[
+                                        { value: "all", label: "Whole year" },
+                                        ...periods.map((p) => ({
+                                            value: p.id,
+                                            label: p.is_active ? `${p.label} ★` : p.label,
+                                        })),
+                                    ]}
+                                />
+                                <Segmented
+                                    className="pms-mobile-only pms-hero-periods"
+                                    block
+                                    value={shownPeriodId ?? "all"}
+                                    onChange={(value) => setPeriodId(value === "all" ? null : value)}
+                                    options={[
+                                        { value: "all", label: "Whole year" },
+                                        ...periods.map((p) => ({
+                                            value: p.id,
+                                            label: p.is_active ? `${shortPeriod(p.label)} ★` : shortPeriod(p.label),
+                                        })),
+                                    ]}
+                                />
+                            </>
                         )}
                     </div>
                 )}
@@ -202,7 +257,68 @@ export default function DashboardPage() {
             )}
 
             {!isPresident && (
-            <>
+            <div className="pms-rise">
+            {playsOwnGame && mySummary && (
+                <PlayBoard
+                    kicker="Your season"
+                    score={myWork?.progress_pct}
+                    caption="done"
+                    title={paceTitle(myWork?.progress_pct)}
+                    badge={mySummary.latest?.adjectival || "Unranked"}
+                    onOpen={navigate}
+                    quests={[
+                        {
+                            key: "drafts",
+                            title: "Drafts are cleared",
+                            detail: myForms?.drafts
+                                ? `${myForms.drafts} still in draft`
+                                : myForms?.total
+                                  ? "No drafts waiting"
+                                  : "You have not opened a form yet",
+                            done: (myForms?.total ?? 0) > 0 && (myForms?.drafts ?? 0) === 0,
+                            pct: myForms?.total
+                                ? Math.round(((myForms.total - myForms.drafts) / myForms.total) * 100)
+                                : 0,
+                            href: "/my-forms",
+                        },
+                        {
+                            key: "late",
+                            title: "Nothing of yours is late",
+                            detail: myWork?.overdue
+                                ? `${myWork.overdue} past the target date`
+                                : myWork?.due_soon
+                                  ? `${myWork.due_soon} due within seven days`
+                                  : "On time",
+                            done: (myWork?.overdue ?? 0) === 0 && (myWork?.total ?? 0) > 0,
+                            pct: myWork?.total
+                                ? Math.round(((myWork.total - (myWork.overdue ?? 0)) / myWork.total) * 100)
+                                : 0,
+                            href: "/my-ipcr",
+                        },
+                        reviewsOwnQueue
+                            ? {
+                                  key: "queue",
+                                  title: "Your review queue is clear",
+                                  detail: queue.length
+                                      ? `${queue.length} form${queue.length === 1 ? "" : "s"} waiting on you`
+                                      : "Nothing is sitting at your step",
+                                  done: queue.length === 0,
+                                  pct: queue.length === 0 ? 100 : 0,
+                                  href: "/review-queue",
+                              }
+                            : {
+                                  key: "rate",
+                                  title: "A rating is on record",
+                                  detail: mySummary.latest
+                                      ? `${Number(mySummary.latest.average).toFixed(2)} · ${mySummary.latest.adjectival}`
+                                      : "Nothing of yours has been rated yet",
+                                  done: Boolean(mySummary.latest),
+                                  pct: mySummary.latest ? 100 : 0,
+                                  href: "/my-forms",
+                              },
+                    ]}
+                />
+            )}
             <Typography.Title level={5} className="pms-section-title" style={{ margin: "4px 0 12px" }}>
                 My cycle{shownYear ? ` — ${shownYear.label}` : ""}
             </Typography.Title>
@@ -217,6 +333,7 @@ export default function DashboardPage() {
                             ? `${myForms.drafts} draft · ${myForms.returned} returned · ${myForms.rated} rated`
                             : undefined
                     }
+                    onClick={() => navigate("/my-forms")}
                 />
                 <StatTile
                     label="My commitments"
@@ -228,6 +345,7 @@ export default function DashboardPage() {
                             ? `${myWork.completed} completed · ${myWork.in_flight} ongoing · ${myWork.not_started} not started`
                             : undefined
                     }
+                    onClick={() => navigate(ownWorkPath)}
                 />
                 <StatTile
                     label="My progress"
@@ -236,6 +354,7 @@ export default function DashboardPage() {
                     value={myWork?.progress_pct != null ? `${myWork.progress_pct}%` : "—"}
                     meter={{ pct: myWork?.progress_pct ?? 0, color: "#1baf7a" }}
                     hint="Average across every line you own"
+                    onClick={() => navigate(ownWorkPath)}
                 />
                 <StatTile
                     label="Past their target date"
@@ -244,6 +363,7 @@ export default function DashboardPage() {
                     value={myWork?.overdue ?? 0}
                     tone={(myWork?.overdue ?? 0) > 0 ? VIZ.critical : VIZ.good}
                     hint={`${myWork?.due_soon ?? 0} of mine fall due within seven days`}
+                    onClick={() => navigate(ownWorkPath)}
                 />
                 {(reviews || isAdmin) && (
                     <StatTile
@@ -252,7 +372,9 @@ export default function DashboardPage() {
                         accent={queue.length > 0 ? VIZ.warning : "#1e3a72"}
                         value={queue.length}
                         tone={queue.length > 0 ? VIZ.warning : undefined}
-                        onClick={() => navigate(isAdmin || !can("qa") ? "/review-queue" : "/rating")}
+                        onClick={() =>
+                            navigate(user?.role === "qa" ? "/review-queue?tab=rating" : "/review-queue")
+                        }
                         hint={
                             isAdmin
                                 ? "Forms waiting on a reviewer"
@@ -270,6 +392,7 @@ export default function DashboardPage() {
                             ? `${myForms.in_review} with a reviewer · ${myForms.with_qa} with QA`
                             : undefined
                     }
+                    onClick={() => navigate("/my-forms")}
                 />
                 <StatTile
                     label="My latest rating"
@@ -284,112 +407,10 @@ export default function DashboardPage() {
                         ) : null
                     }
                     hint={mySummary?.latest ? undefined : "Nothing of yours has been rated yet"}
+                    onClick={() => navigate("/my-forms")}
                 />
             </div>
-
-            {(mySummary?.at_risk ?? []).length > 0 && (
-                <Card
-                    title="My commitments past their target date"
-                    style={{ marginBottom: 16 }}
-                    extra={<a onClick={() => navigate("/my-ipcr")}>Open my IPCR</a>}
-                >
-                    <List
-                        size="small"
-                        dataSource={mySummary.at_risk.slice(0, 5)}
-                        renderItem={(line) => (
-                            <List.Item
-                                actions={[
-                                    <Tag key="late" color="error">
-                                        {line.days_late} day{line.days_late === 1 ? "" : "s"} late
-                                    </Tag>,
-                                ]}
-                            >
-                                <List.Item.Meta
-                                    title={
-                                        <Typography.Text ellipsis={{ tooltip: line.description }}>
-                                            {line.description || "Untitled commitment"}
-                                        </Typography.Text>
-                                    }
-                                    description={`Due ${dayjs(line.target_date).format("MMM D, YYYY")} · ${
-                                        line.progress_pct
-                                    }% done`}
-                                />
-                            </List.Item>
-                        )}
-                    />
-                </Card>
-            )}
-
-            <Row gutter={16}>
-                {!can("president") && (
-                <Col xs={24} lg={12}>
-                    <Card title="My forms" extra={<a onClick={() => navigate("/my-forms")}>See all</a>}>
-                        {mine.length === 0 ? (
-                            <Empty description="You have not created a form yet." />
-                        ) : (
-                            <List
-                                dataSource={mine.slice(0, 6)}
-                                renderItem={(form) => (
-                                    <List.Item
-                                        style={{ cursor: "pointer" }}
-                                        onClick={() => navigate(`/forms/${form.id}`, { state: { from: "/" } })}
-                                        actions={[
-                                            <Tag key="s" color={statusMeta(form.status, form).color}>
-                                                {statusMeta(form.status, form).label}
-                                            </Tag>,
-                                        ]}
-                                    >
-                                        <List.Item.Meta
-                                            title={`${form.type.toUpperCase()} — ${form.school_year?.label}`}
-                                            description={form.org_unit?.name}
-                                        />
-                                    </List.Item>
-                                )}
-                            />
-                        )}
-                    </Card>
-                </Col>
-                )}
-
-                {reviews && (
-                    <Col xs={24} lg={12}>
-                        <Card
-                            title="Waiting for me"
-                            extra={
-                                <a onClick={() => navigate(can("qa") ? "/rating" : "/review-queue")}>
-                                    Open queue
-                                </a>
-                            }
-                        >
-                            {queue.length === 0 ? (
-                                <Empty description="Nothing is waiting for you." />
-                            ) : (
-                                <List
-                                    dataSource={queue.slice(0, 6)}
-                                    renderItem={(form) => (
-                                        <List.Item
-                                            style={{ cursor: "pointer" }}
-                                            onClick={() => navigate(`/forms/${form.id}`, { state: { from: "/" } })}
-                                        >
-                                            <List.Item.Meta
-                                                title={`${form.type.toUpperCase()} — ${
-                                                    form.owner?.name ?? form.org_unit?.name
-                                                }`}
-                                                description={
-                                                    form.submitted_at
-                                                        ? `Submitted ${dayjs(form.submitted_at).format("MMM D, YYYY")}`
-                                                        : form.org_unit?.name
-                                                }
-                                            />
-                                        </List.Item>
-                                    )}
-                                />
-                            )}
-                        </Card>
-                    </Col>
-                )}
-            </Row>
-            </>
+            </div>
             )}
         </>
     );

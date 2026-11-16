@@ -22,7 +22,8 @@ class TeamController extends Controller
         $user = $request->user();
 
         $mayOpen = in_array($user->role, ['program_head', 'vp', 'qa'], true)
-            || OrgUnit::watchedIds((int) $user->id) !== [];
+            || OrgUnit::watchedIds((int) $user->id) !== []
+            || OrgUnit::query()->whereLedBy((int) $user->id)->exists();
 
         if (! $mayOpen) {
             return response()->json(['message' => 'Forbidden.'], 403);

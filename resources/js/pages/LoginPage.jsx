@@ -11,6 +11,7 @@ import { Navigate, useNavigate, useSearchParams } from "react-router-dom";
 import { errorText } from "~/utils/api";
 import { useAuth } from "~/hooks/useAuth";
 import { useOrganization } from "~/hooks/useOrganization";
+import ThemeToggle from "~/components/ThemeToggle";
 
 const POINTS = [
     {
@@ -102,7 +103,10 @@ export default function LoginPage() {
                     </div>
 
                     <div className="pms-login-heading">
-                        <h1>Sign in</h1>
+                        <div className="pms-login-heading-row">
+                            <h1>Sign in</h1>
+                            <ThemeToggle />
+                        </div>
                         <p>Use the account your administrator set up for you.</p>
                     </div>
 

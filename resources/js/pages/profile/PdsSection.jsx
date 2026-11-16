@@ -72,7 +72,7 @@ export default function PdsSection({
     );
 
     return (
-        <Card title={title} style={{ marginBottom: 16 }}>
+        <Card className="pms-list-panel" title={title} style={{ marginBottom: 16 }}>
             <div className="pms-pds-bar">
                 <Button size="small" icon={<PlusOutlined />} onClick={() => open(null)}>
                     Add

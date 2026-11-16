@@ -3,6 +3,7 @@ import {
     Alert,
     Button,
     Card,
+    Popconfirm,
     Divider,
     Drawer,
     Empty,
@@ -20,6 +21,7 @@ import api from "~/utils/api";
 import { useAuth } from "~/hooks/useAuth";
 import {
     ADJECTIVAL_COLORS,
+    APPROVAL_QUEUE_STATUSES,
     RATING_LEGEND,
     SECTION_LABELS,
     nextReviewStop,
@@ -38,7 +40,7 @@ function samePerson(left, right) {
     return Number(left) === Number(right);
 }
 
-function scoreable(form, user) {
+export function scoreable(form, user) {
     if (!form || !user || user.role === "admin") return false;
     const step = form.review_steps?.find((item) => item.status === form.status);
     if (step?.reviewer?.id && samePerson(step.reviewer.id, user.id)) return true;
@@ -51,9 +53,10 @@ function scoreable(form, user) {
     return false;
 }
 
-export default function RatingPage() {
+export default function RatingPage({ embedded = false, periodFilter = null }) {
     const { user } = useAuth();
     const viewOnly = user?.role === "admin";
+    const seesReviewList = ["qa", "hr"].includes(user?.role);
     const queryClient = useQueryClient();
     const [selectedId, setSelectedId] = useState(null);
     const [periodId, setPeriodId] = useState(null);
@@ -67,7 +70,21 @@ export default function RatingPage() {
         queryFn: () =>
             api.get(viewOnly ? "pcr-forms?oversight=rating" : "pcr-forms?queue=1").then((r) => r.data),
     });
-    const toRate = viewOnly ? queue : queue.filter((f) => scoreable(f, user));
+    const toRate = queue.filter((form) => {
+        if (
+            periodFilter &&
+            Number(form.rating_period_id ?? form.rating_period?.id) !== Number(periodFilter)
+        ) {
+            return false;
+        }
+
+        if (viewOnly) return true;
+        if (seesReviewList) return !APPROVAL_QUEUE_STATUSES.includes(form.status);
+
+        const raters = user?.workflow?.rater_roles ?? ["qa"];
+
+        return scoreable(form, user) || (raters.includes(user?.role) && form.status === "rated");
+    });
 
     useEffect(() => {
         if (selectedId || toRate.length !== 1) return;
@@ -82,7 +99,9 @@ export default function RatingPage() {
     });
 
     const canRate = scoreable(form, user);
+    const readingScores = viewOnly || user?.role === "hr" || !["rated", "final"].includes(form?.status);
     const closesHere = (user?.workflow?.rater_roles ?? ["qa"]).includes(user?.role);
+    const needsClose = closesHere && form?.status === "rated";
     const scale = ratingRules(user);
     const scoresChoices = scoreOptions(user);
     const periods = form?.school_year?.periods ?? [];
@@ -180,10 +199,23 @@ export default function RatingPage() {
         mutationFn: () =>
             api.post(`pcr-forms/${form.id}/finalize-rating`, { rating_period_id: activePeriodId }),
         onSuccess: ({ data }) => {
+            const score = `Rated ${Number(data.summary.final_average).toFixed(2)} — ${data.summary.adjectival}.`;
             message.success(
-                `Rated ${Number(data.summary.final_average).toFixed(2)} — ${data.summary.adjectival}.`
+                closesHere ? `${score} It stays in your queue until you close the form.` : score
             );
             queryClient.invalidateQueries({ queryKey: ["qa-queue"] });
+            queryClient.invalidateQueries({ queryKey: ["review-queue"] });
+            queryClient.invalidateQueries({ queryKey: ["pcr-form", String(selectedId)] });
+            if (!closesHere) setSelectedId(null);
+        },
+    });
+
+    const closeForm = useMutation({
+        mutationFn: () => api.post(`pcr-forms/${form.id}/status`, { status: "final" }),
+        onSuccess: () => {
+            message.success("Form closed.");
+            queryClient.invalidateQueries({ queryKey: ["qa-queue"] });
+            queryClient.invalidateQueries({ queryKey: ["review-queue"] });
             queryClient.invalidateQueries({ queryKey: ["pcr-form", String(selectedId)] });
             setSelectedId(null);
         },
@@ -289,14 +321,16 @@ export default function RatingPage() {
 
     return (
         <>
-            <PageHeader
-                title="Rating"
-                subtitle={
-                    viewOnly
-                        ? "Scores on forms with QA or already rated. You can read them, but you cannot rate or close a form."
-                        : `Score each success indicator on ${dimensionPhrase(user)}. A is their average; the final rating is the mean of the section averages.`
-                }
-            />
+            {!embedded && (
+                <PageHeader
+                    title="Rating"
+                    subtitle={
+                        viewOnly
+                            ? "Scores on forms with QA or already rated. You can read them, but you cannot rate or close a form."
+                            : `Score each success indicator on ${dimensionPhrase(user)}. A is their average; the final rating is the mean of the section averages.`
+                    }
+                />
+            )}
 
             <Card style={{ marginBottom: 16 }}>
                 <Space wrap>
@@ -338,7 +372,7 @@ export default function RatingPage() {
                         description={
                             toRate.length === 0
                                 ? viewOnly
-                                    ? "No forms are with QA or already rated."
+                                    ? "No forms are in review or already rated."
                                     : "No forms are waiting for a rating."
                                 : viewOnly
                                   ? "Pick a form above to read its scores."
@@ -361,34 +395,50 @@ export default function RatingPage() {
                                 </Space>
                             }
                             extra={
-                                canRate && (
+                                (canRate || needsClose) && (
                                     <Space>
-                                        <Button loading={save.isPending} onClick={() => save.mutate()}>
-                                            Save progress
-                                        </Button>
-                                        {closesHere ? (
+                                        {canRate && (
                                             <>
-                                                <Button danger onClick={() => setReturnModal(true)}>
-                                                    Return
+                                                <Button loading={save.isPending} onClick={() => save.mutate()}>
+                                                    Save progress
                                                 </Button>
-                                                <Button
-                                                    type="primary"
-                                                    disabled={unrated > 0}
-                                                    loading={finalize.isPending}
-                                                    onClick={() => save.mutateAsync().then(() => finalize.mutate())}
-                                                >
-                                                    Finalize rating
-                                                </Button>
+                                                {closesHere ? (
+                                                    <>
+                                                        <Button danger onClick={() => setReturnModal(true)}>
+                                                            Return
+                                                        </Button>
+                                                        <Button
+                                                            type="primary"
+                                                            disabled={unrated > 0}
+                                                            loading={finalize.isPending}
+                                                            onClick={() => save.mutateAsync().then(() => finalize.mutate())}
+                                                        >
+                                                            Finalize rating
+                                                        </Button>
+                                                    </>
+                                                ) : (
+                                                    <Button
+                                                        type="primary"
+                                                        disabled={unrated > 0}
+                                                        loading={sendOn.isPending}
+                                                        onClick={() => save.mutateAsync().then(() => sendOn.mutate())}
+                                                    >
+                                                        {`Send to ${nextReviewStop(form).label}`}
+                                                    </Button>
+                                                )}
                                             </>
-                                        ) : (
-                                            <Button
-                                                type="primary"
-                                                disabled={unrated > 0}
-                                                loading={sendOn.isPending}
-                                                onClick={() => save.mutateAsync().then(() => sendOn.mutate())}
+                                        )}
+                                        {needsClose && (
+                                            <Popconfirm
+                                                title="Close this form?"
+                                                description="It becomes final and can no longer be reopened or edited."
+                                                okText="Close form"
+                                                onConfirm={() => closeForm.mutate()}
                                             >
-                                                {`Send to ${nextReviewStop(form).label}`}
-                                            </Button>
+                                                <Button type="primary" loading={closeForm.isPending}>
+                                                    Close form
+                                                </Button>
+                                            </Popconfirm>
                                         )}
                                     </Space>
                                 )
@@ -400,11 +450,19 @@ export default function RatingPage() {
                                     type="info"
                                     showIcon
                                     style={{ marginBottom: 16 }}
-                                    message={viewOnly ? "Scores are read-only." : "This rating is closed."}
+                                    message={
+                                        needsClose
+                                            ? "Rated, and still open."
+                                            : readingScores
+                                              ? "Scores are read-only."
+                                              : "This rating is closed."
+                                    }
                                     description={
-                                        viewOnly
-                                            ? "You can read these scores, but you cannot rate or close a form."
-                                            : "The form is no longer waiting for a rating, so the scores and remarks are view-only now."
+                                        needsClose
+                                            ? "Close the form when this rating should become final. It stays in your queue until you do."
+                                            : readingScores
+                                              ? "You can read these scores, but you cannot rate or close a form."
+                                              : "The form is no longer waiting for a rating, so the scores and remarks are view-only now."
                                     }
                                 />
                             )}

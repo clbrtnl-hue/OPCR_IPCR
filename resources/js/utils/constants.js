@@ -25,6 +25,9 @@ export const STATUS_META = {
     returned: { label: "Returned", color: "orange", who: "Sent back for correction" },
 };
 
+/** Plan approvals. Review and scoring live on the Rating tab. */
+export const APPROVAL_QUEUE_STATUSES = ["commitment_review", "qa_approval"];
+
 export const SECTION_LABELS = {
     strategic: "Strategic Priority",
     core: "Core Functions",

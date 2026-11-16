@@ -1,21 +1,25 @@
 import { VIZ } from "~/utils/constants";
 
-export const plotAxis = {
-    x: {
-        title: false,
-        labelFill: VIZ.muted,
-        labelFontSize: 11,
-        lineStroke: VIZ.axis,
-        tickStroke: VIZ.axis,
-    },
-    y: {
-        title: false,
-        labelFill: VIZ.muted,
-        labelFontSize: 11,
-        gridStroke: VIZ.grid,
-        gridLineWidth: 1,
-    },
-};
+export function axisFor(viz = VIZ) {
+    return {
+        x: {
+            title: false,
+            labelFill: viz.muted,
+            labelFontSize: 11,
+            lineStroke: viz.axis,
+            tickStroke: viz.axis,
+        },
+        y: {
+            title: false,
+            labelFill: viz.muted,
+            labelFontSize: 11,
+            gridStroke: viz.grid,
+            gridLineWidth: 1,
+        },
+    };
+}
+
+export const plotAxis = axisFor();
 
 export function colorScale(rows, label = "label", color = "color") {
     return {

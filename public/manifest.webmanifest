@@ -1,12 +1,13 @@
 {
+    "id": "/",
     "name": "OCC PMS",
     "short_name": "OCC PMS",
     "description": "Opol Community College performance commitment and review",
     "start_url": "/",
     "scope": "/",
     "display": "standalone",
-    "background_color": "#f4f6f5",
-    "theme_color": "#1e3a72",
+    "background_color": "#070b10",
+    "theme_color": "#070b10",
     "icons": [
         {
             "src": "/images/icon-192.png",
@@ -21,7 +22,7 @@
             "purpose": "any"
         },
         {
-            "src": "/images/icon-512.png",
+            "src": "/images/icon-maskable-512.png",
             "sizes": "512x512",
             "type": "image/png",
             "purpose": "maskable"

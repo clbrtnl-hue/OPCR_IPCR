@@ -49,6 +49,10 @@ class DatabaseSeeder extends Seeder
         [$year, $firstPeriod] = $this->cycle();
 
         $this->collegeOpcr($year, $firstPeriod);
+
+        // Commitments, progress, the review chain, and ratings, so 2026
+        // opens on a dashboard that already has something in every stage.
+        $this->call(PanelHistorySeeder::class);
     }
 
     private function offices(): void

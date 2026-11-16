@@ -7,6 +7,7 @@ import api from "~/utils/api";
 import { statusMeta } from "~/utils/constants";
 import PageHeader from "~/components/PageHeader";
 import FormCards from "~/components/FormCards";
+import FormListFilters, { matchesListKind } from "~/components/FormListFilters";
 import { useAuth } from "~/hooks/useAuth";
 // import BulkIpcrModal from "~/components/BulkIpcrModal";
 
@@ -17,6 +18,8 @@ export default function MyFormsPage() {
     const queryClient = useQueryClient();
     const [form] = Form.useForm();
     const [open, setOpen] = useState(false);
+    const [formKind, setFormKind] = useState("all");
+    const [statusKind, setStatusKind] = useState("all");
     // const [bulkOpen, setBulkOpen] = useState(false);
 
     const { data: forms = [], isLoading } = useQuery({
@@ -45,6 +48,9 @@ export default function MyFormsPage() {
         },
     });
 
+    const activeFormKind = formKind === "all" || forms.some((row) => row.type === formKind) ? formKind : "all";
+    const activeStatusKind = statusKind === "all" || forms.some((row) => row.status === statusKind) ? statusKind : "all";
+    const visibleForms = forms.filter((row) => matchesListKind(row, activeFormKind, activeStatusKind));
     const activeYear = years.find((y) => y.is_active);
     const chosenType = Form.useWatch("type", form);
     const chosenYearId = Form.useWatch("school_year_id", form);
@@ -57,19 +63,30 @@ export default function MyFormsPage() {
             dataIndex: "type",
             render: (type) => <Tag color={type === "opcr" ? "geekblue" : "blue"}>{type.toUpperCase()}</Tag>,
         },
-        { title: "School year", dataIndex: ["school_year", "label"] },
+        {
+            title: "School year",
+            key: "year",
+            render: (_, record) => record.school_year?.label,
+        },
         {
             title: "Period",
-            dataIndex: ["rating_period", "label"],
-            render: (label) => label ?? "Whole year",
+            key: "period",
+            render: (_, record) => record.rating_period?.label ?? "Whole year",
         },
-        { title: "Unit", dataIndex: ["org_unit", "name"] },
+        {
+            title: "Unit",
+            key: "unit",
+            render: (_, record) => record.org_unit?.name,
+        },
         {
             title: "Ratee",
-            dataIndex: ["owner", "name"],
-            render: (v, record) => v || `${record.org_unit?.name} (office)`,
+            key: "ratee",
+            render: (_, record) => record.owner?.name || `${record.org_unit?.name} (office)`,
         },
-        { title: "Outputs", dataIndex: "outputs_count" },
+        {
+            title: "Outputs",
+            dataIndex: "outputs_count",
+        },
         {
             title: "Status",
             dataIndex: "status",
@@ -135,20 +152,32 @@ export default function MyFormsPage() {
                 }
             />
 
-            <Card>
-                {forms.length === 0 && !isLoading ? (
+            <Card className="pms-list-panel">
+                {forms.length > 0 && (
+                    <FormListFilters
+                        rows={forms}
+                        formKind={activeFormKind}
+                        statusKind={activeStatusKind}
+                        onFormKind={setFormKind}
+                        onStatusKind={setStatusKind}
+                    />
+                )}
+                {visibleForms.length === 0 && !isLoading ? (
                     <Empty
                         description={
-                            viewOnly
-                                ? "No forms yet."
-                                : "You have no forms yet. Create one for the active school year to get started."
+                            forms.length > 0
+                                ? "No forms match this filter."
+                                : viewOnly
+                                  ? "No forms yet."
+                                  : "You have no forms yet. Create one for the active school year to get started."
                         }
                     />
                 ) : (
                     <>
                         <div className="pms-mobile-only">
                             <FormCards
-                                forms={forms}
+                                forms={visibleForms}
+                                sideAction
                                 actionLabel={viewOnly ? () => "View" : undefined}
                                 onOpen={(record) => navigate(`/forms/${record.id}`, { state: { from: "/my-forms" } })}
                             />
@@ -157,7 +186,7 @@ export default function MyFormsPage() {
                             <Table
                                 rowKey="id"
                                 loading={isLoading}
-                                dataSource={forms}
+                                dataSource={visibleForms}
                                 columns={columns}
                                 pagination={{ pageSize: 10 }}
                                 scroll={{ x: 900 }}

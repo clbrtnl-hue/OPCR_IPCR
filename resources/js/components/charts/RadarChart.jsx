@@ -2,7 +2,8 @@ import React, { useMemo } from "react";
 import { Radar } from "@ant-design/charts";
 import { Empty } from "antd";
 import { VIZ } from "~/utils/constants";
-import { plotAxis } from "~/components/charts/plotTheme";
+import { axisFor } from "~/components/charts/plotTheme";
+import { useTheme } from "~/hooks/useTheme";
 
 export default function RadarChart({
     data = [],
@@ -13,7 +14,9 @@ export default function RadarChart({
     format = (value) => value,
     emptyText = "Nothing to show yet.",
 }) {
+    const { viz } = useTheme();
     const signature = data.map((row) => `${row.key}:${row.value}`).join("|");
+    const axis = axisFor(viz);
 
     const config = useMemo(
         () => ({
@@ -34,15 +37,15 @@ export default function RadarChart({
                 y: { domainMin: min, domainMax: max, tickCount: Math.min(max, 5) },
             },
             axis: {
-                x: { ...plotAxis.x, gridStroke: VIZ.grid },
-                y: { ...plotAxis.y, labelFill: VIZ.muted },
+                x: { ...axis.x, gridStroke: viz.grid },
+                y: { ...axis.y, labelFill: viz.muted },
             },
             tooltip: {
                 title: (datum) => datum.hint ?? datum.label,
                 items: [(datum) => ({ name: datum.label, value: format(datum.value) })],
             },
         }),
-        [signature, height, min, max, color, format]
+        [signature, height, min, max, color, format, viz]
     );
 
     if (data.length < 3) {

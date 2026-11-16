@@ -9,6 +9,7 @@ use App\Models\PcrAccomplishment;
 use App\Models\PcrAttachment;
 use App\Models\PcrComment;
 use App\Models\PcrForm;
+use App\Models\PcrFormReviewer;
 use App\Models\PcrIndicator;
 use App\Models\PcrOutput;
 use App\Models\PcrPeriodSummary;
@@ -26,15 +27,19 @@ use App\Models\UserWorkExperience;
 use App\Services\IndicatorProgressService;
 use App\Services\PcrWorkflow;
 use App\Services\RatingScale;
+use App\Services\WorkflowSettings;
 use App\Support\CurrentOrganization;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 
 /**
- * Demonstration history for the 2026 cycle: submissions, reviews, ratings,
- * evidence, remarks and an audit trail spread from January through September,
- * so every module has transactions and the reports have more than two months
- * to draw on. Safe to run again; it does not rewrite work already on file.
+ * Demonstration history for the 2026 cycle: commitments, progress, reviews,
+ * ratings, evidence, remarks and an audit trail, so the dashboard and every
+ * queue have something to show. Safe to run again. Work already on file is
+ * left alone, except a few closed July–December forms are moved when a stage
+ * (commitment approval, dean, director, QA) would otherwise be empty.
  */
 class PanelHistorySeeder extends Seeder
 {
@@ -73,7 +78,9 @@ class PanelHistorySeeder extends Seeder
         $this->repairPlaceholders();
         $this->dateWhatIsAlreadyDone();
         $touched = $this->recordProgress();
+        $touched = array_merge($touched, $this->balanceOpenDates());
         $this->advanceDrafts();
+        $this->coverOpenSemester();
         $this->rollUp($touched);
         $this->profiles();
         $this->activateForTheDemo();
@@ -143,6 +150,7 @@ class PanelHistorySeeder extends Seeder
             $owner = $form->owner;
             $unit  = $owner?->orgUnit?->name ?? 'the office';
             $lines = [
+                ['strategic', 'Office priorities', "Move one service of {$unit} online before the period closes."],
                 ['core', 'Core functions', "Carry out the commitments of {$unit} for the rating period and file the accomplishment."],
                 ['core', 'Core functions', "Complete the periodic review of services under {$unit} before the period closes."],
                 ['support', 'Support functions', 'Submit the daily time record within five working days after each month.'],
@@ -154,7 +162,7 @@ class PanelHistorySeeder extends Seeder
             foreach ($lines as [$section, $title, $description]) {
                 $output = PcrOutput::firstOrCreate(
                     ['form_id' => $form->id, 'section' => $section, 'title' => $title],
-                    ['sort_order' => $section === 'core' ? 1 : 2]
+                    ['sort_order' => $section === 'strategic' ? 1 : ($section === 'core' ? 2 : 3)]
                 );
 
                 PcrIndicator::create([
@@ -264,9 +272,11 @@ class PanelHistorySeeder extends Seeder
             $late = $state === 'completed' && $line->id % 3 === 0;
             $done = Carbon::parse($line->target_date)->addDays($late ? 8 : -3);
 
+            $ongoingPct = [15, 45, 60, 80, 30][$line->id % 5];
+
             $line->forceFill([
                 'progress_status' => $state === 'completed' ? 'completed' : 'ongoing',
-                'progress_pct'    => $state === 'completed' ? 100 : 30,
+                'progress_pct'    => $state === 'completed' ? 100 : $ongoingPct,
                 'completed_on'    => $state === 'completed' ? $done->toDateString() : null,
             ])->save();
 
@@ -330,19 +340,27 @@ class PanelHistorySeeder extends Seeder
     private function secondHalfPlan(PcrForm $form, int $index): array
     {
         $named = [
-            'vpial@occ.edu.ph'    => ['draft', null],
-            'guidance@occ.edu.ph' => ['head_review', '2026-07-08 09:20:00'],
-            'library@occ.edu.ph'  => ['qa_rating', '2026-07-22 10:05:00'],
-            'registrar@occ.edu.ph'=> ['returned', '2026-08-04 08:40:00'],
-            'iyo@occ.edu.ph'      => ['final', '2026-07-16 09:00:00'],
-            'dean.cte@occ.edu.ph' => ['rated', '2026-08-06 13:10:00'],
-            'vpaf@occ.edu.ph'     => ['vp_review', '2026-08-12 11:00:00'],
-            'vprpe@occ.edu.ph'    => ['qa_rating', '2026-08-19 09:45:00'],
-            'comm@occ.edu.ph'     => ['head_review', '2026-09-03 08:30:00'],
-            'faculty@occ.edu.ph'  => ['final', '2026-07-28 15:00:00'],
-            'qa.head@occ.edu.ph'  => ['rated', '2026-08-11 10:20:00'],
-            'vpsas@occ.edu.ph'    => ['vp_review', '2026-09-08 09:15:00'],
-            'qaacad@occ.edu.ph'   => ['head_review', '2026-09-14 14:00:00'],
+            'vpial@occ.edu.ph'     => ['draft', null],
+            'vpaa@occ.edu.ph'      => ['commitment_review', '2026-09-06 09:00:00'],
+            'guidance@occ.edu.ph'  => ['vp_review', '2026-07-08 09:20:00'],
+            'library@occ.edu.ph'   => ['qa_rating', '2026-07-22 10:05:00'],
+            'registrar@occ.edu.ph' => ['returned', '2026-08-04 08:40:00'],
+            'iyo@occ.edu.ph'       => ['final', '2026-07-16 09:00:00'],
+            'cict1@occ.edu.ph'     => ['director_review', '2026-08-20 09:00:00'],
+            'cict2@occ.edu.ph'     => ['commitments_approved', '2026-07-14 10:00:00'],
+            'dean.cte@occ.edu.ph'  => ['rated', '2026-08-06 13:10:00'],
+            'vpaf@occ.edu.ph'      => ['qa_rating', '2026-08-12 11:00:00'],
+            'vprpe@occ.edu.ph'     => ['final', '2026-08-19 09:45:00'],
+            'comm@occ.edu.ph'      => ['vp_review', '2026-09-03 08:30:00'],
+            'faculty@occ.edu.ph'   => ['commitments_approved', '2026-07-28 15:00:00'],
+            'faculty2@occ.edu.ph'  => ['head_review', '2026-09-02 09:00:00'],
+            'faculty3@occ.edu.ph'  => ['dean_review', '2026-08-26 11:00:00'],
+            'faculty4@occ.edu.ph'  => ['commitment_returned', '2026-08-04 08:40:00'],
+            'pheadIT@occ.edu.ph'   => ['dean_review', '2026-09-01 10:15:00'],
+            'hr.staff@occ.edu.ph'  => ['commitment_review', '2026-09-10 09:15:00'],
+            'qa.head@occ.edu.ph'   => ['rated', '2026-08-11 10:20:00'],
+            'vpsas@occ.edu.ph'     => ['vp_review', '2026-09-08 09:15:00'],
+            'qaacad@occ.edu.ph'    => ['head_review', '2026-09-14 14:00:00'],
         ];
 
         $email = $form->owner?->email;
@@ -356,8 +374,13 @@ class PanelHistorySeeder extends Seeder
             ['rated', '2026-07-23 10:00:00'],
             ['qa_rating', '2026-08-06 09:30:00'],
             ['vp_review', '2026-08-18 14:00:00'],
+            ['dean_review', '2026-08-25 09:00:00'],
             ['head_review', '2026-09-04 08:45:00'],
+            ['director_review', '2026-09-08 10:00:00'],
+            ['commitment_review', '2026-09-12 09:00:00'],
+            ['commitments_approved', '2026-07-30 11:00:00'],
             ['returned', '2026-09-11 11:20:00'],
+            ['commitment_returned', '2026-08-04 08:40:00'],
             ['draft', null],
         ];
 
@@ -366,103 +389,488 @@ class PanelHistorySeeder extends Seeder
 
     private function walk(PcrForm $form, string $status, Carbon $submitted): void
     {
+        $form->loadMissing('owner', 'orgUnit', 'ratingPeriod');
+
         $owner     = $form->owner;
         $reviewers = PcrWorkflow::resolveReviewers($form);
-        $head      = $reviewers['head_reviewer_id'] ? User::find($reviewers['head_reviewer_id']) : null;
-        $vp        = $reviewers['vp_reviewer_id'] ? User::find($reviewers['vp_reviewer_id']) : null;
-
-        if ($status === 'head_review' && ! $head) {
-            $status = $vp ? 'vp_review' : 'qa_rating';
-        }
-
-        if ($status === 'vp_review' && ! $vp) {
-            $status = 'qa_rating';
-        }
 
         $form->forceFill([
-            'head_reviewer_id' => $reviewers['head_reviewer_id'],
-            'vp_reviewer_id'   => $reviewers['vp_reviewer_id'],
-            'status'           => 'head_review',
-            'submitted_at'     => $submitted,
+            'head_reviewer_id' => $reviewers['head_reviewer_id'] ?? null,
+            'dean_reviewer_id' => $reviewers['dean_reviewer_id'] ?? null,
+            'vp_reviewer_id'   => $reviewers['vp_reviewer_id'] ?? null,
         ])->save();
 
-        $this->log($form, 'draft', 'head_review', 'Submitted for review', $owner, $submitted);
-        $this->audit($form, 'submit', 'Submitted IPCR for ' . ($form->ratingPeriod?->label ?? 'the period'), $owner, $submitted);
-        $this->bell(
-            $head?->id ?? $vp?->id ?? $this->qa->id,
-            'review',
-            'IPCR from ' . ($owner?->name ?? 'a staff member') . ' needs your review',
-            'It is waiting in your review queue.',
-            $form,
-            $owner,
-            $submitted
-        );
+        $form->unsetRelation('stageReviewers');
+
+        $commitmentReturn = $status === 'commitment_returned';
+        $approver = PcrWorkflow::commitmentApprover($form);
+
+        if (! $approver && ! in_array($status, ['commitment_review', 'commitments_approved'], true) && ! $commitmentReturn) {
+            $approver = User::where('role', 'president')->where('status', 'active')->first();
+        }
+
+        if (in_array($status, ['commitment_review', 'commitments_approved'], true) || $commitmentReturn) {
+            if (! $approver) {
+                return;
+            }
+
+            $this->openCommitmentReview($form, $approver, $owner, $submitted);
+
+            if ($status === 'commitment_review') {
+                return;
+            }
+
+            if ($commitmentReturn) {
+                $when = $submitted->copy()->addDays(2);
+
+                $form->forceFill(['status' => 'returned'])->save();
+                $this->log($form, 'commitment_review', 'returned', 'The commitments need a clearer target before they can be approved.', $approver, $when);
+                $this->remark($form, $approver, 'Rewrite the second commitment so the target is measurable, then send it again.', $when);
+                $this->bell($owner?->id, 'returned', 'Your commitments were returned for correction', 'The approver asked for a clearer target.', $form, $approver, $when);
+
+                return;
+            }
+
+            $this->approveCommitments($form, $approver, $owner, $submitted->copy()->addDays(2));
+
+            return;
+        }
+
+        if ($approver) {
+            $this->openCommitmentReview($form, $approver, $owner, $submitted);
+            $this->approveCommitments($form, $approver, $owner, $submitted->copy()->addDays(2));
+        }
+
+        $chain = $this->filledChain($form);
+
+        if ($chain === []) {
+            return;
+        }
+
+        $status = $this->reachable($chain, $status);
+        $sent   = $submitted->copy()->addDays(4);
+        [$firstStage, $firstPerson] = $chain[0];
+
+        $form->forceFill([
+            'status'       => $firstStage,
+            'submitted_at' => $sent,
+        ])->save();
+
+        $this->log($form, 'commitments_approved', $firstStage, 'Submitted for review', $owner, $sent);
+        $this->audit($form, 'submit', 'Submitted IPCR for ' . ($form->ratingPeriod?->label ?? 'the period'), $owner, $sent);
+        $this->notifyStage($form, $firstStage, $firstPerson, $owner, $sent, true);
 
         if ($status === 'returned') {
-            $when = $submitted->copy()->addDays(3);
-
-            $form->forceFill(['status' => 'returned'])->save();
-            $this->log($form, 'head_review', 'returned', 'The evidence does not yet match the stated target.', $head ?? $this->qa, $when);
-            $this->remark($form, $head ?? $this->qa, 'Please attach the signed report for the open lines, then resubmit.', $when);
-            $this->bell($owner?->id, 'review', 'Your IPCR was returned', 'The reviewer asked for a revision.', $form, $head ?? $this->qa, $when);
+            $this->returnFromReview($form, $firstStage, $firstPerson ?? $this->qa, $owner, $sent);
 
             return;
         }
 
-        if ($status === 'head_review') {
-            $this->remark($form, $owner, 'Submitted for the period. Evidence for the completed lines is attached.', $submitted->copy()->addMinutes(20));
+        foreach ($chain as $index => [$stage, $person]) {
+            if ($stage === 'qa_rating') {
+                break;
+            }
 
-            return;
+            if ($status === $stage) {
+                $this->remark($form, $owner, 'Submitted for the period. Evidence for the completed lines is attached.', $sent->copy()->addMinutes(20));
+
+                return;
+            }
+
+            $when = $sent->copy()->addDays(3 + ($index * 3));
+            $next = $chain[$index + 1][0] ?? 'qa_rating';
+            $nextPerson = $chain[$index + 1][1] ?? $this->qa;
+
+            $this->signStage($form, $stage, $person, $when);
+            $form->forceFill(['status' => $next])->save();
+            $this->log($form, $stage, $next, 'Endorsed to the next reviewer', $person ?? $this->qa, $when);
+            $this->remark($form, $person ?? $this->qa, 'Reviewed line by line. Endorsing to the next reviewer.', $when);
+            $this->notifyStage($form, $next, $nextPerson, $person ?? $owner, $when, false);
+
+            if ($status === $next) {
+                return;
+            }
         }
-
-        $headWhen = $submitted->copy()->addDays(4);
-
-        if ($head) {
-            $form->forceFill([
-                'reviewed_by'      => $head->id,
-                'reviewed_by_name' => $head->name,
-                'reviewed_at'      => $headWhen,
-                'status'           => 'vp_review',
-            ])->save();
-
-            $this->log($form, 'head_review', 'vp_review', 'Endorsed by the head', $head, $headWhen);
-            $this->remark($form, $head, 'Reviewed line by line. Endorsing to the next reviewer.', $headWhen);
-        } else {
-            $form->forceFill(['status' => 'vp_review'])->save();
-        }
-
-        if ($status === 'vp_review') {
-            $this->bell($vp?->id ?? $this->qa->id, 'review', 'IPCR from ' . ($owner?->name ?? 'a staff member') . ' needs your review', 'The head has endorsed it.', $form, $head ?? $owner, $headWhen);
-
-            return;
-        }
-
-        $vpWhen = $submitted->copy()->addDays(8);
-
-        if ($vp) {
-            $form->forceFill([
-                'vp_reviewed_by'      => $vp->id,
-                'vp_reviewed_by_name' => $vp->name,
-                'vp_reviewed_at'      => $vpWhen,
-            ])->save();
-        }
-
-        $form->forceFill(['status' => 'qa_rating'])->save();
-        $this->log($form, 'vp_review', 'qa_rating', 'Endorsed to QA', $vp ?? $head ?? $this->qa, $vpWhen);
-        $this->bell($this->qa->id, 'rating', 'IPCR from ' . ($owner?->name ?? 'a staff member') . ' is ready for rating', 'It has cleared the review chain.', $form, $vp ?? $head ?? $owner, $vpWhen);
 
         if ($status === 'qa_rating') {
             return;
         }
 
-        $ratedWhen = $submitted->copy()->addDays(14);
+        $ratedWhen = $sent->copy()->addDays(14);
         $this->rate($form, $ratedWhen);
 
         if ($status === 'final') {
-            $closed = $submitted->copy()->addDays(18);
+            $closed = $sent->copy()->addDays(18);
             $form->forceFill(['status' => 'final'])->save();
             $this->log($form, 'rated', 'final', 'Closed for the period', $this->qa, $closed);
         }
+    }
+
+    private function openCommitmentReview(PcrForm $form, User $approver, ?User $owner, Carbon $when): void
+    {
+        $form->forceFill([
+            'status'                 => 'commitment_review',
+            'commitment_approver_id' => $approver->id,
+            'submitted_at'           => $when,
+        ])->save();
+
+        $this->log($form, 'draft', 'commitment_review', 'Commitments sent for approval', $owner, $when);
+        $this->bell(
+            $approver->id,
+            'approval',
+            'IPCR commitments from ' . ($owner?->name ?? 'a staff member') . ' need your approval',
+            'They are waiting in your review queue.',
+            $form,
+            $owner,
+            $when
+        );
+    }
+
+    private function approveCommitments(PcrForm $form, User $approver, ?User $owner, Carbon $when): void
+    {
+        $form->forceFill([
+            'status'                       => 'commitments_approved',
+            'commitment_approver_id'       => $approver->id,
+            'commitment_approved_by'       => $approver->id,
+            'commitment_approved_by_name'  => $approver->name,
+            'commitment_approved_at'       => $when,
+        ])->save();
+
+        $this->log($form, 'commitment_review', 'commitments_approved', 'Commitments approved', $approver, $when);
+        $this->bell(
+            $owner?->id,
+            'approved',
+            'Your commitments were approved',
+            'You can now hand work to your team and record what you delivered.',
+            $form,
+            $approver,
+            $when
+        );
+    }
+
+    /** @return array<int, array{0: string, 1: ?User}> */
+    private function filledChain(PcrForm $form): array
+    {
+        $form->unsetRelation('stageReviewers');
+        $chain = [];
+
+        foreach (app(WorkflowSettings::class)->reviewStages() as $stage) {
+            $name = $stage['status'] ?? '';
+
+            if ($name === '') {
+                continue;
+            }
+
+            if ($name === 'qa_rating') {
+                $chain[] = ['qa_rating', $this->qa];
+
+                continue;
+            }
+
+            $id = PcrWorkflow::reviewerId($form, $name);
+
+            if ($id) {
+                $chain[] = [$name, User::find($id)];
+            }
+        }
+
+        return $chain;
+    }
+
+    /** @param  array<int, array{0: string, 1: ?User}>  $chain */
+    private function reachable(array $chain, string $status): string
+    {
+        $stages = array_map(fn ($step) => $step[0], $chain);
+
+        if (in_array($status, ['returned', 'rated', 'final'], true) || in_array($status, $stages, true)) {
+            return $status;
+        }
+
+        return in_array('qa_rating', $stages, true) ? 'qa_rating' : ($stages[0] ?? 'draft');
+    }
+
+    private function notifyStage(PcrForm $form, string $stage, ?User $person, ?User $actor, Carbon $when, bool $first): void
+    {
+        $who = $form->owner?->name ?? 'a staff member';
+
+        if ($stage === 'qa_rating') {
+            $this->bell($this->qa->id, 'rating', "IPCR from {$who} is ready for rating", 'It has cleared the review chain.', $form, $actor, $when);
+
+            return;
+        }
+
+        $this->bell(
+            $person?->id,
+            'review',
+            "IPCR from {$who} needs your review",
+            $first ? 'It is waiting in your review queue.' : 'The previous reviewer has endorsed it.',
+            $form,
+            $actor,
+            $when
+        );
+    }
+
+    private function returnFromReview(PcrForm $form, string $stage, User $reviewer, ?User $owner, Carbon $sent): void
+    {
+        $when = $sent->copy()->addDays(3);
+
+        $form->forceFill(['status' => 'returned'])->save();
+        $this->log($form, $stage, 'returned', 'The evidence does not yet match the stated target.', $reviewer, $when);
+        $this->remark($form, $reviewer, 'Please attach the signed report for the open lines, then resubmit.', $when);
+        $this->bell($owner?->id, 'review', 'Your IPCR was returned', 'The reviewer asked for a revision.', $form, $reviewer, $when);
+    }
+
+    private function signStage(PcrForm $form, string $stage, ?User $person, Carbon $when): void
+    {
+        if (! $person || $stage === 'qa_rating') {
+            return;
+        }
+
+        $signed = [
+            'reviewed_by'      => $person->id,
+            'reviewed_by_name' => $person->name,
+            'reviewed_at'      => $when,
+        ];
+
+        if ($stage === 'head_review') {
+            $form->forceFill($signed)->save();
+
+            return;
+        }
+
+        if ($stage === 'dean_review') {
+            $form->forceFill([
+                'dean_reviewed_by'      => $person->id,
+                'dean_reviewed_by_name' => $person->name,
+                'dean_reviewed_at'      => $when,
+            ])->save();
+
+            return;
+        }
+
+        if ($stage === 'vp_review') {
+            $form->forceFill([
+                'vp_reviewed_by'      => $person->id,
+                'vp_reviewed_by_name' => $person->name,
+                'vp_reviewed_at'      => $when,
+            ])->save();
+
+            return;
+        }
+
+        PcrFormReviewer::where('form_id', $form->id)->where('stage', $stage)->update($signed);
+    }
+
+    /**
+     * July to December should show every queue. A stage with nobody in it
+     * borrows a form whose reviewers can actually stop there.
+     */
+    private function coverOpenSemester(): void
+    {
+        $wanted = [
+            'commitment_review',
+            'commitments_approved',
+            'head_review',
+            'dean_review',
+            'director_review',
+            'qa_rating',
+        ];
+
+        $forms = PcrForm::with(['owner', 'orgUnit'])
+            ->where('school_year_id', $this->year->id)
+            ->where('type', 'ipcr')
+            ->where('rating_period_id', $this->second->id)
+            ->get();
+
+        $counts = $forms->countBy('status');
+
+        // Keep two rated-and-closed forms, and one form already sitting in each
+        // stage, then borrow from whatever is left. Heads are often not on a
+        // closed form, so the pool cannot be finals only.
+        $protected = $forms->where('status', 'final')->sortBy('id')->take(2)->pluck('id');
+
+        foreach ($wanted as $status) {
+            $keeper = $forms->firstWhere('status', $status);
+
+            if ($keeper) {
+                $protected->push($keeper->id);
+            }
+        }
+
+        $movable = $forms
+            ->reject(fn (PcrForm $form) => $protected->contains($form->id))
+            ->sortBy(fn (PcrForm $form) => match ($form->status) {
+                'final', 'returned', 'vp_review', 'rated' => 0,
+                default => 1,
+            })
+            ->values();
+
+        $presidentIsWaiting = $forms->contains(fn (PcrForm $form) => $form->status === 'commitment_review'
+            && User::whereKey($form->commitment_approver_id)->where('role', 'president')->exists());
+
+        if (! $presidentIsWaiting) {
+            $counts['commitment_review'] = 0;
+        }
+
+        foreach ($wanted as $status) {
+            if (($counts[$status] ?? 0) > 0 || $movable->isEmpty()) {
+                continue;
+            }
+
+            $candidates = $movable;
+
+            if ($status === 'commitment_review') {
+                $candidates = $movable->sortByDesc(function (PcrForm $form) {
+                    $approver = PcrWorkflow::commitmentApprover($form);
+
+                    return $approver && $approver->role === 'president' ? 1 : 0;
+                })->values();
+            }
+
+            $form = $this->formThatCanStopAt($candidates, $status);
+
+            if (! $form) {
+                continue;
+            }
+
+            $this->rewind($form);
+            $this->walk(
+                $form->fresh(['owner', 'orgUnit', 'ratingPeriod']),
+                $status,
+                Carbon::parse('2026-08-18 09:00:00')
+            );
+
+            $movable = $movable->reject(fn (PcrForm $row) => $row->id === $form->id)->values();
+            $counts[$status] = 1;
+        }
+    }
+
+    /** @param  \Illuminate\Support\Collection<int, PcrForm>  $forms */
+    private function formThatCanStopAt($forms, string $status): ?PcrForm
+    {
+        foreach ($forms as $form) {
+            $form->loadMissing('owner', 'orgUnit');
+            PcrWorkflow::resolveReviewers($form);
+            $form->unsetRelation('stageReviewers');
+
+            if (in_array($status, ['commitment_review', 'commitments_approved'], true)) {
+                if (PcrWorkflow::commitmentApprover($form)) {
+                    return $form;
+                }
+
+                continue;
+            }
+
+            if ($status === 'qa_rating') {
+                return $form;
+            }
+
+            if (PcrWorkflow::reviewerId($form, $status)) {
+                return $form;
+            }
+        }
+
+        return null;
+    }
+
+    private function rewind(PcrForm $form): void
+    {
+        $indicatorIds = PcrIndicator::whereHas('output', fn ($q) => $q->where('form_id', $form->id))->pluck('id');
+
+        if (Schema::hasTable('pcr_return_marks')) {
+            DB::table('pcr_return_marks')->where('form_id', $form->id)->delete();
+        }
+
+        PcrStatusLog::where('form_id', $form->id)->delete();
+
+        $commentIds = PcrComment::where('form_id', $form->id)->pluck('id');
+
+        if ($commentIds->isNotEmpty() && Schema::hasTable('pcr_comment_mentions')) {
+            DB::table('pcr_comment_mentions')->whereIn('comment_id', $commentIds)->delete();
+        }
+
+        PcrComment::where('form_id', $form->id)->delete();
+        Notification::where('form_id', $form->id)->delete();
+        PcrRating::whereIn('indicator_id', $indicatorIds)->delete();
+        PcrPeriodSummary::where('form_id', $form->id)->delete();
+        ActivityLog::where('subject_type', 'PcrForm')->where('subject_id', $form->id)->delete();
+
+        PcrFormReviewer::where('form_id', $form->id)->update([
+            'reviewed_by'      => null,
+            'reviewed_by_name' => null,
+            'reviewed_at'      => null,
+        ]);
+
+        $form->forceFill([
+            'status'                      => 'draft',
+            'submitted_at'                => null,
+            'rated_by'                    => null,
+            'rated_by_name'               => null,
+            'rated_at'                    => null,
+            'commitment_approver_id'      => null,
+            'commitment_approved_by'      => null,
+            'commitment_approved_by_name' => null,
+            'commitment_approved_at'      => null,
+        ])->save();
+    }
+
+    /**
+     * The open semester needs a mix: some lines already late, some due this
+     * week, some still ahead, and ongoing work at more than one percentage.
+     *
+     * @return array<int, PcrIndicator>
+     */
+    private function balanceOpenDates(): array
+    {
+        $dates = $this->openSemesterDates();
+        $pcts  = [15, 30, 45, 60, 80];
+
+        $lines = PcrIndicator::with('output.form')
+            ->whereHas('output.form', fn ($q) => $q
+                ->where('school_year_id', $this->year->id)
+                ->where('rating_period_id', $this->second->id))
+            ->whereIn('progress_status', ['ongoing', 'not_started'])
+            ->get();
+
+        foreach ($lines as $line) {
+            $slot = $line->id % 3;
+            $due  = [$dates['overdue'], $dates['due_soon'], $dates['ahead']][$slot];
+
+            $line->forceFill([
+                'target_date'  => $due,
+                'progress_pct' => $line->progress_status === 'ongoing' ? $pcts[intdiv((int) $line->id, 5) % 5] : 0,
+            ])->save();
+        }
+
+        return $lines->all();
+    }
+
+    /** @return array{overdue: string, due_soon: string, ahead: string} */
+    private function openSemesterDates(): array
+    {
+        $closes = Carbon::parse($this->second->closes_at ?? '2026-12-31')->startOfDay();
+        $today  = now()->startOfDay();
+
+        // Due dates follow the calendar, not the filing window. A target in
+        // October is already late on a November afternoon even when the
+        // semester still accepts submissions in December.
+        $dueSoon = $today->copy()->addDays(3);
+        $ahead   = $today->copy()->addDays(28);
+        $overdue = $today->copy()->subDays(16);
+
+        if ($dueSoon->gt($closes)) {
+            $dueSoon = $closes->copy();
+        }
+
+        if ($ahead->gt($closes)) {
+            $ahead = $closes->copy();
+        }
+
+        return [
+            'overdue'  => $overdue->toDateString(),
+            'due_soon' => $dueSoon->toDateString(),
+            'ahead'    => $ahead->toDateString(),
+        ];
     }
 
     private function rate(PcrForm $form, Carbon $when): void
@@ -572,14 +980,10 @@ class PanelHistorySeeder extends Seeder
             return Carbon::create(2026, 2 + ($seed % 5), 4 + ($seed % 20))->toDateString();
         }
 
-        if ($state === 'ongoing') {
-            return ($seed % 2 === 0)
-                ? Carbon::create(2026, 8, 18)->toDateString()
-                : Carbon::create(2026, 10, 3)->toDateString();
-        }
+        $dates = $this->openSemesterDates();
 
-        if ($state === 'not_started') {
-            return Carbon::create(2026, 7, 20 + ($seed % 8))->toDateString();
+        if ($state === 'ongoing' || $state === 'not_started') {
+            return [$dates['overdue'], $dates['due_soon'], $dates['ahead']][$seed % 3];
         }
 
         return Carbon::create(2026, 7 + ($seed % 3), 8 + ($seed % 18))->toDateString();
@@ -793,22 +1197,23 @@ class PanelHistorySeeder extends Seeder
      */
     private function activateForTheDemo(): void
     {
-        if (ActivityLog::where('description', self::MARKER)->exists()) {
-            return;
-        }
-
         SchoolYear::query()->update(['is_active' => false]);
-        $this->year->forceFill(['is_active' => true, 'status' => 'open'])->save();
+        SchoolYear::whereKey($this->year->id)->update(['is_active' => true, 'status' => 'open']);
 
         RatingPeriod::query()->update(['is_active' => false]);
-        $this->second->forceFill([
+        RatingPeriod::whereKey($this->first->id)->update(['status' => 'closed', 'is_active' => false]);
+        RatingPeriod::whereKey($this->second->id)->update([
             'status'         => 'open',
             'is_active'      => true,
             'is_locked'      => false,
             'locked_at'      => null,
             'locked_by'      => null,
             'locked_by_name' => null,
-        ])->save();
+        ]);
+
+        if (ActivityLog::where('description', self::MARKER)->exists()) {
+            return;
+        }
 
         ActivityLog::create([
             'subject_type' => 'SchoolYear',

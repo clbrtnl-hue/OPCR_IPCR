@@ -2,8 +2,21 @@
 <html lang="en">
 <head>
     <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <meta name="theme-color" content="#1e3a72">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="theme-color" content="#070b10">
+    <script>
+        try {
+            var saved = localStorage.getItem("pms-theme");
+            var light = saved === "light";
+            document.documentElement.dataset.theme = light ? "light" : "dark";
+            var themeMeta = document.querySelector('meta[name="theme-color"]');
+            if (themeMeta) {
+                themeMeta.setAttribute("content", light ? "#eef1f6" : "#070b10");
+            }
+        } catch (e) {
+            document.documentElement.dataset.theme = "dark";
+        }
+    </script>
     <meta name="mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-title" content="OCC PMS">

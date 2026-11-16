@@ -1,9 +1,10 @@
-import React, { useState } from "react";
+import React, { useMemo, useState } from "react";
 import {
     Button,
     Card,
     Col,
     Drawer,
+    Empty,
     Form,
     Input,
     Row,
@@ -15,17 +16,44 @@ import {
     Typography,
     message,
 } from "antd";
-import { PlusOutlined } from "@ant-design/icons";
+import { PlusOutlined, SearchOutlined } from "@ant-design/icons";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import api from "~/utils/api";
 import { ROLE_LABELS } from "~/utils/constants";
 import PageHeader from "~/components/PageHeader";
+
+const PINNED_ROLES = ["admin", "president"];
+
+function pinRank(role) {
+    const index = PINNED_ROLES.indexOf(role);
+
+    return index === -1 ? PINNED_ROLES.length : index;
+}
+
+function byName(a, b) {
+    return (
+        (a.last_name ?? a.name).localeCompare(b.last_name ?? b.name) ||
+        (a.first_name ?? "").localeCompare(b.first_name ?? "")
+    );
+}
+
+function matchesSearch(user, term) {
+    if (!term) {
+        return true;
+    }
+
+    return [user.name, user.email, user.position_title, user.org_unit?.name, ROLE_LABELS[user.role]]
+        .filter(Boolean)
+        .some((value) => String(value).toLowerCase().includes(term));
+}
 
 export default function UsersPage() {
     const queryClient = useQueryClient();
     const [form] = Form.useForm();
     const [editing, setEditing] = useState(null);
     const [open, setOpen] = useState(false);
+    const [search, setSearch] = useState("");
+    const [page, setPage] = useState(1);
 
     const { data: users = [], isLoading } = useQuery({
         queryKey: ["users"],
@@ -70,14 +98,19 @@ export default function UsersPage() {
         form.resetFields();
     };
 
+    const term = search.trim().toLowerCase();
+    const rows = useMemo(
+        () =>
+            [...users]
+                .filter((user) => matchesSearch(user, term))
+                .sort((a, b) => pinRank(a.role) - pinRank(b.role) || byName(a, b)),
+        [users, term]
+    );
+
     const columns = [
         {
             title: "Name",
             dataIndex: "name",
-            defaultSortOrder: "ascend",
-            sorter: (a, b) =>
-                (a.last_name ?? a.name).localeCompare(b.last_name ?? b.name) ||
-                (a.first_name ?? "").localeCompare(b.first_name ?? ""),
         },
         { title: "Email", dataIndex: "email" },
         {
@@ -134,52 +167,75 @@ export default function UsersPage() {
                 }
             />
 
-            <Card>
+            <Card className="pms-list-panel">
+                <Input
+                    allowClear
+                    prefix={<SearchOutlined />}
+                    placeholder="Search name, email, role, or unit"
+                    value={search}
+                    onChange={(event) => {
+                        setSearch(event.target.value);
+                        setPage(1);
+                    }}
+                    style={{ maxWidth: 360, marginBottom: 16 }}
+                />
                 <div className="pms-mobile-only pms-pds-cards">
-                    {users.map((record) => (
-                        <article key={record.id} className="pms-pds-card">
-                            <div className="pms-pds-line">
-                                <span>Name</span>
-                                <strong>{record.name}</strong>
-                            </div>
-                            <div className="pms-pds-line">
-                                <span>Email</span>
-                                <strong>{record.email}</strong>
-                            </div>
-                            <div className="pms-pds-line">
-                                <span>Role</span>
-                                <Tag>{ROLE_LABELS[record.role]}</Tag>
-                            </div>
-                            <div className="pms-pds-line">
-                                <span>Unit</span>
-                                <strong>{record.org_unit?.name || "—"}</strong>
-                            </div>
-                            <div className="pms-pds-actions">
-                                <Button size="small" onClick={() => openDrawer(record)}>
-                                    Edit
-                                </Button>
-                                {record.status === "active" && (
-                                    <Popconfirm
-                                        title="Deactivate this account?"
-                                        description="They will no longer be able to sign in."
-                                        onConfirm={() => deactivate.mutate(record.id)}
-                                    >
-                                        <Button size="small" danger>
-                                            Deactivate
-                                        </Button>
-                                    </Popconfirm>
-                                )}
-                            </div>
-                        </article>
-                    ))}
+                    {!isLoading && rows.length === 0 ? (
+                        <Empty
+                            image={Empty.PRESENTED_IMAGE_SIMPLE}
+                            description={term ? "No accounts match." : "No accounts yet."}
+                        />
+                    ) : (
+                        rows.map((record) => (
+                            <article key={record.id} className="pms-pds-card">
+                                <div className="pms-pds-line">
+                                    <span>Name</span>
+                                    <strong>{record.name}</strong>
+                                </div>
+                                <div className="pms-pds-line">
+                                    <span>Email</span>
+                                    <strong>{record.email}</strong>
+                                </div>
+                                <div className="pms-pds-line">
+                                    <span>Role</span>
+                                    <Tag>{ROLE_LABELS[record.role]}</Tag>
+                                </div>
+                                <div className="pms-pds-line">
+                                    <span>Unit</span>
+                                    <strong>{record.org_unit?.name || "—"}</strong>
+                                </div>
+                                <div className="pms-pds-actions">
+                                    <Button size="small" onClick={() => openDrawer(record)}>
+                                        Edit
+                                    </Button>
+                                    {record.status === "active" && (
+                                        <Popconfirm
+                                            title="Deactivate this account?"
+                                            description="They will no longer be able to sign in."
+                                            onConfirm={() => deactivate.mutate(record.id)}
+                                        >
+                                            <Button size="small" danger>
+                                                Deactivate
+                                            </Button>
+                                        </Popconfirm>
+                                    )}
+                                </div>
+                            </article>
+                        ))
+                    )}
                 </div>
                 <div className="pms-desktop-only">
                     <Table
                         rowKey="id"
                         loading={isLoading}
-                        dataSource={users}
+                        dataSource={rows}
                         columns={columns}
-                        pagination={{ pageSize: 15 }}
+                        pagination={{
+                            current: page,
+                            pageSize: 15,
+                            onChange: setPage,
+                        }}
+                        locale={{ emptyText: term ? "No accounts match." : "No accounts yet." }}
                         scroll={{ x: 900 }}
                     />
                 </div>
