@@ -1,5 +1,5 @@
 import React from "react";
-import { Alert, Card, Empty, Segmented, Select, Space, Statistic, Table, Tag, Typography } from "antd";
+import { Alert, Card, Empty, Segmented, Select, Space, Table, Tag, Typography } from "antd";
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import dayjs from "dayjs";
@@ -42,11 +42,6 @@ export default function MyTeamPage() {
 
     const members = data?.members ?? [];
     const units = data?.units ?? [];
-    const notStarted = members.filter((m) => !m.form || m.form.outputs_count === 0).length;
-    const withMe = members.filter((m) =>
-        ["head_review", "dean_review", "director_review", "vp_review"].includes(m.form?.status)
-    ).length;
-    const done = members.filter((m) => ["rated", "final"].includes(m.form?.status)).length;
 
     const columns = [
         {
@@ -173,8 +168,9 @@ export default function MyTeamPage() {
                         ? `${units.map((u) => u.name).join(" · ")} — everyone you review, and where their IPCR stands.`
                         : "Everyone you review, and where their IPCR stands."
                 }
-                extra={switcher}
             />
+
+            <div className="pms-team-switch">{switcher}</div>
 
             {!isLoading && units.length === 0 && (
                 <Alert
@@ -184,27 +180,6 @@ export default function MyTeamPage() {
                     message="You are not named as the head, dean, director, or VP of any office, so there is no one to show here."
                     description="An administrator sets this in Setup → Hierarchy."
                 />
-            )}
-
-            {members.length > 0 && (
-                <Space wrap size={16} style={{ marginBottom: 16 }}>
-                    <Card size="small" style={{ minWidth: 150 }}>
-                        <Statistic title="People" value={members.length} />
-                    </Card>
-                    <Card size="small" style={{ minWidth: 150 }}>
-                        <Statistic
-                            title="Not started"
-                            value={notStarted}
-                            valueStyle={notStarted ? { color: "#cf1322" } : undefined}
-                        />
-                    </Card>
-                    <Card size="small" style={{ minWidth: 150 }}>
-                        <Statistic title="Waiting for review" value={withMe} />
-                    </Card>
-                    <Card size="small" style={{ minWidth: 150 }}>
-                        <Statistic title="Rated" value={done} />
-                    </Card>
-                </Space>
             )}
 
             <Card>

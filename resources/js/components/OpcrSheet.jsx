@@ -60,7 +60,7 @@ function siblingsOf(outputs, output) {
  * rather than opening a dialog for every line — the paper form is the mental
  * model, so the screen should not fight it.
  */
-export default function OpcrSheet({ form, periodId, canEdit, canAssign, canRecordProgress, showScores = false, summary, focusLineId = null, focusOutputId = null, returnMarks = [] }) {
+export default function OpcrSheet({ form, periodId, canEdit, canAssign, canRecordProgress, showScores = false, summary, focusLineId = null, focusOutputId = null, returnMarks = [], onExpand }) {
     const { user } = useAuth();
     const dimensions = ratingRules(user).dimensions;
     const queryClient = useQueryClient();
@@ -945,7 +945,18 @@ export default function OpcrSheet({ form, periodId, canEdit, canAssign, canRecor
                 </div>
             )}
 
-            <LineCards form={form} periodId={periodId} showScores={showScores} onOpen={setOpenLineId} />
+            <LineCards
+                form={form}
+                periodId={periodId}
+                showScores={showScores}
+                onOpen={setOpenLineId}
+                onEnter={canEdit && onExpand ? () => onExpand() : undefined}
+                addSections={canEdit ? ["strategic", "core", "support"] : []}
+                onAdd={(section) => {
+                    saveOutput.mutate({ section, title: "" });
+                    onExpand?.();
+                }}
+            />
 
             <div className="pms-sheet-wrap">
                 <table className="pms-sheet">

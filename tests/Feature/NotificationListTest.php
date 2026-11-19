@@ -62,4 +62,64 @@ class NotificationListTest extends PmsTestCase
         $this->assertCount(4, $rated['items']);
         $this->assertSame(4, $rated['total']);
     }
+
+    public function test_trash_keeps_the_row_until_thirty_days_have_passed(): void
+    {
+        $this->makeOrganization();
+
+        $me    = $this->actingAsRole('employee');
+        $other = User::factory()->create(['role' => 'employee']);
+
+        $keep = Notification::create([
+            'user_id' => $me->id,
+            'type'    => 'assignment',
+            'title'   => 'Keep me',
+        ]);
+        $hide = Notification::create([
+            'user_id' => $me->id,
+            'type'    => 'rated',
+            'title'   => 'Hide me',
+        ]);
+        $foreign = Notification::create([
+            'user_id' => $other->id,
+            'type'    => 'review',
+            'title'   => 'Not yours',
+        ]);
+
+        $this->postJson("/api/notifications/{$hide->id}/restore")->assertNotFound();
+        $this->postJson("/api/notifications/{$foreign->id}/trash")->assertNotFound();
+        $this->postJson("/api/notifications/{$hide->id}/trash")->assertSuccessful();
+
+        $inbox = $this->getJson('/api/notifications')->assertSuccessful()->json();
+
+        $this->assertSame(['Keep me'], array_column($inbox['items'], 'title'));
+        $this->assertSame(1, $inbox['unread']);
+        $this->assertSame(1, $inbox['trash']);
+        $this->assertSame(1, $inbox['kinds']['assignment']);
+        $this->assertArrayNotHasKey('rated', $inbox['kinds']);
+        $this->assertNotNull($hide->fresh()->trashed_at);
+
+        $trashed = $this->getJson('/api/notifications?trash=1')->assertSuccessful()->json();
+
+        $this->assertSame(['Hide me'], array_column($trashed['items'], 'title'));
+        $this->assertSame(1, $trashed['unread']);
+
+        $this->postJson('/api/notifications/read-all')->assertSuccessful();
+
+        $this->assertNotNull($keep->fresh()->read_at);
+        $this->assertNull($hide->fresh()->read_at);
+
+        $this->postJson("/api/notifications/{$hide->id}/restore")->assertSuccessful();
+        $this->assertNull($hide->fresh()->trashed_at);
+
+        $this->postJson("/api/notifications/{$hide->id}/trash")->assertSuccessful();
+        $hide->update(['trashed_at' => now()->subDays(30)]);
+        $keep->update(['trashed_at' => now()->subDays(29)]);
+
+        $this->artisan('pms:purge-notifications')->assertSuccessful();
+
+        $this->assertDatabaseMissing('notifications', ['id' => $hide->id]);
+        $this->assertNotNull($keep->fresh());
+        $this->assertNotNull($foreign->fresh());
+    }
 }

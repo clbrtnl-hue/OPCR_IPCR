@@ -250,17 +250,17 @@ class PcrWorkflowTest extends PmsTestCase
         $this->move($admin, $form, 'head_review')->assertStatus(403);
     }
 
-    public function test_qa_can_close_a_rated_form(): void
+    public function test_qa_cannot_close_a_rated_form(): void
     {
         ['form' => $form, 'qa' => $qa] = $this->scenario();
 
         $form->update(['status' => 'rated']);
 
-        $this->move($qa, $form, 'final')->assertOk();
-        $this->assertSame('final', $form->fresh()->status);
+        $this->move($qa, $form, 'final')->assertStatus(403);
+        $this->assertSame('rated', $form->fresh()->status);
     }
 
-    public function test_president_can_close_a_rated_form(): void
+    public function test_president_cannot_close_a_rated_form(): void
     {
         ['form' => $form] = $this->scenario();
 
@@ -268,8 +268,8 @@ class PcrWorkflowTest extends PmsTestCase
 
         $form->update(['status' => 'rated']);
 
-        $this->move($president, $form, 'final')->assertOk();
-        $this->assertSame('final', $form->fresh()->status);
+        $this->move($president, $form, 'final')->assertStatus(403);
+        $this->assertSame('rated', $form->fresh()->status);
     }
 
     public function test_the_owner_cannot_close_their_own_rated_form(): void

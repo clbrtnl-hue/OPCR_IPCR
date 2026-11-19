@@ -92,6 +92,10 @@ class HrAccessTest extends PmsTestCase
         $this->assertNotContains($faculty->id, $ids);
         $this->assertNotContains($hr->id, $ids);
         $this->assertSame('head', $team->json('units.0.as'));
+
+        $this->getJson('/api/org-units/leading')
+            ->assertOk()
+            ->assertJsonFragment(['name' => 'Human Resource Management Office']);
     }
 
     public function test_an_hr_who_heads_no_office_cannot_open_the_roster(): void
@@ -100,6 +104,7 @@ class HrAccessTest extends PmsTestCase
         $this->actingAsRole('hr');
 
         $this->getJson('/api/my-team')->assertStatus(403);
+        $this->getJson('/api/org-units/leading')->assertOk()->assertExactJson([]);
     }
 
     public function test_an_employee_cannot_read_another_offices_form(): void
@@ -121,6 +126,40 @@ class HrAccessTest extends PmsTestCase
         $this->getJson("/api/people/{$faculty->id}")
             ->assertOk()
             ->assertJsonPath('may_view_sheet', true);
+    }
+
+    public function test_the_hr_head_can_rate_a_staff_form_and_not_another_office(): void
+    {
+        ['year' => $year, 'hr' => $hr, 'staffForm' => $staffForm, 'other' => $other] = $this->office();
+        $period = $this->makePeriod($year);
+        $staffForm->update(['rating_period_id' => $period->id]);
+        $line = $this->makeIndicator($staffForm);
+        $other->update(['rating_period_id' => $period->id]);
+        $otherLine = $this->makeIndicator($other);
+
+        $this->actingAsUser($hr);
+
+        $this->postJson('/api/pcr-ratings', [
+            'form_id'          => $staffForm->id,
+            'rating_period_id' => $period->id,
+            'ratings'          => [
+                ['indicator_id' => $line->id, 'q' => 4, 'e' => 4, 't' => 4],
+            ],
+        ])->assertOk();
+
+        $this->assertDatabaseHas('pcr_ratings', [
+            'indicator_id' => $line->id,
+            'q'            => 4,
+            'rated_by'     => $hr->id,
+        ]);
+
+        $this->postJson('/api/pcr-ratings', [
+            'form_id'          => $other->id,
+            'rating_period_id' => $period->id,
+            'ratings'          => [
+                ['indicator_id' => $otherLine->id, 'q' => 5, 'e' => 5, 't' => 5],
+            ],
+        ])->assertStatus(409);
     }
 
     public function test_hr_does_not_run_setup_or_remark_on_someone_elses_form(): void

@@ -17,6 +17,7 @@ import { useAuth } from "~/hooks/useAuth";
 import InsightsBoard from "~/components/InsightsBoard";
 import PlayBoard, { paceTitle } from "~/components/PlayBoard";
 import PresidentGlance from "~/components/PresidentGlance";
+import TeamPace from "~/components/TeamPace";
 import StatTile from "~/components/charts/StatTile";
 
 function greeting() {
@@ -92,6 +93,7 @@ export default function DashboardPage() {
     const leadsTheCollege = ["admin", "president", "qa", "hr"].includes(user?.role);
     const playsOwnGame = ["program_head", "vp", "employee"].includes(user?.role);
     const reviewsOwnQueue = ["program_head", "vp"].includes(user?.role);
+    const roleSeesTeam = ["program_head", "vp"].includes(user?.role);
 
     const periods = [...(shownYear?.periods ?? [])].sort((a, b) => a.seq - b.seq);
     const shownPeriodId = periods.some((p) => p.id === periodId) ? periodId : null;
@@ -122,6 +124,27 @@ export default function DashboardPage() {
                 })
                 .then((r) => r.data),
         enabled: Boolean(shownYear?.id) && !isPresident,
+    });
+
+    const { data: ledUnits = [] } = useQuery({
+        queryKey: ["led-units", user?.id],
+        queryFn: () => api.get("org-units/leading").then((r) => r.data),
+        enabled: Boolean(user) && !leadsTheCollege && !roleSeesTeam,
+    });
+    const seesTeamPace = !leadsTheCollege && (roleSeesTeam || ledUnits.length > 0);
+
+    const { data: teamPace } = useQuery({
+        queryKey: ["my-team-progress", shownYear?.id, shownPeriodId],
+        queryFn: () =>
+            api
+                .get("my-team/progress", {
+                    params: {
+                        school_year_id: shownYear.id,
+                        ...(shownPeriodId ? { rating_period_id: shownPeriodId } : {}),
+                    },
+                })
+                .then((r) => r.data),
+        enabled: seesTeamPace && Boolean(shownYear?.id),
     });
 
     const mine = forms.filter(
@@ -258,6 +281,7 @@ export default function DashboardPage() {
 
             {!isPresident && (
             <div className="pms-rise">
+            <div className={playsOwnGame && mySummary && teamPace?.rows?.length ? "pms-season-row" : undefined}>
             {playsOwnGame && mySummary && (
                 <PlayBoard
                     kicker="Your season"
@@ -319,6 +343,8 @@ export default function DashboardPage() {
                     ]}
                 />
             )}
+            {seesTeamPace && <TeamPace data={teamPace} onOpen={navigate} />}
+            </div>
             <Typography.Title level={5} className="pms-section-title" style={{ margin: "4px 0 12px" }}>
                 My cycle{shownYear ? ` — ${shownYear.label}` : ""}
             </Typography.Title>

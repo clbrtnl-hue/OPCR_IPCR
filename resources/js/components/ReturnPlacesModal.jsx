@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
-import { Checkbox, Input, Modal, Tag, Typography } from "antd";
+import { Button, Checkbox, Drawer, Input, Tag, Typography } from "antd";
 import { returnPlaces } from "~/utils/returnMarks";
 
 /**
- * A return from commitment approval names the cells. The reviewer checks a
- * place and writes what to change there. Blank rows are left alone.
+ * A return names the cells in a side drawer. The reviewer checks a place and
+ * writes what to change there. Blank rows are left alone.
  */
 export default function ReturnPlacesModal({ open, form, kind = "approval", confirming, onCancel, onSubmit }) {
     const [notes, setNotes] = useState({});
@@ -43,24 +43,47 @@ export default function ReturnPlacesModal({ open, form, kind = "approval", confi
         });
     };
 
+    const submit = () =>
+        onSubmit(
+            chosen.map((place) => ({
+                output_id: place.output_id,
+                indicator_id: place.indicator_id,
+                field: place.field,
+                note: notes[place.key].trim(),
+            }))
+        );
+
     return (
-        <Modal
+        <Drawer
             title="Return this form"
             open={open}
-            onCancel={close}
-            okText="Return"
-            okButtonProps={{ danger: true, disabled: chosen.length === 0 }}
-            confirmLoading={confirming}
-            width={640}
-            onOk={() =>
-                onSubmit(
-                    chosen.map((place) => ({
-                        output_id: place.output_id,
-                        indicator_id: place.indicator_id,
-                        field: place.field,
-                        note: notes[place.key].trim(),
-                    }))
-                )
+            onClose={close}
+            placement="right"
+            width={520}
+            className="pms-return-drawer"
+            footer={
+                <div className="pms-cascade-foot">
+                    <div>
+                        <strong>
+                            {chosen.length === 0
+                                ? "No place selected"
+                                : `${chosen.length} ${chosen.length === 1 ? "place" : "places"}`}
+                        </strong>
+                        <span>The writer sees each note on that cell.</span>
+                    </div>
+                    <div className="pms-cascade-foot-actions">
+                        <Button onClick={close}>Cancel</Button>
+                        <Button
+                            danger
+                            type="primary"
+                            disabled={chosen.length === 0}
+                            loading={confirming}
+                            onClick={submit}
+                        >
+                            Return
+                        </Button>
+                    </div>
+                </div>
             }
         >
             <Typography.Paragraph>
@@ -106,6 +129,6 @@ export default function ReturnPlacesModal({ open, form, kind = "approval", confi
                     ))}
                 </div>
             )}
-        </Modal>
+        </Drawer>
     );
 }

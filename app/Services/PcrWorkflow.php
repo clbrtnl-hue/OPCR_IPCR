@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Models\OrgUnit;
+use App\Models\OrgUnitReviewer;
 use App\Models\PcrForm;
 use App\Models\PcrFormReviewer;
 use App\Models\PcrStatusLog;
@@ -31,7 +32,8 @@ class PcrWorkflow
             'vp_review'   => ['qa_rating', 'returned'],
             'qa_rating'   => ['rated', 'returned'],
             'rated'       => ['final', 'qa_rating'],
-            'final'       => [],
+            'final'       => ['appeal'],
+            'appeal'      => ['qa_rating', 'final'],
         ],
         'opcr' => [
             'draft'       => ['qa_approval'],
@@ -53,7 +55,7 @@ class PcrWorkflow
             'vp_review'   => ['program_head'],
             'qa_rating'   => ['vp'],
             'rated'       => ['qa'],
-            'final'       => ['qa', 'president'],
+            'final'       => ['hr'],
             'returned'    => ['program_head', 'vp', 'qa'],
         ],
         'opcr' => [
@@ -63,7 +65,7 @@ class PcrWorkflow
             'draft'       => ['president'],   // unpublish
             'qa_rating'   => ['qa'],
             'rated'       => ['qa'],
-            'final'       => ['qa', 'president'],
+            'final'       => ['hr'],
             'returned'    => ['qa'],
         ],
     ];
@@ -99,6 +101,7 @@ class PcrWorkflow
 
         $resolved = [];
         $map      = [];
+        $straightToQa = $form->type === 'ipcr' && self::headsUnitsUnderDifferentVps($rateeId);
 
         foreach (app(WorkflowSettings::class)->reviewStages() as $stage) {
             $status = $stage['status'] ?? '';
@@ -110,11 +113,16 @@ class PcrWorkflow
                 continue;
             }
 
-            $id = $source === 'unit_slot'
-                ? $notTheRatee($unit?->reviewerIdForSlotInChain($stage['slot'] ?? ''))
-                : $notTheRatee(
-                    User::where('role', $stage['role'] ?? '')->where('status', 'active')->value('id')
-                );
+            // A head of offices under two different VPs has no single VP to
+            // send their own form to. Those stages are left empty, so the
+            // form goes to QA. Their staff still reach them as head.
+            $id = $source === 'unit_slot' && $straightToQa
+                ? null
+                : ($source === 'unit_slot'
+                    ? $notTheRatee($unit?->reviewerIdForSlotInChain($stage['slot'] ?? ''))
+                    : $notTheRatee(
+                        User::where('role', $stage['role'] ?? '')->where('status', 'active')->value('id')
+                    ));
 
             $map[$status] = $id;
 
@@ -134,6 +142,32 @@ class PcrWorkflow
             'dean_reviewer_id' => null,
             'vp_reviewer_id'   => null,
         ];
+    }
+
+    /** True when this person is Head of units that report to two different VPs. */
+    private static function headsUnitsUnderDifferentVps(?int $rateeId): bool
+    {
+        if (! $rateeId) {
+            return false;
+        }
+
+        $vps = [];
+
+        $unitIds = OrgUnitReviewer::query()
+            ->where('user_id', $rateeId)
+            ->where('slot', 'head_user_id')
+            ->pluck('org_unit_id');
+
+        foreach ($unitIds as $unitId) {
+            $unit = OrgUnit::query()->find($unitId);
+            $vp   = $unit?->reviewerIdForSlotInChain('vp_user_id');
+
+            if ($vp && (int) $vp !== $rateeId) {
+                $vps[(int) $vp] = true;
+            }
+        }
+
+        return count($vps) >= 2;
     }
 
     /** Statuses an IPCR can stop at, in the order Setup saved them. */
@@ -335,12 +369,14 @@ class PcrWorkflow
                 'approved'    => $rules->opcr('approver_roles'),
                 'published',
                 'draft'       => $rules->opcr('publisher_roles'),
-                'qa_rating'   => $rules->opcr('rating_trigger_roles'),
+                'qa_rating'   => $from === 'rated'
+                    ? ['hr']
+                    : $rules->opcr('rating_trigger_roles'),
                 'rated'       => $rules->raterRoles(),
                 'returned'    => $from === 'qa_rating'
                     ? $rules->raterRoles()
                     : $rules->opcr('approver_roles'),
-                'final'       => array_values(array_unique([...$rules->raterRoles(), 'president'])),
+                'final'       => ['hr'],
                 default       => null,
             };
 
@@ -353,11 +389,79 @@ class PcrWorkflow
             return in_array($user->role, $rules->raterRoles(), true);
         }
 
+        if ($to === 'qa_rating' && $from === 'rated') {
+            return $user->role === 'hr';
+        }
+
         if ($type === 'ipcr' && $to === 'final') {
-            return in_array($user->role, array_values(array_unique([...$rules->raterRoles(), 'president'])), true);
+            return $user->role === 'hr';
         }
 
         return in_array($user->role, self::ACTOR_ROLES[$type][$to] ?? [], true);
+    }
+
+    /**
+     * Why this final IPCR cannot be appealed. Null when the owner may file.
+     * One appeal per close. A denial does not open a second one. A later
+     * close, after an upheld appeal is rated again, starts a new 15 days.
+     */
+    public static function appealBlock(PcrForm $form): ?string
+    {
+        if ($form->type !== 'ipcr' || $form->status !== 'final') {
+            return 'Only a final IPCR can be appealed.';
+        }
+
+        $close = self::latestClose($form);
+
+        if (! $close?->created_at) {
+            return 'This rating has no close date, so it cannot be appealed.';
+        }
+
+        if (self::appealAfter($form, $close)) {
+            return 'An appeal was already filed for this rating.';
+        }
+
+        if (now()->gt($close->created_at->copy()->addDays(15)->endOfDay())) {
+            return 'The 15 days to appeal this rating have passed.';
+        }
+
+        return null;
+    }
+
+    /**
+     * @return array{can_file: bool, deadline: ?string, reason: ?string}
+     */
+    public static function appealState(PcrForm $form): array
+    {
+        $close    = self::latestClose($form);
+        $deadline = $close?->created_at?->copy()->addDays(15)->endOfDay();
+        $filed    = $close ? self::appealAfter($form, $close) : null;
+
+        return [
+            'can_file' => $form->status === 'final' && $close && ! $filed && $deadline && now()->lte($deadline),
+            'deadline' => $deadline?->toDateString(),
+            'reason'   => $form->status === 'appeal' ? $filed?->note : null,
+        ];
+    }
+
+    private static function latestClose(PcrForm $form): ?PcrStatusLog
+    {
+        $form->loadMissing('statusLogs');
+
+        return $form->statusLogs
+            ->filter(fn (PcrStatusLog $log) => $log->to_status === 'final' && $log->from_status !== 'appeal')
+            ->sortByDesc('id')
+            ->first();
+    }
+
+    private static function appealAfter(PcrForm $form, PcrStatusLog $close): ?PcrStatusLog
+    {
+        return $form->statusLogs
+            ->filter(fn (PcrStatusLog $log) => $log->id > $close->id
+                && $log->from_status === 'final'
+                && $log->to_status === 'appeal')
+            ->sortByDesc('id')
+            ->first();
     }
 
     /**
@@ -646,8 +750,10 @@ class PcrWorkflow
     /**
      * Who approves this IPCR's commitments. QA and people named on the published
      * OPCR go to the president. Naming someone before the OPCR is published
-     * does not send the form to their VP instead. Everyone else goes to the
-     * person who handed them the work, then to the head named on their unit.
+     * does not send the form to their VP instead. A head of units under two
+     * different VPs is approved by the president. Everyone else goes to the person who
+     * handed them the work, then to the head named on their unit. When that head
+     * is the president, the president approves.
      */
     public static function commitmentApprover(PcrForm $form): ?User
     {
@@ -663,6 +769,12 @@ class PcrWorkflow
 
         if (self::namedOnOpcr($form, $owner)) {
             return null;
+        }
+
+        // A head under two VPs is not approved by either of them. The
+        // president approves the commitments. Rating still goes to QA.
+        if (self::headsUnitsUnderDifferentVps((int) $owner->id)) {
+            return User::where('role', 'president')->where('status', 'active')->first();
         }
 
         $assignerId = PcrTargetAssignment::query()
@@ -702,7 +814,7 @@ class PcrWorkflow
 
             $person = User::whereKey($id)->where('status', 'active')->first();
 
-            if ($person && $person->role !== 'president') {
+            if ($person) {
                 return $person;
             }
         }

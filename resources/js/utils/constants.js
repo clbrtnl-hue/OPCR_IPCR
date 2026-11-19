@@ -22,6 +22,7 @@ export const STATUS_META = {
     qa_rating: { label: "With QA", color: "purple", who: "Waiting for QA to rate" },
     rated: { label: "Rated", color: "cyan", who: "Rated by QA" },
     final: { label: "Final", color: "green", who: "Closed" },
+    appeal: { label: "Appeal", color: "gold", who: "Waiting for the President" },
     returned: { label: "Returned", color: "orange", who: "Sent back for correction" },
 };
 

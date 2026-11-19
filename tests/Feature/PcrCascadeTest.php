@@ -440,6 +440,9 @@ class PcrCascadeTest extends PmsTestCase
         $this->assertCount(1, $targets);
         $this->assertSame($line->id, $targets[0]['id']);
         $this->assertSame($head->name, $targets[0]['assigned_by_name']);
+        $this->assertSame($line->output_id, $targets[0]['output_id']);
+        $this->assertSame('Research', $targets[0]['output_name']);
+        $this->assertSame('ipcr', $targets[0]['source']);
 
         $picker = collect($this->getJson("/api/pcr-forms/{$facultyForm->id}/opcr-targets")->assertOk()->json());
         $this->assertTrue($picker->contains(fn ($row) => $row['id'] === $line->id && $row['assigned'] === true));

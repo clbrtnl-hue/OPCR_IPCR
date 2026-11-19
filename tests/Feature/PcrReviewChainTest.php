@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Models\Notification;
 use App\Models\OrgUnit;
 use App\Models\OrgUnitReviewer;
+use App\Models\PcrRating;
 use App\Models\User;
 use Tests\PmsTestCase;
 
@@ -89,6 +90,59 @@ class PcrReviewChainTest extends PmsTestCase
         $this->assertSame('qa_rating', $form->fresh()->status);
     }
 
+    public function test_scores_sent_on_stay_on_the_form_history(): void
+    {
+        ['office' => $office, 'year' => $year, 'period' => $period, 'faculty' => $faculty, 'head' => $head, 'vp' => $vp] = $this->college();
+
+        $form = $this->makeForm([
+            'org_unit_id' => $office->id, 'school_year_id' => $year->id, 'user_id' => $faculty->id,
+            'rating_period_id' => $period->id,
+        ]);
+
+        $this->submit($faculty, $form)->assertSuccessful();
+        $indicator = $form->indicators()->first();
+
+        $this->actingAsUser($head);
+        $this->postJson('/api/pcr-ratings', [
+            'form_id'          => $form->id,
+            'rating_period_id' => $period->id,
+            'ratings'          => [[
+                'indicator_id' => $indicator->id,
+                'q'            => 5,
+                'e'            => 4,
+                't'            => 3,
+                'remarks'      => '<p>Kept the publications on schedule.</p>',
+            ]],
+        ])->assertOk();
+        $this->postJson("/api/pcr-forms/{$form->id}/status", ['status' => 'vp_review'])->assertSuccessful();
+
+        $this->actingAsUser($vp);
+        $this->postJson('/api/pcr-ratings', [
+            'form_id'          => $form->id,
+            'rating_period_id' => $period->id,
+            'ratings'          => [['indicator_id' => $indicator->id, 'q' => 3, 'e' => 3, 't' => 3]],
+        ])->assertOk();
+        $this->postJson("/api/pcr-forms/{$form->id}/status", ['status' => 'qa_rating'])->assertSuccessful();
+
+        $this->assertSame(1, PcrRating::where('indicator_id', $indicator->id)->count());
+        $this->assertSame(3, PcrRating::where('indicator_id', $indicator->id)->value('q'));
+
+        $this->actingAsUser($faculty);
+        $events = collect($this->getJson("/api/pcr-forms/{$form->id}/history")->assertOk()->json('events'));
+
+        $fromHead = $events->first(fn ($event) => ($event['from'] ?? null) === 'head_review' && ($event['to'] ?? null) === 'vp_review');
+        $fromVp   = $events->first(fn ($event) => ($event['from'] ?? null) === 'vp_review' && ($event['to'] ?? null) === 'qa_rating');
+
+        $this->assertSame(5, $fromHead['scores'][0]['q']);
+        $this->assertSame(4, $fromHead['scores'][0]['e']);
+        $this->assertSame('Kept the publications on schedule.', $fromHead['scores'][0]['remarks']);
+        $this->assertSame($head->name, $fromHead['actor']);
+
+        $this->assertSame(3, $fromVp['scores'][0]['q']);
+        $this->assertSame($vp->name, $fromVp['actor']);
+        $this->assertArrayNotHasKey('remarks', $fromVp['scores'][0]);
+    }
+
     public function test_a_program_heads_own_ipcr_skips_the_head_stage(): void
     {
         ['office' => $office, 'year' => $year, 'head' => $head] = $this->college();
@@ -132,6 +186,87 @@ class PcrReviewChainTest extends PmsTestCase
         // The president reviews nothing — their queue stays empty.
         $this->actingAsUser($president);
         $this->assertSame([], $this->getJson('/api/pcr-forms?queue=1')->assertSuccessful()->json());
+    }
+
+    public function test_a_head_of_two_units_under_different_vps_goes_straight_to_qa(): void
+    {
+        $this->makeOrganization();
+
+        $college = $this->makeUnit(['name' => 'Opol Community College', 'code' => 'OCC', 'type' => 'college']);
+        $year    = $this->makeSchoolYear();
+        $this->makePeriod($year);
+        $sasVp   = User::factory()->create(['role' => 'vp']);
+        $afsVp   = User::factory()->create(['role' => 'vp']);
+        $head    = User::factory()->create(['role' => 'program_head']);
+
+        $sas = $this->makeUnit([
+            'name' => 'Student Affairs', 'code' => 'SAS', 'parent_id' => $college->id, 'vp_user_id' => $sasVp->id,
+        ]);
+        $afs = $this->makeUnit([
+            'name' => 'Admin and Finance', 'code' => 'AFS', 'parent_id' => $college->id, 'vp_user_id' => $afsVp->id,
+        ]);
+        $support = $this->makeUnit([
+            'name' => 'Information and Support', 'code' => 'ISS', 'parent_id' => $sas->id, 'head_user_id' => $head->id,
+        ]);
+        $maintenance = $this->makeUnit([
+            'name' => 'Information and Maintenance', 'code' => 'IMC', 'parent_id' => $afs->id, 'head_user_id' => $head->id,
+        ]);
+        $head->update(['org_unit_id' => $support->id]);
+
+        $staffA = User::factory()->create(['role' => 'employee', 'org_unit_id' => $support->id]);
+        $staffB = User::factory()->create(['role' => 'employee', 'org_unit_id' => $maintenance->id]);
+
+        $own = $this->makeForm([
+            'org_unit_id' => $support->id, 'school_year_id' => $year->id, 'user_id' => $head->id,
+        ]);
+        $this->submit($head, $own)->assertSuccessful();
+        $this->assertSame('qa_rating', $own->fresh()->status);
+        $this->assertNull($own->fresh()->head_reviewer_id);
+        $this->assertNull($own->fresh()->vp_reviewer_id);
+
+        $formA = $this->makeForm([
+            'org_unit_id' => $support->id, 'school_year_id' => $year->id, 'user_id' => $staffA->id,
+        ]);
+        $this->submit($staffA, $formA)->assertSuccessful();
+        $this->assertSame('head_review', $formA->fresh()->status);
+        $this->assertSame($head->id, $formA->fresh()->head_reviewer_id);
+
+        $formB = $this->makeForm([
+            'org_unit_id' => $maintenance->id, 'school_year_id' => $year->id, 'user_id' => $staffB->id,
+        ]);
+        $this->submit($staffB, $formB)->assertSuccessful();
+        $this->assertSame('head_review', $formB->fresh()->status);
+        $this->assertSame($head->id, $formB->fresh()->head_reviewer_id);
+    }
+
+    public function test_a_head_of_two_units_under_the_same_vp_still_goes_to_that_vp(): void
+    {
+        $this->makeOrganization();
+
+        $college = $this->makeUnit(['name' => 'Opol Community College', 'code' => 'OCC2', 'type' => 'college']);
+        $year    = $this->makeSchoolYear();
+        $this->makePeriod($year);
+        $vp      = User::factory()->create(['role' => 'vp']);
+        $head    = User::factory()->create(['role' => 'program_head']);
+
+        $service = $this->makeUnit([
+            'name' => 'Student Affairs', 'code' => 'SAS2', 'parent_id' => $college->id, 'vp_user_id' => $vp->id,
+        ]);
+        $one = $this->makeUnit([
+            'name' => 'Guidance', 'code' => 'GCS', 'parent_id' => $service->id, 'head_user_id' => $head->id,
+        ]);
+        $this->makeUnit([
+            'name' => 'Library', 'code' => 'LIB', 'parent_id' => $service->id, 'head_user_id' => $head->id,
+        ]);
+        $head->update(['org_unit_id' => $one->id]);
+
+        $form = $this->makeForm([
+            'org_unit_id' => $one->id, 'school_year_id' => $year->id, 'user_id' => $head->id,
+        ]);
+
+        $this->submit($head, $form)->assertSuccessful();
+        $this->assertSame('vp_review', $form->fresh()->status);
+        $this->assertSame($vp->id, $form->fresh()->vp_reviewer_id);
     }
 
     public function test_it_appears_in_the_reviewers_queue(): void
@@ -576,7 +711,13 @@ class PcrReviewChainTest extends PmsTestCase
         $this->assertSame('director_review', $form->fresh()->status);
 
         $this->actingAsUser($director);
-        $this->getJson('/api/pcr-forms?queue=1')->assertSuccessful()->assertJsonPath('0.id', $form->id);
+        $arrived = $form->statusLogs()->where('to_status', 'director_review')->latest('id')->value('created_at');
+        $queue = $this->getJson('/api/pcr-forms?queue=1')->assertSuccessful();
+        $queue->assertJsonPath('0.id', $form->id);
+        $this->assertSame(
+            $arrived->format('Y-m-d H:i:s'),
+            \Illuminate\Support\Carbon::parse($queue->json('0.stage_arrived_at'))->format('Y-m-d H:i:s')
+        );
         $this->postJson("/api/pcr-forms/{$form->id}/status", ['status' => 'qa_rating'])->assertSuccessful();
         $this->assertSame('vp_review', $form->fresh()->status);
     }

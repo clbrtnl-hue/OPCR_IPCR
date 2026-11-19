@@ -11,6 +11,7 @@ import FormCards from "~/components/FormCards";
 import FormListFilters, { matchesListKind } from "~/components/FormListFilters";
 import { useAuth } from "~/hooks/useAuth";
 import RatingPage, { scoreable } from "~/pages/RatingPage";
+import CommitmentPage from "~/pages/CommitmentPage";
 
 function QueueList({ rows, loading, empty, columns, onOpen, filters }) {
     return (
@@ -44,10 +45,18 @@ export default function ReviewQueuePage() {
     const [searchParams, setSearchParams] = useSearchParams();
     const { user } = useAuth();
     const viewOnly = user?.role === "admin";
+    const isQa = user?.role === "qa";
     const monitors = ["admin", "qa", "hr"].includes(user?.role);
     const seesRating = user?.role !== "president";
     const periodId = Number(searchParams.get("period")) || null;
-    const tab = seesRating && searchParams.get("tab") === "rating" ? "rating" : "approval";
+    const requested = searchParams.get("tab");
+    const tab = !seesRating
+        ? "approval"
+        : requested === "rating"
+          ? "rating"
+          : requested === "viewing" && isQa
+            ? "viewing"
+            : "approval";
     const [formKind, setFormKind] = useState("all");
     const [statusKind, setStatusKind] = useState("all");
 
@@ -85,10 +94,10 @@ export default function ReviewQueuePage() {
     const selectTab = (key) => {
         const next = new URLSearchParams(searchParams);
 
-        if (key === "rating") {
-            next.set("tab", "rating");
-        } else {
+        if (key === "approval") {
             next.delete("tab");
+        } else {
+            next.set("tab", key);
         }
 
         setSearchParams(next, { replace: true });
@@ -158,17 +167,19 @@ export default function ReviewQueuePage() {
                 ? "Forms the heads have endorsed and that are waiting for your review."
                 : "Forms your unit has submitted and that are waiting for your review.";
 
-    const ratingSubtitle = !monitors
+    const scoresHere = !monitors || isQa || user?.role === "hr";
+    const ratingSubtitle = scoresHere
         ? `Score each success indicator on ${dimensionPhrase(user)}. A is their average; the final rating is the mean of the section averages.`
         : viewOnly
           ? "Forms in review or with QA. Open one to read the scores."
-          : user?.role === "hr"
-            ? "Forms in review or with QA. Open one to read it, or to score it when it is waiting on you."
-            : "Forms in review or with QA, and rated forms that still need closing. Open one to score it, or to close it once it is rated.";
+          : "Forms in review or with QA. Open one to read it, or to score it when it is waiting on you.";
+    const viewingSubtitle = "Forms in review or with QA. Open one to read it.";
+    const subtitle = tab === "viewing" ? viewingSubtitle : tab === "rating" ? ratingSubtitle : approvalSubtitle;
+    const showingList = tab === "viewing" || (tab === "rating" && monitors && !isQa && user?.role !== "hr");
 
     return (
         <>
-            <PageHeader title="Review Queue" subtitle={tab === "rating" ? ratingSubtitle : approvalSubtitle} />
+            <PageHeader title="Review Queue" subtitle={subtitle} />
 
             {seesRating && (
                 <Tabs
@@ -178,28 +189,31 @@ export default function ReviewQueuePage() {
                     style={{ marginBottom: 16 }}
                     items={[
                         { key: "approval", label: "Commitment approval" },
+                        ...(isQa ? [{ key: "viewing", label: "Viewing" }] : []),
                         { key: "rating", label: "Rating" },
                     ]}
                 />
             )}
 
-            {tab === "rating" && !monitors ? (
+            {tab === "rating" && scoresHere ? (
                 <RatingPage embedded periodFilter={periodId} />
+            ) : tab === "approval" && !viewOnly ? (
+                <CommitmentPage periodFilter={periodId} />
             ) : (
                 <QueueList
-                    rows={tab === "rating" ? visibleRating : approvalRows}
+                    rows={showingList ? visibleRating : approvalRows}
                     loading={tab === "rating" && viewOnly ? ratingLoading : isLoading}
                     empty={
-                        tab === "rating" && ratingRows.length > 0
+                        showingList && ratingRows.length > 0
                             ? "No forms match this filter."
-                            : tab === "rating"
+                            : showingList
                               ? "Nothing is waiting to be rated or closed."
                               : "Nothing is waiting for approval."
                     }
                     columns={columns}
                     onOpen={openForm}
                     filters={
-                        tab === "rating" && monitors ? (
+                        showingList && monitors ? (
                             <FormListFilters
                                 rows={ratingRows}
                                 formKind={activeFormKind}

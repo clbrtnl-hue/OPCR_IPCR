@@ -13,9 +13,11 @@ import WorkflowPage from "~/pages/admin/WorkflowPage";
 import MyFormsPage from "~/pages/MyFormsPage";
 import MyIpcrPage from "~/pages/MyIpcrPage";
 import MyTeamPage from "~/pages/MyTeamPage";
+import AttendancePage from "~/pages/AttendancePage";
 import FormEditorPage from "~/pages/FormEditorPage";
 import ReviewQueuePage from "~/pages/ReviewQueuePage";
 import ReportsPage from "~/pages/ReportsPage";
+import ClosingPage from "~/pages/ClosingPage";
 import PrintFormPage from "~/pages/PrintFormPage";
 import AuditLogPage from "~/pages/admin/AuditLogPage";
 import ProfilePage from "~/pages/ProfilePage";
@@ -72,6 +74,7 @@ export default function AppRoutes() {
                                     }
                                 />
                                 <Route path="/my-team" element={<MyTeamPage />} />
+                                <Route path="/attendance" element={<AttendancePage />} />
                                 <Route path="/profile" element={<ProfilePage />} />
                                 <Route path="/forms/:id" element={<FormEditorPage />} />
                                 <Route
@@ -84,6 +87,14 @@ export default function AppRoutes() {
                                 />
                                 <Route path="/rating" element={<Navigate to="/review-queue?tab=rating" replace />} />
                                 <Route path="/notifications" element={<NotificationsPage />} />
+                                <Route
+                                    path="/closing"
+                                    element={
+                                        <Protected roles={["hr"]}>
+                                            <ClosingPage />
+                                        </Protected>
+                                    }
+                                />
                                 <Route
                                     path="/reports"
                                     element={

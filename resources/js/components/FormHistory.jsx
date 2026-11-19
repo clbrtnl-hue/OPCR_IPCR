@@ -31,6 +31,20 @@ const KIND_META = {
 
 const PAGE = 40;
 
+const DIMENSIONS = { q: "Q", e: "E", t: "T" };
+
+function scoreText(score) {
+    const parts = Object.entries(DIMENSIONS)
+        .filter(([key]) => score[key] != null && score[key] !== "")
+        .map(([key, label]) => `${label} ${score[key]}`);
+
+    if (score.a != null && score.a !== "") {
+        parts.push(`A ${Number(score.a).toFixed(2)}`);
+    }
+
+    return parts.join(" · ");
+}
+
 function titleFor(event) {
     if (event.kind === "movement") {
         return STATUS_META[event.to]?.label ?? event.to;
@@ -166,6 +180,28 @@ export default function FormHistory({ formId }) {
                     {event.detail && (
                         <div className="pms-history-detail">
                             {event.kind === "delegation" ? `Assigned to ${event.detail}` : event.detail}
+                        </div>
+                    )}
+
+                    {event.kind === "movement" && event.scores?.length > 0 && (
+                        <div className="pms-history-scores">
+                            <div className="pms-history-scores-label">Scores sent on</div>
+                            {event.scores.map((score) => (
+                                <div key={score.indicator_id} className="pms-history-score">
+                                    {score.output && <div className="pms-history-score-output">{score.output}</div>}
+                                    {score.line && (
+                                        <Typography.Paragraph
+                                            type="secondary"
+                                            ellipsis={{ rows: 2, tooltip: score.line }}
+                                            style={{ fontSize: 12, margin: 0 }}
+                                        >
+                                            {score.line}
+                                        </Typography.Paragraph>
+                                    )}
+                                    <strong>{scoreText(score)}</strong>
+                                    {score.remarks && <div className="pms-history-detail">{score.remarks}</div>}
+                                </div>
+                            ))}
                         </div>
                     )}
 

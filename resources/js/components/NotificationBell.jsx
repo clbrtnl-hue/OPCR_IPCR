@@ -1,6 +1,7 @@
 import React, { useState } from "react";
-import { Badge, Button, Empty, Popover, Typography } from "antd";
+import { Badge, Button, Empty, Popover, Typography, message } from "antd";
 import NavIcon from "~/components/NavIcon";
+import { DeleteOutlined } from "@ant-design/icons";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import dayjs from "dayjs";
@@ -37,6 +38,14 @@ export default function NotificationBell() {
         onSuccess: invalidate,
     });
 
+    const trash = useMutation({
+        mutationFn: (id) => api.post(`notifications/${id}/trash`),
+        onSuccess: () => {
+            message.success("Moved to Trash. You can restore it for 30 days.");
+            invalidate();
+        },
+    });
+
     const openItem = (item) => {
         if (!item.read_at) {
             markRead.mutate(item.id);
@@ -70,11 +79,21 @@ export default function NotificationBell() {
                         const meta = notificationMeta(item.type);
 
                         return (
-                            <button
+                            <div
                                 key={item.id}
-                                type="button"
+                                role="button"
+                                tabIndex={0}
                                 className={item.read_at ? "pms-note" : "pms-note is-unread"}
                                 onClick={() => openItem(item)}
+                                onKeyDown={(event) => {
+                                    if (event.target !== event.currentTarget) {
+                                        return;
+                                    }
+                                    if (event.key === "Enter" || event.key === " ") {
+                                        event.preventDefault();
+                                        openItem(item);
+                                    }
+                                }}
                             >
                                 <span className="pms-note-icon" style={{ color: meta.color }}>
                                     {meta.icon}
@@ -88,7 +107,19 @@ export default function NotificationBell() {
                                     </span>
                                 </span>
                                 {!item.read_at && <span className="pms-note-dot" />}
-                            </button>
+                                <Button
+                                    type="text"
+                                    className="pms-note-action"
+                                    icon={<DeleteOutlined />}
+                                    aria-label="Move notification to Trash"
+                                    title="Move to Trash"
+                                    loading={trash.isPending && trash.variables === item.id}
+                                    onClick={(event) => {
+                                        event.stopPropagation();
+                                        trash.mutate(item.id);
+                                    }}
+                                />
+                            </div>
                         );
                     })}
                 </div>

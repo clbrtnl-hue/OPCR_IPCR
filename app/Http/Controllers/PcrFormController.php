@@ -3,6 +3,9 @@
 namespace App\Http\Controllers;
 
 use App\Models\ActivityLog;
+use App\Models\AttendanceDay;
+use App\Models\AttendanceMeeting;
+use App\Models\AttendanceRate;
 use App\Models\Notification;
 use App\Models\OrgUnit;
 use App\Models\PcrAttachment;
@@ -17,6 +20,7 @@ use App\Models\RatingPeriod;
 use App\Models\PcrStatusLog;
 use App\Models\PcrTargetAssignment;
 use App\Models\User;
+use App\Services\HrClosing;
 use App\Services\IndicatorProgressService;
 use App\Services\PcrWorkflow;
 use App\Services\WorkflowSettings;
@@ -86,6 +90,17 @@ class PcrFormController extends Controller
             $this->scopeToOwner($query, $user);
         } else {
             $this->scopeToViewer($query, $user, $request->boolean('queue'));
+        }
+
+        // When this form reached the stage it is in now. The rater's screen
+        // opens the earliest arrival first.
+        if ($request->boolean('queue')) {
+            $query->withMax([
+                'statusLogs as stage_arrived_at' => fn ($logs) => $logs->whereColumn(
+                    'pcr_status_logs.to_status',
+                    'pcr_forms.status'
+                ),
+            ], 'created_at');
         }
 
         return response()->json($query->get());
@@ -178,7 +193,12 @@ class PcrFormController extends Controller
             $payload['office_head'] = $head?->only(['id', 'name', 'position_title']);
         }
 
+        if ($form->type === 'ipcr') {
+            $payload['appeal'] = PcrWorkflow::appealState($form);
+        }
+
         $payload['return_marks'] = $this->openReturnMarks($form);
+        $this->attachAttendance($form, $payload);
 
         return response()->json($payload);
     }
@@ -629,6 +649,21 @@ class PcrFormController extends Controller
             return response()->json(['message' => 'You do not have access to this form.'], 403);
         }
 
+        $isAppeal = $form->type === 'ipcr' && $from === 'final' && $to === 'appeal';
+        $isAppealDecision = $form->type === 'ipcr' && $from === 'appeal' && in_array($to, ['qa_rating', 'final'], true);
+
+        if ($isAppeal && ! PcrWorkflow::owns($user, $form)) {
+            return response()->json(['message' => 'Only the owner of this IPCR can appeal it.'], 403);
+        }
+
+        if ($isAppeal && $message = PcrWorkflow::appealBlock($form)) {
+            return response()->json(['message' => $message], 422);
+        }
+
+        if ($isAppealDecision && $user->role !== 'president') {
+            return response()->json(['message' => 'The President decides an appeal.'], 403);
+        }
+
         $isOwnerSubmission = false;
 
         // On submission the destination is computed from the hierarchy, never
@@ -666,6 +701,8 @@ class PcrFormController extends Controller
                     'message' => 'This form is waiting for somebody else to review it.',
                 ], 403);
             }
+        } elseif ($isAppeal || $isAppealDecision) {
+            // The owner files. The President upholds or denies.
         } elseif (! PcrWorkflow::actorMayMoveTo($user, $form->type, $to, $from)) {
             return response()->json([
                 'message' => "Your role cannot move a form to {$to}.",
@@ -758,6 +795,12 @@ class PcrFormController extends Controller
             ], 422);
         }
 
+        if ($to === 'final' && $form->type === 'ipcr' && ! $isAppealDecision) {
+            if ($message = app(HrClosing::class)->blockOffice((int) $form->org_unit_id, (int) $form->school_year_id)) {
+                return response()->json(['message' => $message], 422);
+            }
+        }
+
         $fixes = [];
 
         // Approval returns name the target cells. A return from review or
@@ -777,6 +820,14 @@ class PcrFormController extends Controller
         if ($to === 'returned' && Html::isBlank($data['note'])) {
             return response()->json([
                 'message' => 'Say what needs fixing before returning the form.',
+            ], 422);
+        }
+
+        if (($isAppeal || $isAppealDecision) && Html::isBlank($data['note'])) {
+            return response()->json([
+                'message' => $isAppeal
+                    ? 'Say why this rating should be reviewed.'
+                    : 'Say why you upheld or denied the appeal.',
             ], 422);
         }
 
@@ -804,6 +855,16 @@ class PcrFormController extends Controller
             }
             $log = PcrStatusLog::record($form->id, $from, $to, Html::toText($data['note'] ?? null) ?: null);
 
+            // The live score stays one row. This keeps what this person sent on,
+            // so a later rater can replace the numbers without erasing them.
+            if ($log && $this->keepsRatingRecord($form, $from, $to)) {
+                $scores = $this->ratingSnapshot($form);
+
+                if ($scores !== []) {
+                    $log->update(['scores' => $scores]);
+                }
+            }
+
             if ($log && $fixes) {
                 foreach ($fixes as $fix) {
                     PcrReturnMark::create([
@@ -828,6 +889,49 @@ class PcrFormController extends Controller
         $this->notifyTransition($form, $from, $to, $data['note'] ?? null, $fixes);
 
         return response()->json(['data' => 'updated', 'form' => $form->fresh()]);
+    }
+
+    /**
+     * Recorded attendance for the person on this form. The percentage is
+     * evidence, and it carries a suggested score. Saving a rating is still
+     * the rater's act: this does not write Q, E, or T.
+     *
+     * @param  array<string, mixed>  $payload
+     */
+    private function attachAttendance(PcrForm $form, array &$payload): void
+    {
+        $outputs = $payload['outputs'] ?? [];
+
+        foreach ($outputs as &$output) {
+            $output['attendance_category'] = ($output['section'] ?? null) === 'support'
+                ? AttendanceMeeting::categoryForTitle($output['title'] ?? null)
+                : null;
+        }
+        unset($output);
+
+        $payload['outputs'] = $outputs;
+
+        $periodIds = $form->schoolYear?->periods?->pluck('id')->all() ?? [];
+        $attendance = [];
+
+        if ($form->user_id) {
+            foreach ($periodIds as $periodId) {
+                AttendanceRate::remember((int) $form->user_id, (int) $periodId);
+                $rates = array_merge(
+                    ['daily' => AttendanceDay::rateFor((int) $form->user_id, (int) $periodId)],
+                    AttendanceMeeting::ratesFor((int) $form->user_id, (int) $periodId),
+                );
+
+                foreach ($rates as &$rate) {
+                    $rate['suggested'] = AttendanceRate::suggestedScore($rate['pct'] ?? null);
+                }
+                unset($rate);
+
+                $attendance[$periodId] = $rates;
+            }
+        }
+
+        $payload['attendance'] = $attendance ?: (object) [];
     }
 
     /**
@@ -1009,6 +1113,62 @@ class PcrFormController extends Controller
         $label   = strtoupper($form->type);
         $subject = $form->owner?->name ?? $form->orgUnit?->name;
 
+        if ($to === 'appeal') {
+            Notification::sendMany(
+                $this->usersWithRoles(['president']),
+                'appeal',
+                "An IPCR appeal from {$subject} needs your decision",
+                $note,
+                $form->id,
+                '/review-queue'
+            );
+            Notification::sendMany(
+                $this->usersWithRoles(['hr']),
+                'appeal',
+                "{$subject} appealed a final IPCR",
+                $note,
+                $form->id
+            );
+
+            return;
+        }
+
+        if ($from === 'appeal' && $to === 'final') {
+            Notification::send(
+                $form->user_id,
+                'appeal',
+                'Your appeal was denied',
+                $note ?? 'The rating stays final.',
+                $form->id
+            );
+            Notification::sendMany(
+                $this->usersWithRoles(['hr']),
+                'appeal',
+                "{$subject}'s appeal was denied",
+                $note,
+                $form->id
+            );
+
+            return;
+        }
+
+        if ($from === 'appeal' && $to === 'qa_rating') {
+            Notification::send(
+                $form->user_id,
+                'appeal',
+                'Your appeal was upheld',
+                'QA will rate this IPCR again.',
+                $form->id
+            );
+            Notification::sendMany(
+                $this->usersWithRoles(['hr']),
+                'appeal',
+                "{$subject}'s appeal was upheld",
+                'It is back with QA. The other forms in the office stay closed.',
+                $form->id
+            );
+        }
+
         if ($to === 'commitment_review') {
             Notification::send(
                 $form->commitment_approver_id,
@@ -1129,11 +1289,22 @@ class PcrFormController extends Controller
         }
 
         if ($to === 'qa_rating') {
+            $sentBack = $from === 'rated';
+            $upheld   = $from === 'appeal';
+
             Notification::sendMany(
                 $this->usersWithRoles(app(WorkflowSettings::class)->raterRoles()),
                 'rating',
-                "{$label} from {$subject} is ready for rating",
-                'It is waiting for a rating.',
+                $upheld
+                    ? "{$label} from {$subject} needs to be rated again"
+                    : ($sentBack
+                        ? "{$label} from {$subject} needs the rating adjusted"
+                        : "{$label} from {$subject} is ready for rating"),
+                $upheld
+                    ? 'The President upheld the appeal. Rate it again.'
+                    : ($sentBack
+                        ? 'The office average is above the college OPCR. It is back in your queue.'
+                        : 'It is waiting for a rating.'),
                 $form->id
             );
 
@@ -1299,7 +1470,7 @@ class PcrFormController extends Controller
         $events       = [];
 
         foreach (PcrStatusLog::where('form_id', $form->id)->get() as $log) {
-            $events[] = [
+            $event = [
                 'kind'   => 'movement',
                 'at'     => $log->created_at,
                 'actor'  => $log->performed_by_name,
@@ -1307,6 +1478,12 @@ class PcrFormController extends Controller
                 'to'     => $log->to_status,
                 'detail' => $log->note,
             ];
+
+            if (is_array($log->scores) && $log->scores !== []) {
+                $event['scores'] = $log->scores;
+            }
+
+            $events[] = $event;
         }
 
         foreach (PcrComment::where('form_id', $form->id)->get() as $comment) {
@@ -1795,7 +1972,10 @@ class PcrFormController extends Controller
                 'id'               => $assignment->indicator_id,
                 'assignment_id'    => $assignment->id,
                 'section'          => $assignment->indicator->output->section,
+                'output_id'        => $assignment->indicator->output_id,
+                'output_name'      => $assignment->indicator->output->title,
                 'output_title'     => $this->outputPath($assignment->indicator->output),
+                'source'           => $assignment->indicator->output->form->type,
                 'description'      => $assignment->indicator->description,
                 'assigned_by_name' => $assignment->assigned_by_name,
             ])
@@ -1940,6 +2120,65 @@ class PcrFormController extends Controller
         return "{$name} still needs a narrative and two files.";
     }
 
+    /** Head, dean, director, and VP scores are a record of what they sent on. */
+    private function keepsRatingRecord(PcrForm $form, string $from, string $to): bool
+    {
+        return $form->type === 'ipcr'
+            && in_array($from, ['head_review', 'dean_review', 'director_review', 'vp_review'], true)
+            && $to !== 'returned';
+    }
+
+    /** The Q, E, and T on the form at the moment it is sent to the next person. */
+    private function ratingSnapshot(PcrForm $form): array
+    {
+        $dimensions = app(WorkflowSettings::class)->ratingDimensionKeys();
+
+        return PcrIndicator::query()
+            ->whereHas('output', fn ($query) => $query->where('form_id', $form->id))
+            ->with([
+                'output:id,title',
+                'ratings' => function ($query) use ($form) {
+                    if ($form->rating_period_id) {
+                        $query->where('rating_period_id', $form->rating_period_id);
+                    }
+
+                    $query->orderByDesc('updated_at');
+                },
+            ])
+            ->orderBy('id')
+            ->get()
+            ->map(function (PcrIndicator $indicator) use ($dimensions) {
+                $rating = $indicator->ratings->first();
+
+                if (! $rating) {
+                    return null;
+                }
+
+                $row = [
+                    'indicator_id' => $indicator->id,
+                    'output'       => $indicator->output?->title,
+                    'line'         => Html::toText($indicator->description),
+                ];
+
+                foreach ($dimensions as $dimension) {
+                    $row[$dimension] = $rating->{$dimension};
+                }
+
+                $row['a'] = $rating->a !== null ? round((float) $rating->a, 2) : null;
+
+                $remarks = Html::toText($rating->remarks);
+
+                if ($remarks !== '') {
+                    $row['remarks'] = $remarks;
+                }
+
+                return $row;
+            })
+            ->filter()
+            ->values()
+            ->all();
+    }
+
     private function hasUnratedLines(PcrForm $form): bool
     {
         $ids = PcrIndicator::query()
@@ -2072,6 +2311,8 @@ class PcrFormController extends Controller
                     if ($extra !== []) {
                         $q->orWhereIn('status', $extra);
                     }
+
+                    $q->orWhere('status', 'appeal');
                 });
 
                 return;
@@ -2081,8 +2322,6 @@ class PcrFormController extends Controller
                 $rules    = app(WorkflowSettings::class);
                 $waiting  = array_values(array_filter([
                     $rules->isRater('qa') ? 'qa_rating' : null,
-                    // Rated, but not closed. It leaves the queue only at final.
-                    $rules->isRater('qa') ? 'rated' : null,
                     in_array('qa', $rules->opcr('approver_roles'), true) ? 'qa_approval' : null,
                 ]));
 
@@ -2108,7 +2347,6 @@ class PcrFormController extends Controller
             if ($rates || $approves) {
                 $waiting = array_values(array_filter([
                     $rates ? 'qa_rating' : null,
-                    $rates ? 'rated' : null,
                     $approves ? 'qa_approval' : null,
                 ]));
 

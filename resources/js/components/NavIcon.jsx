@@ -38,6 +38,13 @@ const ICONS = {
             <path d="M9 8.5h6M9 12.5h6M9 16.5h4" />
         </>
     ),
+    attendance: (
+        <>
+            <rect x="6" y="3.5" width="12" height="17" rx="1.6" />
+            <path d="M9 3.5h6v2.2H9z" />
+            <path d="m8.8 13.2 2.2 2.2 4.2-4.4" />
+        </>
+    ),
     team: (
         <>
             <path d="M16 20v-1.2A2.8 2.8 0 0 0 13.2 16H6.8A2.8 2.8 0 0 0 4 18.8V20" />
@@ -120,6 +127,7 @@ const ICONS = {
         </>
     ),
     menu: <path d="M4 7h16M4 12h16M4 17h16" />,
+    back: <path d="M15 5.5 8.5 12 15 18.5" />,
     setup: (
         <>
             <circle cx="12" cy="12" r="3" />

@@ -5,6 +5,7 @@ import {
     Card,
     DatePicker,
     Drawer,
+    Empty,
     Form,
     Input,
     Popconfirm,
@@ -35,6 +36,7 @@ export default function SchoolYearsPage() {
     const queryClient = useQueryClient();
     const [form] = Form.useForm();
     const [open, setOpen] = useState(false);
+    const [openIds, setOpenIds] = useState(null);
 
     const { data: years = [], isLoading } = useQuery({
         queryKey: ["school-years"],
@@ -85,38 +87,114 @@ export default function SchoolYearsPage() {
         },
     });
 
-    const columns = [
+    const periodColumns = [
         {
-            title: "School year",
+            title: "Review point",
             dataIndex: "label",
-            render: (label, record) => (
+            width: "25%",
+            render: (label, period) => (
                 <Space>
-                    <strong>{label}</strong>
-                    {record.is_active && (
-                        <Tag color="green" icon={<CheckCircleOutlined />}>
-                            Active
+                    {label}
+                    {Boolean(period.is_active) && <Tag color="green">Active</Tag>}
+                    {Boolean(period.is_locked) && (
+                        <Tag color="red" icon={<LockOutlined />}>
+                            Locked
                         </Tag>
                     )}
                 </Space>
             ),
         },
         {
-            title: "Covers",
-            key: "range",
-            render: (_, record) =>
-                `${dayjs(record.start_date).format("MMM D, YYYY")} – ${dayjs(record.end_date).format("MMM D, YYYY")}`,
+            title: "Window",
+            key: "window",
+            width: "25%",
+            render: (_, period) =>
+                period.opens_at
+                    ? `${dayjs(period.opens_at).format("MMM D, YYYY")} – ${dayjs(period.closes_at).format("MMM D, YYYY")}`
+                    : "Not scheduled",
+        },
+        {
+            title: "Status",
+            key: "status",
+            width: "25%",
+            render: (_, period) => (
+                <Segmented
+                    size="small"
+                    value={period.status}
+                    options={PERIOD_STATUS}
+                    onChange={(status) => setPeriodStatus.mutate({ id: period.id, status })}
+                />
+            ),
         },
         {
             title: "",
             key: "actions",
-            render: (_, record) =>
-                record.is_active ? null : (
-                    <Button size="small" onClick={() => activateYear.mutate(record.id)}>
-                        Set as active
-                    </Button>
-                ),
+            align: "right",
+            width: "25%",
+            render: (_, period) => (
+                <Space>
+                    <Popconfirm
+                        title={period.is_locked ? "Unlock this period?" : "Lock this period?"}
+                        description={
+                            period.is_locked
+                                ? "People will be able to edit and upload again."
+                                : "Everyone will be view-only — no edits, accomplishments, evidence or ratings — until you unlock it."
+                        }
+                        onConfirm={() =>
+                            setPeriodLock.mutate({
+                                id: period.id,
+                                locked: !period.is_locked,
+                            })
+                        }
+                    >
+                        <Button
+                            size="small"
+                            danger={!period.is_locked}
+                            icon={period.is_locked ? <UnlockOutlined /> : <LockOutlined />}
+                        >
+                            {period.is_locked ? "Unlock" : "Lock"}
+                        </Button>
+                    </Popconfirm>
+                    {!period.is_active && (
+                        <Button size="small" onClick={() => activatePeriod.mutate(period.id)}>
+                            Set as active
+                        </Button>
+                    )}
+                </Space>
+            ),
         },
     ];
+
+    const yearIsOpen = (year) => {
+        if (openIds) {
+            return openIds.has(year.id);
+        }
+
+        if (years.some((row) => row.is_active)) {
+            return Boolean(year.is_active);
+        }
+
+        return year.id === years[0]?.id;
+    };
+
+    const toggleYear = (year) => {
+        setOpenIds((current) => {
+            const next = new Set(
+                current ??
+                    years
+                        .filter((row) => (years.some((item) => item.is_active) ? row.is_active : row.id === years[0]?.id))
+                        .map((row) => row.id)
+            );
+
+            if (next.has(year.id)) {
+                next.delete(year.id);
+            } else {
+                next.add(year.id);
+            }
+
+            return next;
+        });
+    };
 
     return (
         <>
@@ -139,30 +217,44 @@ export default function SchoolYearsPage() {
             />
 
             <Card className="pms-list-panel">
-                <div className="pms-mobile-only pms-pds-cards">
-                    {years.map((record) => (
-                        <article key={record.id} className="pms-pds-card">
-                            <div className="pms-pds-line">
-                                <span>Year</span>
-                                <strong>
-                                    {record.label}
-                                    {record.is_active ? " · Active" : ""}
-                                </strong>
-                            </div>
-                            <div className="pms-pds-line">
-                                <span>Covers</span>
-                                <strong>
-                                    {dayjs(record.start_date).format("MMM D, YYYY")} –{" "}
-                                    {dayjs(record.end_date).format("MMM D, YYYY")}
-                                </strong>
-                            </div>
-                            {!record.is_active && (
-                                <div className="pms-pds-actions">
-                                    <Button size="small" onClick={() => activateYear.mutate(record.id)}>
-                                        Set as active
-                                    </Button>
-                                </div>
+            {!isLoading && years.length === 0 && <Empty description="No school years yet." />}
+
+            {years.map((record) => {
+                const expanded = yearIsOpen(record);
+
+                return (
+                <section key={record.id} className="pms-year-row">
+                    <div className="pms-year-row-head">
+                        <div className="pms-year-row-lead">
+                            <button
+                                type="button"
+                                className={`pms-year-expand${expanded ? " is-open" : ""}`}
+                                aria-expanded={expanded}
+                                aria-label={expanded ? "Minimize" : "Expand"}
+                                onClick={() => toggleYear(record)}
+                            />
+                            <strong>{record.label}</strong>
+                            {record.is_active && (
+                                <Tag color="green" icon={<CheckCircleOutlined />}>
+                                    Active
+                                </Tag>
                             )}
+                        </div>
+                        <span className="pms-year-row-dates">
+                            {dayjs(record.start_date).format("MMM D, YYYY")} –{" "}
+                            {dayjs(record.end_date).format("MMM D, YYYY")}
+                        </span>
+                        <span className="pms-year-row-action">
+                            {!record.is_active && (
+                                <Button size="small" onClick={() => activateYear.mutate(record.id)}>
+                                    Set as active
+                                </Button>
+                            )}
+                        </span>
+                    </div>
+                    {expanded && (
+                    <>
+                <div className="pms-mobile-only pms-pds-cards">
                             {(record.periods ?? []).map((period) => (
                                 <div key={period.id} className="pms-admin-period">
                                     <div className="pms-pds-line">
@@ -219,113 +311,24 @@ export default function SchoolYearsPage() {
                                     </div>
                                 </div>
                             ))}
-                        </article>
-                    ))}
                 </div>
                 <div className="pms-desktop-only">
-                <Table
-                    rowKey="id"
-                    loading={isLoading}
-                    dataSource={years}
-                    columns={columns}
-                    pagination={false}
-                    expandable={{
-                        defaultExpandAllRows: true,
-                        expandedRowRender: (record) => (
-                            <Table
-                                rowKey="id"
-                                size="small"
-                                pagination={false}
-                                dataSource={record.periods}
-                                columns={[
-                                    {
-                                        title: "Review point",
-                                        dataIndex: "label",
-                                        render: (label, period) => (
-                                            <Space>
-                                                {label}
-                                                {Boolean(period.is_active) && <Tag color="green">Active</Tag>}
-                                                {Boolean(period.is_locked) && (
-                                                    <Tag color="red" icon={<LockOutlined />}>
-                                                        Locked
-                                                    </Tag>
-                                                )}
-                                            </Space>
-                                        ),
-                                    },
-                                    {
-                                        title: "Window",
-                                        key: "window",
-                                        render: (_, period) =>
-                                            period.opens_at
-                                                ? `${dayjs(period.opens_at).format("MMM D, YYYY")} – ${dayjs(period.closes_at).format("MMM D, YYYY")}`
-                                                : "Not scheduled",
-                                    },
-                                    {
-                                        title: "Status",
-                                        key: "status",
-                                        render: (_, period) => (
-                                            <Segmented
-                                                size="small"
-                                                value={period.status}
-                                                options={PERIOD_STATUS}
-                                                onChange={(status) =>
-                                                    setPeriodStatus.mutate({ id: period.id, status })
-                                                }
-                                            />
-                                        ),
-                                    },
-                                    {
-                                        title: "Lock",
-                                        key: "lock",
-                                        render: (_, period) => (
-                                            <Popconfirm
-                                                title={
-                                                    period.is_locked
-                                                        ? "Unlock this period?"
-                                                        : "Lock this period?"
-                                                }
-                                                description={
-                                                    period.is_locked
-                                                        ? "People will be able to edit and upload again."
-                                                        : "Everyone will be view-only — no edits, accomplishments, evidence or ratings — until you unlock it."
-                                                }
-                                                onConfirm={() =>
-                                                    setPeriodLock.mutate({
-                                                        id: period.id,
-                                                        locked: !period.is_locked,
-                                                    })
-                                                }
-                                            >
-                                                <Button
-                                                    size="small"
-                                                    danger={!period.is_locked}
-                                                    icon={period.is_locked ? <UnlockOutlined /> : <LockOutlined />}
-                                                >
-                                                    {period.is_locked ? "Unlock" : "Lock"}
-                                                </Button>
-                                            </Popconfirm>
-                                        ),
-                                    },
-                                    {
-                                        title: "",
-                                        key: "activate",
-                                        render: (_, period) =>
-                                            period.is_active ? null : (
-                                                <Button
-                                                    size="small"
-                                                    onClick={() => activatePeriod.mutate(period.id)}
-                                                >
-                                                    Set as active
-                                                </Button>
-                                            ),
-                                    },
-                                ]}
-                            />
-                        ),
-                    }}
-                />
+                    <Table
+                        className="pms-year-periods"
+                        rowKey="id"
+                        loading={isLoading}
+                        dataSource={record.periods}
+                        columns={periodColumns}
+                        pagination={false}
+                        size="small"
+                        tableLayout="fixed"
+                    />
                 </div>
+                    </>
+                    )}
+                </section>
+                );
+            })}
             </Card>
 
             <Drawer

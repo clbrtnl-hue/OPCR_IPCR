@@ -141,10 +141,12 @@ export default function WorkflowPage() {
                 description="A head's VP comes from Setup → Hierarchy, where each unit names its head and the VP it reports to. This page decides the stages and who fills them; that page decides the people."
             />
 
-            <Card className="pms-list-panel" title="Review chain" style={{ marginBottom: 16 }}>
-                <div className="pms-pds-bar">
-                    <ResetButton target="review_stages" />
-                </div>
+            <Card
+                className="pms-list-panel"
+                title="Review chain"
+                extra={<ResetButton target="review_stages" />}
+                style={{ marginBottom: 16 }}
+            >
                 <Typography.Paragraph type="secondary">
                     An IPCR walks these stages in order. A skippable stage nobody fills is
                     passed over — which is how a head's own form skips the head stage,
@@ -314,10 +316,11 @@ export default function WorkflowPage() {
                 </div>
             </Card>
 
-            <Card title="Who may hand work out" style={{ marginBottom: 16 }}>
-                <div className="pms-pds-bar">
-                    <ResetButton target="delegation" />
-                </div>
+            <Card
+                title="Who may hand work out"
+                extra={<ResetButton target="delegation" />}
+                style={{ marginBottom: 16 }}
+            >
                 <Row gutter={16}>
                     <Col xs={24} md={8}>
                         <Typography.Text strong>Assigns an MFO/PPA</Typography.Text>
@@ -361,10 +364,11 @@ export default function WorkflowPage() {
                 </Row>
             </Card>
 
-            <Card title="The college OPCR" style={{ marginBottom: 16 }}>
-                <div className="pms-pds-bar">
-                    <ResetButton target="opcr" />
-                </div>
+            <Card
+                title="The college OPCR"
+                extra={<ResetButton target="opcr" />}
+                style={{ marginBottom: 16 }}
+            >
                 <Row gutter={16}>
                     {[
                         ["creator_roles", "Opens it"],
@@ -401,10 +405,7 @@ export default function WorkflowPage() {
                 </Space>
             </Card>
 
-            <Card className="pms-list-panel" title="Rating scale">
-                <div className="pms-pds-bar">
-                    <ResetButton target="rating" />
-                </div>
+            <Card className="pms-list-panel" title="Rating scale" extra={<ResetButton target="rating" />}>
                 <Space wrap size={16} style={{ marginBottom: 16 }}>
                     <span>
                         <Typography.Text strong>Score range</Typography.Text>{" "}

@@ -9,8 +9,10 @@ import {
     Input,
     Row,
     Popconfirm,
+    Segmented,
     Select,
     Space,
+    Spin,
     Table,
     Tag,
     Typography,
@@ -21,6 +23,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import api from "~/utils/api";
 import { ROLE_LABELS } from "~/utils/constants";
 import PageHeader from "~/components/PageHeader";
+import UserAvatar from "~/components/UserAvatar";
 
 const PINNED_ROLES = ["admin", "president"];
 
@@ -47,12 +50,41 @@ function matchesSearch(user, term) {
         .some((value) => String(value).toLowerCase().includes(term));
 }
 
+function printedName(values) {
+    const core = [values.prefix, values.first_name, values.middle_initial, values.last_name, values.suffix]
+        .map((part) => (part ?? "").trim())
+        .filter(Boolean)
+        .join(" ");
+
+    return values.credentials?.trim() ? `${core}, ${values.credentials.trim()}` : core;
+}
+
+function PersonCell({ user }) {
+    return (
+        <div className="pms-account-person">
+            <UserAvatar user={user} size={40} showTooltip={false} />
+            <div>
+                <strong>{user.name}</strong>
+                <span className="pms-account-place">{user.org_unit?.name || "No unit assigned"}</span>
+            </div>
+        </div>
+    );
+}
+
+function StatusTag({ status }) {
+    const active = status === "active";
+
+    return <Tag color={active ? "green" : "default"}>{active ? "Active" : "Inactive"}</Tag>;
+}
+
 export default function UsersPage() {
     const queryClient = useQueryClient();
     const [form] = Form.useForm();
     const [editing, setEditing] = useState(null);
     const [open, setOpen] = useState(false);
     const [search, setSearch] = useState("");
+    const [role, setRole] = useState(null);
+    const [status, setStatus] = useState("all");
     const [page, setPage] = useState(1);
 
     const { data: users = [], isLoading } = useQuery({
@@ -99,67 +131,93 @@ export default function UsersPage() {
     };
 
     const term = search.trim().toLowerCase();
+    const roleCounts = useMemo(() => {
+        const counts = {};
+
+        users.forEach((user) => {
+            counts[user.role] = (counts[user.role] ?? 0) + 1;
+        });
+
+        return counts;
+    }, [users]);
+
     const rows = useMemo(
         () =>
             [...users]
                 .filter((user) => matchesSearch(user, term))
+                .filter((user) => !role || user.role === role)
+                .filter((user) => status === "all" || user.status === status)
                 .sort((a, b) => pinRank(a.role) - pinRank(b.role) || byName(a, b)),
-        [users, term]
+        [users, term, role, status]
+    );
+
+    const activeCount = users.filter((user) => user.status === "active").length;
+
+    const chooseRole = (next) => {
+        setRole(next);
+        setPage(1);
+    };
+
+    const accountActions = (record) => (
+        <Space size={4} className="pms-account-actions">
+            <Button size="small" onClick={() => openDrawer(record)}>
+                Edit
+            </Button>
+            {record.status === "active" && (
+                <Popconfirm
+                    title="Deactivate this account?"
+                    description="They will no longer be able to sign in."
+                    onConfirm={() => deactivate.mutate(record.id)}
+                >
+                    <Button size="small" danger>
+                        Deactivate
+                    </Button>
+                </Popconfirm>
+            )}
+        </Space>
     );
 
     const columns = [
         {
-            title: "Name",
-            dataIndex: "name",
+            title: "Account",
+            key: "account",
+            render: (_, record) => <PersonCell user={record} />,
         },
-        { title: "Email", dataIndex: "email" },
         {
-            title: "Role",
-            dataIndex: "role",
-            filters: Object.entries(ROLE_LABELS).map(([value, text]) => ({ text, value })),
-            onFilter: (value, record) => record.role === value,
-            render: (role) => <Tag color={role === "admin" ? "red" : "default"}>{ROLE_LABELS[role]}</Tag>,
+            title: "Email",
+            dataIndex: "email",
         },
-        { title: "Position", dataIndex: "position_title", render: (v) => v || "—" },
-        { title: "Unit", dataIndex: ["org_unit", "name"], render: (v) => v || "—" },
+        {
+            title: "Position",
+            dataIndex: "position_title",
+            render: (value) => value || "—",
+        },
         {
             title: "Status",
             dataIndex: "status",
-            render: (status) => (
-                <Tag color={status === "active" ? "green" : "default"}>
-                    {status === "active" ? "Active" : "Inactive"}
-                </Tag>
-            ),
+            width: 110,
+            render: (value) => <StatusTag status={value} />,
         },
         {
             title: "",
             key: "actions",
-            render: (_, record) => (
-                <Space>
-                    <Button size="small" onClick={() => openDrawer(record)}>
-                        Edit
-                    </Button>
-                    {record.status === "active" && (
-                        <Popconfirm
-                            title="Deactivate this account?"
-                            description="They will no longer be able to sign in."
-                            onConfirm={() => deactivate.mutate(record.id)}
-                        >
-                            <Button size="small" danger>
-                                Deactivate
-                            </Button>
-                        </Popconfirm>
-                    )}
-                </Space>
-            ),
+            width: 180,
+            align: "right",
+            render: (_, record) => accountActions(record),
         },
     ];
+
+    const emptyText = term || role || status !== "all" ? "No accounts match." : "No accounts yet.";
 
     return (
         <>
             <PageHeader
                 title="Accounts"
-                subtitle="Create the people who use the system and set the role each one holds."
+                subtitle={
+                    users.length
+                        ? `${activeCount} of ${users.length} can sign in. Create people and set the role each one holds.`
+                        : "Create the people who use the system and set the role each one holds."
+                }
                 extra={
                     <Button type="primary" icon={<PlusOutlined />} onClick={() => openDrawer(null)}>
                         New account
@@ -167,61 +225,73 @@ export default function UsersPage() {
                 }
             />
 
-            <Card className="pms-list-panel">
-                <Input
-                    allowClear
-                    prefix={<SearchOutlined />}
-                    placeholder="Search name, email, role, or unit"
-                    value={search}
-                    onChange={(event) => {
-                        setSearch(event.target.value);
-                        setPage(1);
-                    }}
-                    style={{ maxWidth: 360, marginBottom: 16 }}
-                />
-                <div className="pms-mobile-only pms-pds-cards">
-                    {!isLoading && rows.length === 0 ? (
-                        <Empty
-                            image={Empty.PRESENTED_IMAGE_SIMPLE}
-                            description={term ? "No accounts match." : "No accounts yet."}
-                        />
+            <div className="pms-account-filters">
+                <button type="button" className={!role ? "is-on" : undefined} onClick={() => chooseRole(null)}>
+                    All
+                    <em>{users.length}</em>
+                </button>
+                {Object.entries(ROLE_LABELS).map(([value, label]) => (
+                    <button
+                        key={value}
+                        type="button"
+                        className={role === value ? "is-on" : undefined}
+                        onClick={() => chooseRole(value)}
+                    >
+                        {label}
+                        <em>{roleCounts[value] ?? 0}</em>
+                    </button>
+                ))}
+            </div>
+
+            <Card className="pms-list-panel pms-accounts">
+                <div className="pms-account-tools">
+                    <Input
+                        allowClear
+                        prefix={<SearchOutlined />}
+                        placeholder="Search name, email, role, or unit"
+                        value={search}
+                        onChange={(event) => {
+                            setSearch(event.target.value);
+                            setPage(1);
+                        }}
+                    />
+                    <Segmented
+                        value={status}
+                        onChange={(value) => {
+                            setStatus(value);
+                            setPage(1);
+                        }}
+                        options={[
+                            { label: "All", value: "all" },
+                            { label: "Active", value: "active" },
+                            { label: "Inactive", value: "inactive" },
+                        ]}
+                    />
+                </div>
+                <div className="pms-mobile-only">
+                    {isLoading ? (
+                        <div className="pms-account-loading">
+                            <Spin />
+                        </div>
+                    ) : rows.length === 0 ? (
+                        <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={emptyText} />
                     ) : (
-                        rows.map((record) => (
-                            <article key={record.id} className="pms-pds-card">
-                                <div className="pms-pds-line">
-                                    <span>Name</span>
-                                    <strong>{record.name}</strong>
-                                </div>
-                                <div className="pms-pds-line">
-                                    <span>Email</span>
-                                    <strong>{record.email}</strong>
-                                </div>
-                                <div className="pms-pds-line">
-                                    <span>Role</span>
-                                    <Tag>{ROLE_LABELS[record.role]}</Tag>
-                                </div>
-                                <div className="pms-pds-line">
-                                    <span>Unit</span>
-                                    <strong>{record.org_unit?.name || "—"}</strong>
-                                </div>
-                                <div className="pms-pds-actions">
-                                    <Button size="small" onClick={() => openDrawer(record)}>
-                                        Edit
-                                    </Button>
-                                    {record.status === "active" && (
-                                        <Popconfirm
-                                            title="Deactivate this account?"
-                                            description="They will no longer be able to sign in."
-                                            onConfirm={() => deactivate.mutate(record.id)}
-                                        >
-                                            <Button size="small" danger>
-                                                Deactivate
-                                            </Button>
-                                        </Popconfirm>
-                                    )}
-                                </div>
-                            </article>
-                        ))
+                        <div className="pms-account-list">
+                            {rows.map((record) => (
+                                <article
+                                    key={record.id}
+                                    className={`pms-account-card${record.status === "active" ? "" : " is-inactive"}`}
+                                >
+                                    <PersonCell user={record} />
+                                    <div className="pms-account-meta">
+                                        <span>{record.email}</span>
+                                        <span>{record.position_title || "No position"}</span>
+                                        <StatusTag status={record.status} />
+                                    </div>
+                                    {accountActions(record)}
+                                </article>
+                            ))}
+                        </div>
                     )}
                 </div>
                 <div className="pms-desktop-only">
@@ -230,13 +300,14 @@ export default function UsersPage() {
                         loading={isLoading}
                         dataSource={rows}
                         columns={columns}
+                        rowClassName={(record) => (record.status === "active" ? "" : "is-inactive")}
                         pagination={{
                             current: page,
-                            pageSize: 15,
+                            pageSize: 12,
                             onChange: setPage,
+                            hideOnSinglePage: true,
                         }}
-                        locale={{ emptyText: term ? "No accounts match." : "No accounts yet." }}
-                        scroll={{ x: 900 }}
+                        locale={{ emptyText }}
                     />
                 </div>
             </Card>
@@ -245,7 +316,7 @@ export default function UsersPage() {
                 title={editing ? `Edit ${editing.name}` : "New account"}
                 open={open}
                 onClose={closeDrawer}
-                width={420}
+                width={460}
                 extra={
                     <Button type="primary" loading={save.isPending} onClick={() => form.submit()}>
                         Save
@@ -258,6 +329,7 @@ export default function UsersPage() {
                     requiredMark={false}
                     onFinish={(values) => save.mutate({ ...values, id: editing?.id })}
                 >
+                    <Typography.Text className="pms-account-section">Name</Typography.Text>
                     <Row gutter={12}>
                         <Col span={8}>
                             <Form.Item name="prefix" label="Title">
@@ -308,22 +380,18 @@ export default function UsersPage() {
                     </Row>
                     <Form.Item shouldUpdate noStyle>
                         {({ getFieldsValue }) => {
-                            const v = getFieldsValue();
-                            const core = [v.prefix, v.first_name, v.middle_initial, v.last_name, v.suffix]
-                                .map((part) => (part ?? "").trim())
-                                .filter(Boolean)
-                                .join(" ");
-                            const shown = v.credentials?.trim()
-                                ? `${core}, ${v.credentials.trim()}`
-                                : core;
+                            const shown = printedName(getFieldsValue());
 
                             return shown ? (
-                                <Typography.Paragraph type="secondary" style={{ marginTop: -8 }}>
-                                    Signs and prints as <strong>{shown}</strong>
-                                </Typography.Paragraph>
+                                <div className="pms-account-preview">
+                                    <span>Signs and prints as</span>
+                                    <strong>{shown}</strong>
+                                </div>
                             ) : null;
                         }}
                     </Form.Item>
+
+                    <Typography.Text className="pms-account-section">Sign-in</Typography.Text>
                     <Form.Item
                         name="email"
                         label="Email"
@@ -342,6 +410,8 @@ export default function UsersPage() {
                     >
                         <Input.Password placeholder="••••••••" />
                     </Form.Item>
+
+                    <Typography.Text className="pms-account-section">Role and place</Typography.Text>
                     <Form.Item name="role" label="Role" rules={[{ required: true }]}>
                         <Select
                             options={Object.entries(ROLE_LABELS).map(([value, label]) => ({ value, label }))}
@@ -357,8 +427,10 @@ export default function UsersPage() {
                     <Form.Item name="org_unit_id" label="Unit">
                         <Select
                             allowClear
+                            showSearch
+                            optionFilterProp="label"
                             placeholder="Select a unit"
-                            options={units.map((u) => ({ value: u.id, label: u.name }))}
+                            options={units.map((unit) => ({ value: unit.id, label: unit.name }))}
                         />
                     </Form.Item>
                     <Form.Item name="status" label="Status">

@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from "react";
 import { Button, Card, Empty, Segmented, Skeleton, Space, Tabs, Tag, Typography, message } from "antd";
-import { CheckOutlined } from "@ant-design/icons";
+import { CheckOutlined, DeleteOutlined, UndoOutlined } from "@ant-design/icons";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import dayjs from "dayjs";
@@ -11,7 +11,7 @@ import { dayLabel, notificationHref, notificationMeta, notificationNavState } fr
 
 const PAGE = 25;
 
-function AlertList({ items, total, limit, onMore, isFetching, open, web }) {
+function AlertList({ items, total, limit, onMore, isFetching, open, onTrash, onRestore, trashing, restoring, trashed, web }) {
     const now = dayjs();
     let lastDay = null;
 
@@ -29,10 +29,20 @@ function AlertList({ items, total, limit, onMore, isFetching, open, web }) {
                     <React.Fragment key={item.id}>
                         {heading && <div className="pms-note-day">{heading}</div>}
 
-                        <button
-                            type="button"
+                        <div
+                            role="button"
+                            tabIndex={0}
                             className={item.read_at ? "pms-note pms-note-row" : "pms-note pms-note-row is-unread"}
                             onClick={() => open(item)}
+                            onKeyDown={(event) => {
+                                if (event.target !== event.currentTarget) {
+                                    return;
+                                }
+                                if (event.key === "Enter" || event.key === " ") {
+                                    event.preventDefault();
+                                    open(item);
+                                }
+                            }}
                         >
                             <span className="pms-note-avatar">
                                 <UserAvatar name={item.actor_name ?? "System"} size={34} showTooltip={false} />
@@ -64,7 +74,23 @@ function AlertList({ items, total, limit, onMore, isFetching, open, web }) {
                             </span>
 
                             {!item.read_at && <span className="pms-note-dot" />}
-                        </button>
+                            <Button
+                                type="text"
+                                className={trashed ? "pms-note-action is-restore" : "pms-note-action"}
+                                icon={trashed ? <UndoOutlined /> : <DeleteOutlined />}
+                                aria-label={trashed ? "Restore notification" : "Move notification to Trash"}
+                                title={trashed ? "Restore" : "Move to Trash"}
+                                loading={trashing === item.id || restoring === item.id}
+                                onClick={(event) => {
+                                    event.stopPropagation();
+                                    if (trashed) {
+                                        onRestore(item);
+                                    } else {
+                                        onTrash(item);
+                                    }
+                                }}
+                            />
+                        </div>
                     </React.Fragment>
                 );
             })}
@@ -97,6 +123,7 @@ export default function NotificationsPage() {
                     params: {
                         limit,
                         unread: scope === "unread" ? 1 : undefined,
+                        trash: scope === "trash" ? 1 : undefined,
                         type: kind === "all" ? undefined : kind,
                     },
                 })
@@ -106,7 +133,9 @@ export default function NotificationsPage() {
 
     const items = data?.items ?? [];
     const unread = data?.unread ?? 0;
+    const trashCount = data?.trash ?? 0;
     const total = data?.total ?? 0;
+    const inTrash = scope === "trash";
 
     const invalidate = () => queryClient.invalidateQueries({ queryKey: ["notifications"] });
 
@@ -119,6 +148,22 @@ export default function NotificationsPage() {
         mutationFn: () => api.post("notifications/read-all"),
         onSuccess: () => {
             message.success("Everything is marked read.");
+            invalidate();
+        },
+    });
+
+    const trash = useMutation({
+        mutationFn: (id) => api.post(`notifications/${id}/trash`),
+        onSuccess: () => {
+            message.success("Moved to Trash. You can restore it for 30 days.");
+            invalidate();
+        },
+    });
+
+    const restore = useMutation({
+        mutationFn: (id) => api.post(`notifications/${id}/restore`),
+        onSuccess: () => {
+            message.success("Restored to your inbox.");
             invalidate();
         },
     });
@@ -164,11 +209,13 @@ export default function NotificationsPage() {
             value={scope}
             onChange={(value) => {
                 setScope(value);
+                setKind("all");
                 setLimit(PAGE);
             }}
             options={[
                 { value: "all", label: "All" },
                 { value: "unread", label: `Unread ${unread}` },
+                { value: "trash", label: `Trash ${trashCount}` },
             ]}
         />
     );
@@ -176,7 +223,7 @@ export default function NotificationsPage() {
     const markAllButton = () => (
         <Button
             icon={<CheckOutlined />}
-            disabled={unread === 0}
+            disabled={unread === 0 || inTrash}
             loading={markAll.isPending}
             onClick={() => markAll.mutate()}
         >
@@ -189,7 +236,7 @@ export default function NotificationsPage() {
     ) : items.length === 0 ? (
         <Empty
             image={Empty.PRESENTED_IMAGE_SIMPLE}
-            description={scope === "unread" ? "Nothing unread." : "Nothing has come in yet."}
+            description={inTrash ? "Trash is empty." : scope === "unread" ? "Nothing unread." : "Nothing has come in yet."}
         />
     ) : (
         <AlertList
@@ -199,6 +246,11 @@ export default function NotificationsPage() {
             onMore={() => setLimit(limit + PAGE)}
             isFetching={isFetching}
             open={open}
+            onTrash={(item) => trash.mutate(item.id)}
+            onRestore={(item) => restore.mutate(item.id)}
+            trashing={trash.isPending ? trash.variables : null}
+            restoring={restore.isPending ? restore.variables : null}
+            trashed={inTrash}
             web
         />
     );
@@ -208,7 +260,7 @@ export default function NotificationsPage() {
     ) : items.length === 0 ? (
         <Empty
             image={Empty.PRESENTED_IMAGE_SIMPLE}
-            description={scope === "unread" ? "Nothing unread." : "Nothing has come in yet."}
+            description={inTrash ? "Trash is empty." : scope === "unread" ? "Nothing unread." : "Nothing has come in yet."}
         />
     ) : (
         <AlertList
@@ -218,6 +270,11 @@ export default function NotificationsPage() {
             onMore={() => setLimit(limit + PAGE)}
             isFetching={isFetching}
             open={open}
+            onTrash={(item) => trash.mutate(item.id)}
+            onRestore={(item) => restore.mutate(item.id)}
+            trashing={trash.isPending ? trash.variables : null}
+            restoring={restore.isPending ? restore.variables : null}
+            trashed={inTrash}
         />
     );
 
@@ -227,14 +284,16 @@ export default function NotificationsPage() {
                 <PageHeader
                     title="Notifications"
                     subtitle={
-                        unread > 0
-                            ? `${unread} unread — everything the system has told you, newest first.`
-                            : "Everything the system has told you, newest first."
+                        inTrash
+                            ? "Deleted notifications stay here for 30 days, then they are removed."
+                            : unread > 0
+                              ? `${unread} unread — everything the system has told you, newest first.`
+                              : "Everything the system has told you, newest first."
                     }
                     extra={
                         <Space wrap>
                             {scopeControl()}
-                            {markAllButton()}
+                            {!inTrash && markAllButton()}
                         </Space>
                     }
                 />
@@ -249,15 +308,17 @@ export default function NotificationsPage() {
                 <PageHeader
                     title="Alerts"
                     subtitle={
-                        unread > 0
-                            ? `${unread} unread, newest first.`
-                            : "Everything the system has told you, newest first."
+                        inTrash
+                            ? "Stay here for 30 days, then they are removed."
+                            : unread > 0
+                              ? `${unread} unread, newest first.`
+                              : "Everything the system has told you, newest first."
                     }
                 />
 
                 <div className="pms-alerts-bar">
                     {scopeControl()}
-                    {markAllButton()}
+                    {!inTrash && markAllButton()}
                 </div>
 
                 <Card className="pms-alerts-card">

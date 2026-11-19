@@ -6,6 +6,30 @@ import PageHeader from "~/components/PageHeader";
 import { useAuth } from "~/hooks/useAuth";
 import FormEditorPage from "~/pages/FormEditorPage";
 
+const SHORT_MONTH = {
+    January: "Jan",
+    February: "Feb",
+    March: "Mar",
+    April: "Apr",
+    May: "May",
+    June: "Jun",
+    July: "Jul",
+    August: "Aug",
+    September: "Sep",
+    October: "Oct",
+    November: "Nov",
+    December: "Dec",
+};
+
+function shortPeriod(label) {
+    return label
+        .replace(
+            /January|February|March|April|May|June|July|August|September|October|November|December/g,
+            (month) => SHORT_MONTH[month]
+        )
+        .replace(/\s+to\s+/g, "–");
+}
+
 /**
  * An IPCR is filed twice a year — one form per rating period. This resolves
  * both of the signed-in person's IPCRs for the chosen year, opens the one for
@@ -97,38 +121,69 @@ export default function MyIpcrPage() {
         );
     }
 
-    const switcher = (
-        <Space wrap style={{ marginBottom: 12 }}>
+    const periodOptions = (shorten) =>
+        periods.map((p) => ({
+            value: p.id,
+            label: p.is_active
+                ? `${shorten ? shortPeriod(p.label) : p.label} ★`
+                : shorten
+                  ? shortPeriod(p.label)
+                  : p.label,
+        }));
+
+    const yearOptions = years.map((y) => ({
+        value: y.id,
+        label: y.is_active ? `${y.label} (active)` : y.label,
+    }));
+
+    const yearControl = (compact) =>
+        years.length > 1 ? (
+            <Select
+                className="pms-ipcr-year"
+                size={compact ? "small" : "middle"}
+                style={compact ? undefined : { width: 160 }}
+                value={year.id}
+                onChange={(value) => {
+                    setYearId(value);
+                    setPeriodId(null);
+                }}
+                options={yearOptions}
+            />
+        ) : null;
+
+    const switcher = (placement) => (
+        <Space wrap className={`pms-ipcr-switch is-${placement}`} style={{ marginBottom: 12 }}>
             <Segmented
+                className="pms-ipcr-wide"
                 value={chosenPeriodId}
                 onChange={setPeriodId}
-                options={periods.map((p) => ({
-                    value: p.id,
-                    label: p.is_active ? `${p.label} ★` : p.label,
-                }))}
+                options={periodOptions(false)}
             />
-            {years.length > 1 && (
-                <Select
-                    style={{ width: 160 }}
-                    value={year.id}
-                    onChange={(value) => {
-                        setYearId(value);
-                        setPeriodId(null);
-                    }}
-                    options={years.map((y) => ({
-                        value: y.id,
-                        label: y.is_active ? `${y.label} (active)` : y.label,
-                    }))}
-                />
-            )}
+            <Segmented
+                className="pms-ipcr-periods"
+                block
+                value={chosenPeriodId}
+                onChange={setPeriodId}
+                options={periodOptions(true)}
+            />
+            {placement === "top" && yearControl(false)}
         </Space>
     );
 
     return (
         <>
-            {switcher}
+            <div className="pms-desktop-only">{switcher("top")}</div>
             {form ? (
-                <FormEditorPage key={form.id} formId={form.id} />
+                <FormEditorPage
+                    key={form.id}
+                    formId={form.id}
+                    periodBar={<div className="pms-mobile-only">{switcher("below")}</div>}
+                    yearSelect={
+                        years.length > 1 ? (
+                            <span className="pms-mobile-only pms-ipcr-year-slot">{yearControl(true)}</span>
+                        ) : null
+                    }
+                />
             ) : open.isError ? (
                 <Alert
                     type="error"

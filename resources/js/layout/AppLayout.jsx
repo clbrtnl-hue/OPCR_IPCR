@@ -21,9 +21,11 @@ const ITEMS = {
     myForms: { key: "/my-forms", icon: <NavIcon name="forms" />, label: "My Forms" },
     forms: { key: "/my-forms", icon: <NavIcon name="forms" />, label: "Forms" },
     myTeam: { key: "/my-team", icon: <NavIcon name="team" />, label: "My Team" },
+    attendance: { key: "/attendance", icon: <NavIcon name="attendance" />, label: "Attendance" },
     collegeOpcr: { key: "/college-opcr", icon: <NavIcon name="college" />, label: "College OPCR" },
     reviewQueue: { key: "/review-queue", icon: <NavIcon name="review" />, label: "Review Queue" },
     reports: { key: "/reports", icon: <NavIcon name="reports" />, label: "Reports" },
+    closing: { key: "/closing", icon: <NavIcon name="review" />, label: "Close ratings" },
     users: { key: "/admin/users", icon: <NavIcon name="accounts" />, label: "Accounts" },
     orgUnits: { key: "/admin/org-units", icon: <NavIcon name="hierarchy" />, label: "Hierarchy" },
     schoolYears: { key: "/admin/school-years", icon: <NavIcon name="calendar" />, label: "School Years" },
@@ -42,6 +44,10 @@ const samePerson = (left, right) => Number(left) === Number(right);
 function formIsWithReviewer(user, form) {
     if (!user || !form) {
         return false;
+    }
+
+    if (user.role === "president" && form.status === "appeal") {
+        return true;
     }
 
     if (
@@ -75,7 +81,7 @@ function formIsWithReviewer(user, form) {
     );
 }
 
-function menuFor(role, showCollegeOpcr, showTeam, showRating) {
+function menuFor(role, showCollegeOpcr, showTeam, showRating, showAttendance) {
     const menu = [...(MENUS[role] ?? MENUS.employee)];
 
     if (showRating && !menu.some((item) => item.key === "/review-queue")) {
@@ -91,6 +97,13 @@ function menuFor(role, showCollegeOpcr, showTeam, showRating) {
     if (showTeam && !menu.some((item) => item.key === "/my-team")) {
         const ipcrAt = menu.findIndex((item) => item.key === "/my-ipcr");
         menu.splice(ipcrAt >= 0 ? ipcrAt + 1 : 1, 0, ITEMS.myTeam);
+    }
+
+    if (showAttendance && !menu.some((item) => item.key === "/attendance")) {
+        const teamAt = menu.findIndex((item) => item.key === "/my-team");
+        const ipcrAt = menu.findIndex((item) => item.key === "/my-ipcr");
+        const insertAt = teamAt >= 0 ? teamAt + 1 : ipcrAt >= 0 ? ipcrAt + 1 : 1;
+        menu.splice(insertAt, 0, ITEMS.attendance);
     }
 
     return withPersonal(menu);
@@ -114,7 +127,7 @@ const MENUS = {
     qa: [ITEMS.dashboard, ITEMS.collegeOpcr, ITEMS.myIpcr, ITEMS.myForms, ITEMS.myTeam, ITEMS.reviewQueue, ITEMS.reports],
     vp: [ITEMS.dashboard, ITEMS.myIpcr, ITEMS.myForms, ITEMS.myTeam, ITEMS.reviewQueue],
     program_head: [ITEMS.dashboard, ITEMS.myIpcr, ITEMS.myForms, ITEMS.myTeam, ITEMS.reviewQueue],
-    hr: [ITEMS.dashboard, ITEMS.myIpcr, ITEMS.collegeOpcr, ITEMS.forms, ITEMS.reviewQueue, ITEMS.reports],
+    hr: [ITEMS.dashboard, ITEMS.myIpcr, ITEMS.collegeOpcr, ITEMS.forms, ITEMS.reviewQueue, ITEMS.closing, ITEMS.reports],
     employee: [ITEMS.dashboard, ITEMS.myIpcr, ITEMS.myForms],
 };
 
@@ -127,6 +140,7 @@ export default function AppLayout({ children }) {
     const menuTheme = mode === "dark" ? "dark" : "light";
     const [collapsed, setCollapsed] = useState(false);
     const [navOpen, setNavOpen] = useState(false);
+    const [tabAway, setTabAway] = useState(false);
 
     const { data: notifications } = useQuery({
         queryKey: ["notifications", "bell"],
@@ -164,8 +178,8 @@ export default function AppLayout({ children }) {
     });
     const queueCount =
         user?.role === "president"
-            ? (Array.isArray(waiting) ? waiting : []).filter((form) =>
-                  APPROVAL_QUEUE_STATUSES.includes(form.status)
+            ? (Array.isArray(waiting) ? waiting : []).filter(
+                  (form) => APPROVAL_QUEUE_STATUSES.includes(form.status) || form.status === "appeal"
               ).length
             : Array.isArray(waiting)
               ? waiting.length
@@ -182,7 +196,13 @@ export default function AppLayout({ children }) {
         queryFn: () => api.get("org-units/watching").then((r) => r.data),
         enabled: Boolean(user) && !leadsATeam,
     });
-    const seesTeam = leadsATeam || watchedUnits.length > 0;
+    const { data: ledUnits = [] } = useQuery({
+        queryKey: ["led-units", user?.id],
+        queryFn: () => api.get("org-units/leading").then((r) => r.data),
+        enabled: Boolean(user),
+    });
+    const seesTeam = leadsATeam || watchedUnits.length > 0 || ledUnits.length > 0;
+    const seesAttendance = user?.role === "hr" || ledUnits.length > 0;
     const openFormId = location.pathname.match(/^\/forms\/(\d+)/)?.[1] ?? null;
     const { data: openForm } = useQuery({
         queryKey: ["pcr-form", openFormId],
@@ -191,7 +211,7 @@ export default function AppLayout({ children }) {
     });
 
     const items = useMemo(() => {
-        const menu = menuFor(user?.role, seesCollegeOpcr, seesTeam, isRater);
+        const menu = menuFor(user?.role, seesCollegeOpcr, seesTeam, isRater, seesAttendance);
 
         return menu.map((item) => {
             if (item.key === "/notifications") {
@@ -222,7 +242,7 @@ export default function AppLayout({ children }) {
 
             return item;
         });
-    }, [user?.role, unread, queueCount, collapsed, seesCollegeOpcr, seesTeam, isRater]);
+    }, [user?.role, unread, queueCount, collapsed, seesCollegeOpcr, seesTeam, seesAttendance, isRater]);
 
     const selectedKey = useMemo(() => {
         const path = location.pathname;
@@ -273,33 +293,56 @@ export default function AppLayout({ children }) {
 
     useEffect(() => {
         setNavOpen(false);
+        setTabAway(false);
     }, [location.pathname]);
 
-    const tabs = [
-        { key: "/", icon: <NavIcon name="dashboard" />, label: "Home" },
-        seesCollegeOpcr && !hasCollegeMenu && {
-            key: "/college-opcr",
-            icon: <NavIcon name="college" />,
-            label: "OPCR",
-        },
-        user?.role === "qa" && {
-            key: "/college-opcr",
-            icon: <NavIcon name="college" />,
-            label: "OPCR",
-        },
-        user?.role === "president"
-            ? { key: "/college-opcr", icon: <NavIcon name="college" />, label: "OPCR" }
-            : ["employee", "program_head", "vp", "qa", "hr"].includes(user?.role)
-              ? { key: "/my-ipcr", icon: <NavIcon name="ipcr" />, label: "IPCR" }
-              : { key: "/my-forms", icon: <NavIcon name="forms" />, label: "Forms" },
-        (["admin", "qa", "vp", "program_head", "president", "hr"].includes(user?.role) || isRater) && {
-            key: "/review-queue",
-            icon: <NavIcon name="review" />,
-            label: "Review",
-            badge: queueCount,
-        },
-        { key: "/notifications", icon: <NavIcon name="bell" />, label: "Alerts", badge: unread },
-    ].filter(Boolean);
+    useEffect(() => {
+        const phone = window.matchMedia("(max-width: 991px)");
+        let last = window.scrollY;
+
+        const onScroll = () => {
+            if (!phone.matches) {
+                setTabAway(false);
+                last = window.scrollY;
+                return;
+            }
+
+            const y = window.scrollY;
+            const delta = y - last;
+
+            if (y < 32) setTabAway(false);
+            else if (delta > 10) setTabAway(true);
+            else if (delta < -10) setTabAway(false);
+
+            last = y;
+        };
+
+        window.addEventListener("scroll", onScroll, { passive: true });
+
+        return () => window.removeEventListener("scroll", onScroll);
+    }, []);
+
+    const home = { key: "/", icon: <NavIcon name="dashboard" />, label: "Home" };
+    const ipcr = { key: "/my-ipcr", icon: <NavIcon name="ipcr" />, label: "IPCR" };
+    const forms = { key: "/my-forms", icon: <NavIcon name="forms" />, label: "Forms" };
+    const opcr = { key: "/college-opcr", icon: <NavIcon name="college" />, label: "OPCR" };
+    const review = {
+        key: "/review-queue",
+        icon: <NavIcon name="review" />,
+        label: "Review",
+        badge: queueCount,
+    };
+    const alerts = { key: "/notifications", icon: <NavIcon name="bell" />, label: "Alerts", badge: unread };
+    const seesReview = ["admin", "qa", "vp", "program_head", "president", "hr"].includes(user?.role) || isRater;
+
+    const tabs =
+        user?.role === "admin" || user?.role === "president"
+            ? [opcr, forms, home, review, alerts]
+            : user?.role === "qa"
+              ? [opcr, ipcr, home, review, alerts]
+              : user?.role === "employee" && !seesReview
+                ? [ipcr, home, alerts]
+                : [ipcr, forms, home, ...(seesReview ? [review] : []), alerts];
 
     const go = (key) => {
         setNavOpen(false);
@@ -510,8 +553,12 @@ export default function AppLayout({ children }) {
                         </Dropdown>
                     </Space>
                 </Header>
-                <Content className="pms-content">{children}</Content>
-                <nav className="pms-tabbar" aria-label="Primary">
+                <Content className="pms-content">
+                    <div key={location.pathname} className="pms-page-shift">
+                        {children}
+                    </div>
+                </Content>
+                <nav className={tabAway ? "pms-tabbar is-away" : "pms-tabbar"} aria-label="Primary">
                     {tabs.map((tab) => {
                         const active =
                             tab.key === selectedKey ||
@@ -524,7 +571,9 @@ export default function AppLayout({ children }) {
                             <button
                                 key={tab.key}
                                 type="button"
-                                className={active ? "is-active" : undefined}
+                                className={
+                                    (active ? "is-active" : "") + (tab.key === "/" ? " is-home" : "")
+                                }
                                 onClick={() => go(tab.key)}
                             >
                                 <Badge count={tab.badge || 0} size="small" offset={[2, -2]}>

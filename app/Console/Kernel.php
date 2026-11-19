@@ -16,6 +16,7 @@ class Kernel extends ConsoleKernel
     protected function schedule(Schedule $schedule)
     {
         $schedule->command('pms:remind')->dailyAt('07:00');
+        $schedule->command('pms:purge-notifications')->dailyAt('07:05');
     }
 
     /**

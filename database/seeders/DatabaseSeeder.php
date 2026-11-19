@@ -64,31 +64,58 @@ class DatabaseSeeder extends Seeder
         ]);
 
         $this->unit('president_office', 'Office of the College President', 'OP', 'office', 'college');
-
-        $this->unit('aas', 'Academic Affairs and Services', 'AAS', 'office', 'president_office');
-        $this->unit('cte', 'College of Teacher Education', 'AAS-CTE', 'program', 'aas');
-        $this->unit('cit', 'College of Information Technology', 'AAS-BSIT', 'office', 'aas');
-        $this->unit('dit', 'Department of Information Technology', 'AAS-CIT-DIT', 'program', 'cit');
-        $this->unit('dis', 'Department of Information Systems', 'AAS-CIT-DIS', 'program', 'cit');
-        $this->unit('registrar', 'Registrar', 'REG', 'office', 'aas');
-        $this->unit('cba', 'College of Business Administration', 'AAS-BSBA', 'office', 'aas');
-        $this->unit('ccj', 'College of Criminology Justice', 'AAS-CCJ', 'program', 'aas');
-        $this->unit('gened', 'Department of General Education', 'AAS-GenEd', 'program', 'aas');
-        $this->unit('pe', 'Department of Physical Education', 'AAS-PE', 'program', 'aas');
-
-        $this->unit('sas', 'Student Affairs and Services', 'SAS', 'office', 'president_office');
-        $this->unit('sss', 'Student Support Services', 'SAS-SSS', 'office', 'sas');
-        $this->unit('isps', 'Institutional Student Programs and Services', 'SAS-ISPS', 'office', 'sas');
-
-        $this->unit('afs', 'Administrative and Finance Services', 'AFS', 'office', 'president_office');
-        $this->unit('hrmo', 'Human Resource Management Office', 'AFS-HRMO', 'office', 'afs');
-
-        $this->unit('rpces', 'Research, Publication and Community Extension Services', 'RPCES', 'office', 'president_office');
-        $this->unit('ecoo', 'Extension and Community Outreach Office', 'RPCES-ECOO', 'office', 'rpces');
-
-        $this->unit('ils', 'International and Linkages Services', 'ILS', 'office', 'president_office');
         $this->unit('cict', 'Center for Information and Communication Technology', 'OP-CICT', 'office', 'president_office');
         $this->unit('qaao', 'Quality Assurance and Accreditation Office', 'OP-QAAO', 'office', 'president_office');
+        $this->unit('promo', 'Promotion and Communications Office', 'OP-PCO', 'office', 'president_office');
+        $this->unit('rights', 'Center for Human Rights Education', 'OP-CHRE', 'office', 'president_office');
+
+        $this->unit('aas', 'Academic Affairs and Services', 'AAS', 'office', 'college');
+        $this->unit('support', 'Academic Support Department', 'AAS-ASD', 'office', 'aas');
+        $this->unit('service', 'Academic Service Department', 'AAS-ASV', 'office', 'aas');
+        $this->unit('hei', 'HEI Programs', 'AAS-HEI', 'office', 'service');
+        $this->unit('registrar', 'Registrar', 'REG', 'office', 'support');
+        $this->unit('admission', 'Admission and Evaluation', 'REG-AE', 'office', 'registrar');
+        $this->unit('records', 'Records and Archives', 'REG-RA', 'office', 'registrar');
+        $this->unit('credentials', 'Graduation and Credentials', 'REG-GC', 'office', 'registrar');
+        $this->unit('tesda', 'Technical-Vocational Programs', 'AAS-TESDA', 'program', 'service');
+        $this->unit('cte', 'College of Teacher Education', 'AAS-CTE', 'program', 'hei');
+        $this->unit('cit', 'College of Information Technology', 'AAS-BSIT', 'office', 'hei');
+        $this->unit('dit', 'Department of Information Technology', 'AAS-CIT-DIT', 'program', 'cit');
+        $this->unit('dis', 'Department of Information Systems', 'AAS-CIT-DIS', 'program', 'cit');
+        $this->unit('cba', 'College of Business Administration', 'AAS-BSBA', 'office', 'hei');
+        $this->unit('ccj', 'College of Criminal Justice', 'AAS-CCJ', 'program', 'hei');
+        $this->unit('gened', 'Department of General Education', 'AAS-GenEd', 'program', 'hei');
+        $this->unit('pe', 'Department of Physical Education', 'AAS-PE', 'program', 'hei');
+
+        $this->unit('sas', 'Student Affairs and Services', 'SAS', 'office', 'college');
+        $this->unit('develop', 'Student Development Service', 'SAS-SDS', 'office', 'sas');
+        $this->unit('sss', 'Student Support Services', 'SAS-SSS', 'office', 'sas');
+        $this->unit('guidance', 'Guidance and Counseling Services', 'SAS-SSS-GCS', 'office', 'sss');
+        $this->unit('placement', 'Career and Job Placement Services', 'SAS-SSS-CJP', 'office', 'sss');
+        $this->unit('isps', 'Institutional Student Programs and Services', 'SAS-ISPS', 'office', 'sas');
+        $this->unit('security', 'Safety and Security', 'SAS-SEC', 'office', 'isps');
+        $this->unit('library', 'Library Services', 'SAS-SSS-LIB', 'office', 'isps');
+        $this->unit('health', 'Health Services', 'SAS-SSS-HLT', 'office', 'isps');
+        $this->unit('scholar', 'Scholarships and Financial Assistance Services', 'SAS-SSS-SFA', 'office', 'isps');
+
+        $this->unit('afs', 'Administrative and Finance Services', 'AFS', 'office', 'college');
+        $this->unit('finance', 'Finance Services', 'AFS-FIN', 'office', 'afs');
+        $this->unit('budget', 'Budget Management Department', 'AFS-FIN-BUD', 'office', 'finance');
+        $this->unit('payroll', 'Payroll Management Department', 'AFS-FIN-PAY', 'office', 'finance');
+        $this->unit('admin_services', 'Administrative Services', 'AFS-AS', 'office', 'afs');
+        $this->unit('hrmo', 'Human Resource Management Office', 'AFS-HRMO', 'office', 'admin_services');
+        $this->unit('supply', 'Supply, Procurement, and Property Services', 'AFS-AS-SPP', 'office', 'finance');
+        $this->unit('plant', 'Physical Plant and Maintenance Department', 'AFS-AS-PPM', 'office', 'admin_services');
+        $this->unit('maintenance', 'Information and Maintenance Management Center', 'AFS-AS-IMC', 'office', 'admin_services');
+
+        $this->unit('rpces', 'Research, Publication and Community Extension Services', 'RPCES', 'office', 'college');
+        $this->unit('research', 'Research and Publication Office', 'RPCES-RPO', 'office', 'rpces');
+        $this->unit('ecoo', 'Extension and Community Outreach Office', 'RPCES-ECOO', 'office', 'rpces');
+
+        $this->unit('ils', 'International and Linkages Services', 'ILS', 'office', 'college');
+        $this->unit('relations', 'International Relations Office', 'ILS-IRO', 'office', 'ils');
+        $this->unit('foreign', 'Foreign Affairs Office', 'ILS-FAO', 'office', 'ils');
+        $this->unit('linkages', 'Linkages and Partnerships Office', 'ILS-LPO', 'office', 'ils');
     }
 
     private function unit(string $key, string $name, string $code, string $type, string $parent): void
@@ -120,8 +147,8 @@ class DatabaseSeeder extends Seeder
             ['magnetico', 'Ms.', 'Daceil', null, 'Magnetico', null, null, 'dean.cte@occ.edu.ph', 'program_head', 'Dean, College of Teacher Education', 'cte'],
             ['nacua', 'Ms.', 'Bernadeth', 'T.', 'Nacua', null, null, 'registrar@occ.edu.ph', 'program_head', 'College Registrar', 'registrar'],
             ['iyo', 'Mr.', 'Gaudencio', null, 'Iyo', 'Jr.', null, 'iyo@occ.edu.ph', 'program_head', 'Director, Center for Information and Communication Technology', 'cict'],
-            ['verula', 'Ms.', 'Annabelle', 'T.', 'Verula', null, null, 'guidance@occ.edu.ph', 'program_head', 'Head, Guidance and Counseling Services', 'sss'],
-            ['arancon', 'Dr.', 'Rodelia', 'T.', 'Arancon', null, null, 'library@occ.edu.ph', 'program_head', 'Head, Library Services', 'sas'],
+            ['verula', 'Ms.', 'Annabelle', 'T.', 'Verula', null, null, 'guidance@occ.edu.ph', 'program_head', 'Head, Guidance and Counseling Services', 'guidance'],
+            ['arancon', 'Dr.', 'Rodelia', 'T.', 'Arancon', null, null, 'library@occ.edu.ph', 'program_head', 'Head, Library Services', 'library'],
             ['arao', 'Dr.', 'Dolorita', 'N.', 'Arao', null, null, 'comm@occ.edu.ph', 'program_head', 'Director, Community Extension', 'ecoo'],
             ['gutierrez', 'Mr.', 'Richard', null, 'Gutierriez', null, null, 'pheadIT@occ.edu.ph', 'program_head', 'Program Head, Department of Information technology', 'dit'],
             ['daculan', 'Ms.', 'Novelyn Joy', null, 'Daculan', null, null, 'faculty@occ.edu.ph', 'employee', 'Faculty', 'dis'],
@@ -152,6 +179,7 @@ class DatabaseSeeder extends Seeder
     private function wireHeads(): void
     {
         $slots = [
+            'college'   => ['head' => 'bation'],
             'aas'       => ['vp' => 'canay'],
             'cte'       => ['dean' => 'magnetico', 'vp' => 'canay'],
             'cit'       => ['dean' => 'madriaga', 'vp' => 'canay'],
@@ -164,6 +192,8 @@ class DatabaseSeeder extends Seeder
             'pe'        => ['vp' => 'canay'],
             'sas'       => ['vp' => 'baculio'],
             'sss'       => ['vp' => 'baculio'],
+            'guidance'  => ['head' => 'verula', 'vp' => 'baculio'],
+            'library'   => ['head' => 'arancon', 'vp' => 'baculio'],
             'isps'      => ['vp' => 'baculio'],
             'afs'       => ['vp' => 'vacalares'],
             'hrmo'      => ['head' => 'hrmo', 'vp' => 'vacalares'],

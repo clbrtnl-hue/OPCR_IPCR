@@ -37,7 +37,7 @@ class PcrForm extends Model
         'draft', 'commitment_review', 'commitments_approved',
         'head_review', 'dean_review', 'director_review', 'vp_review',
         'qa_approval', 'approved', 'published',
-        'qa_rating', 'rated', 'final', 'returned',
+        'qa_rating', 'rated', 'final', 'appeal', 'returned',
     ];
 
     public const EDITABLE_STATUSES = ['draft', 'returned'];
@@ -167,6 +167,7 @@ class PcrForm extends Model
             'qa_rating'   => 'With QA',
             'rated'       => 'Rated',
             'final'       => 'Final',
+            'appeal'      => 'Appeal',
             'returned'    => 'Returned',
         ][$this->status] ?? (string) $this->status;
     }

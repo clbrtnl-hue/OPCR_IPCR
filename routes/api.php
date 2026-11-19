@@ -1,5 +1,7 @@
 <?php
 
+use App\Http\Controllers\AttendanceController;
+use App\Http\Controllers\HrClosingController;
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\NotificationController;
 use App\Http\Controllers\OrganizationController;
@@ -40,6 +42,7 @@ Route::middleware('auth:api')->group(function () {
     Route::get('users/options', [UserController::class, 'options']);
     Route::post('users/{id}/avatar', [UserController::class, 'avatar']);
 
+    Route::get('org-units/leading', [OrgUnitController::class, 'leading']);
     Route::get('org-units/watching', [OrgUnitController::class, 'watching']);
     Route::get('org-units', [OrgUnitController::class, 'index']);
     Route::post('org-units', [OrgUnitController::class, 'store'])->middleware($PMS_ADMIN);
@@ -69,6 +72,13 @@ Route::middleware('auth:api')->group(function () {
     Route::get('pcr-forms/{id}/xlsx', [ReportController::class, 'formExcel']);
     Route::get('assignable-users', [PcrAssignmentController::class, 'assignableUsers']);
     Route::get('my-team', [TeamController::class, 'index']);
+    Route::get('my-team/progress', [TeamController::class, 'progress']);
+    Route::get('attendance', [AttendanceController::class, 'index']);
+    Route::put('attendance/days', [AttendanceController::class, 'markDay']);
+    Route::post('attendance/meetings', [AttendanceController::class, 'storeMeeting']);
+    Route::patch('attendance/meetings/{id}', [AttendanceController::class, 'updateMeeting']);
+    Route::delete('attendance/meetings/{id}', [AttendanceController::class, 'destroyMeeting']);
+    Route::put('attendance/meetings/{id}/marks', [AttendanceController::class, 'markMeeting']);
     Route::get('people/{id}', [UserProfileController::class, 'show']);
     Route::get('people/{id}/pdf', [UserProfileController::class, 'pdf']);
     Route::post('my-profile', [UserProfileController::class, 'updateProfile']);
@@ -110,10 +120,17 @@ Route::middleware('auth:api')->group(function () {
     Route::get('notifications', [NotificationController::class, 'index']);
     Route::post('notifications/{id}/read', [NotificationController::class, 'markRead']);
     Route::post('notifications/read-all', [NotificationController::class, 'markAllRead']);
+    Route::post('notifications/{id}/trash', [NotificationController::class, 'trash']);
+    Route::post('notifications/{id}/restore', [NotificationController::class, 'restore']);
 
     /* ---------------------------------------------------------- Ratings */
+    Route::get('pcr-ratings/targets', [PcrRatingController::class, 'targets']);
     Route::post('pcr-ratings', [PcrRatingController::class, 'store']);
     Route::post('pcr-forms/{id}/finalize-rating', [PcrRatingController::class, 'finalize']);
+
+    /* ------------------------------------------------ HR closing */
+    Route::get('hr/closing', [HrClosingController::class, 'index']);
+    Route::post('hr/closing/{orgUnitId}', [HrClosingController::class, 'closeOffice']);
 
     /* ------------------------------------------------------- Reports */
     Route::get('reports/my-summary', [ReportController::class, 'mySummary']);

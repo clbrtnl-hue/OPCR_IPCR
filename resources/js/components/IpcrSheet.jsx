@@ -4,7 +4,6 @@ import {
     Button,
     Drawer,
     Popconfirm,
-    Select,
     Space,
     Tag,
     Tooltip,
@@ -27,7 +26,7 @@ import {
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import api from "~/utils/api";
 import SheetCell from "~/components/SheetCell";
-import OpcrTargetCell, { isPickedTarget } from "~/components/OpcrTargetCell";
+import OpcrTargetCell, { isPickedTarget, TargetLink, TargetPicker } from "~/components/OpcrTargetCell";
 import { AccomplishmentCell } from "~/components/AccomplishmentView";
 import IndicatorRow from "~/components/IndicatorRow";
 import LineCards from "~/components/LineCards";
@@ -38,7 +37,7 @@ import { toPlainText } from "~/components/RichTextView";
 import ProgressCell from "~/components/ProgressCell";
 import { ADJECTIVAL_COLORS, DELAY_META, NARRATIVE_MAX, SECTION_LABELS } from "~/utils/constants";
 import { returnMark } from "~/utils/returnMarks";
-import { averageOf, ratingRules, scoreOptions } from "~/utils/ratingScale";
+import { ratingRules } from "~/utils/ratingScale";
 import { useAuth } from "~/hooks/useAuth";
 
 const SECTIONS = ["strategic", "core", "support"];
@@ -50,17 +49,19 @@ export default function IpcrSheet({
     canRecordProgress,
     canAssign,
     canAssignHeadings,
-    canScore = false,
     showScores = false,
     opcrTargets = [],
     summary,
     focusLineId = null,
     focusOutputId = null,
     returnMarks = [],
+    assignedOnly = false,
+    arriveLineId = null,
+    arriveTick = null,
+    onExpand,
 }) {
     const { user } = useAuth();
     const scale = ratingRules(user);
-    const scores = scoreOptions(user);
     const queryClient = useQueryClient();
     const [openLineId, setOpenLineId] = useState(null);
     const focusedLine = useRef(null);
@@ -69,69 +70,8 @@ export default function IpcrSheet({
     const [pickingLineId, setPickingLineId] = useState(null);
     const [assigning, setAssigning] = useState(null);
     const { openPerson } = usePerson();
-    const [draftScores, setDraftScores] = useState({});
-    const savingScores = useRef(new Set());
 
     const refresh = () => queryClient.invalidateQueries({ queryKey: ["pcr-form", String(form.id)] });
-
-    useEffect(() => {
-        const next = {};
-
-        form.outputs?.forEach((output) => {
-            output.indicators?.forEach((line) => {
-                if (savingScores.current.has(line.id)) return;
-
-                const rating = (line.ratings ?? []).find((row) => row.rating_period_id === periodId);
-                next[line.id] = {
-                    q: rating?.q ?? null,
-                    e: rating?.e ?? null,
-                    t: rating?.t ?? null,
-                    remarks: rating?.remarks ?? "",
-                };
-            });
-        });
-
-        setDraftScores((prev) => {
-            savingScores.current.forEach((lineId) => {
-                if (prev[lineId]) next[lineId] = prev[lineId];
-            });
-
-            return next;
-        });
-    }, [form, periodId]);
-
-    const saveScore = (lineId, dimension, value) => {
-        const current = draftScores[lineId] ?? { q: null, e: null, t: null, remarks: "" };
-        const next = { ...current, [dimension]: value ?? null };
-
-        savingScores.current.add(lineId);
-        setDraftScores((prev) => ({ ...prev, [lineId]: next }));
-
-        if (!canScore || !periodId) {
-            savingScores.current.delete(lineId);
-
-            return;
-        }
-
-        api.post("pcr-ratings", {
-            form_id: form.id,
-            rating_period_id: periodId,
-            ratings: [
-                {
-                    indicator_id: lineId,
-                    q: next.q,
-                    e: next.e,
-                    t: next.t,
-                    remarks: next.remarks,
-                },
-            ],
-        })
-            .then(() => refresh())
-            .catch((error) => {
-                message.error(error.response?.data?.message ?? "The score could not be saved.");
-            })
-            .finally(() => savingScores.current.delete(lineId));
-    };
 
     const { data: people = [] } = useQuery({
         queryKey: ["assignable-users"],
@@ -355,6 +295,24 @@ export default function IpcrSheet({
         setTimeout(() => row.classList.remove("is-new"), 2200);
     }, [justAdded, form.outputs]);
 
+    useEffect(() => {
+        if (!arriveLineId) return;
+
+        const row = document.querySelector(`[data-row="indicator-${arriveLineId}"]`);
+
+        if (!row || row.getClientRects().length === 0) return;
+
+        row.scrollIntoView({ behavior: "smooth", block: "center" });
+        row.classList.add("is-new");
+        const click = setTimeout(() => row.querySelector(".pms-cell")?.click(), 400);
+        const clear = setTimeout(() => row.classList.remove("is-new"), 2200);
+
+        return () => {
+            clearTimeout(click);
+            clearTimeout(clear);
+        };
+    }, [arriveLineId, arriveTick, form.outputs]);
+
     const bySection = useMemo(() => {
         const map = {};
 
@@ -448,12 +406,8 @@ export default function IpcrSheet({
                 section === "support"
                     ? handed.filter((t) => t.section === "support")
                     : fromCollege
-                      ? opcrTargets.filter(
-                            (t) =>
-                                t.output_id === output.parent_output_id ||
-                                (t.assigned && t.section !== "support")
-                        )
-                      : opcrTargets;
+                      ? handed.filter((t) => t.output_id === output.parent_output_id)
+                      : handed.filter((t) => t.section !== "support");
 
             const outputCell = (
                 <td rowSpan={span} className="pms-sheet-output" data-output-id={output.id}>
@@ -579,15 +533,7 @@ export default function IpcrSheet({
                                 <span>
                                     {number}.{lineIndex + 1}.
                                 </span>
-                                <OpcrTargetCell
-                                    line={line}
-                                    targets={targets}
-                                    picking={pickingLineId === line.id}
-                                    onClose={() => setPickingLineId(null)}
-                                    onPick={(parentId) =>
-                                        patchLine(line, output.id, { parent_indicator_id: parentId })
-                                    }
-                                >
+                                <OpcrTargetCell line={line}>
                                     <SheetCell
                                         value={toPlainText(line.description)}
                                         disabled={!canEdit}
@@ -607,18 +553,27 @@ export default function IpcrSheet({
                             </div>
                             {canEdit && (
                                 <Space size={2} className="pms-sheet-rowtools">
-                                    {targets.length > 0 && !line.assigned_by && (
+                                    {targets.length > 0 &&
+                                        !line.assigned_by &&
+                                        (!assignedOnly || isPickedTarget(line)) && (
                                         <>
                                             {isPickedTarget(line) ? (
                                                 <>
-                                                    <Tooltip title="Change office target">
-                                                        <Button
-                                                            size="small"
-                                                            type="text"
-                                                            icon={<EditOutlined />}
-                                                            onClick={() => setPickingLineId(line.id)}
-                                                        />
-                                                    </Tooltip>
+                                                    <TargetPicker
+                                                        open={pickingLineId === line.id}
+                                                        targets={targets}
+                                                        onOpenChange={(next) =>
+                                                            setPickingLineId(next ? line.id : null)
+                                                        }
+                                                        onPick={(parentId) => {
+                                                            patchLine(line, output.id, {
+                                                                parent_indicator_id: parentId,
+                                                            });
+                                                            setPickingLineId(null);
+                                                        }}
+                                                    >
+                                                        <TargetLink title="Change office target" icon={<EditOutlined />} />
+                                                    </TargetPicker>
                                                     <Tooltip title="Unlink and type your own">
                                                         <Button
                                                             size="small"
@@ -633,15 +588,25 @@ export default function IpcrSheet({
                                                     </Tooltip>
                                                 </>
                                             ) : (
-                                                <Tooltip title="Choose the target this line answers">
-                                                    <Button
-                                                        size="small"
-                                                        type="text"
+                                                <TargetPicker
+                                                    open={pickingLineId === line.id}
+                                                    targets={targets}
+                                                    onOpenChange={(next) =>
+                                                        setPickingLineId(next ? line.id : null)
+                                                    }
+                                                    onPick={(parentId) => {
+                                                        patchLine(line, output.id, {
+                                                            parent_indicator_id: parentId,
+                                                        });
+                                                        setPickingLineId(null);
+                                                    }}
+                                                >
+                                                    <TargetLink
+                                                        title="Choose the target this line answers"
                                                         className="pms-target-pick"
                                                         icon={<LinkOutlined />}
-                                                        onClick={() => setPickingLineId(line.id)}
                                                     />
-                                                </Tooltip>
+                                                </TargetPicker>
                                             )}
                                             <span className="pms-sheet-rowtools-divider" />
                                         </>
@@ -798,27 +763,12 @@ export default function IpcrSheet({
                         {showScores &&
                             scale.dimensions.map((dimension) => (
                                 <td key={dimension.key} className="pms-sheet-score">
-                                    {canScore ? (
-                                        <Select
-                                            size="small"
-                                            style={{ width: 64 }}
-                                            allowClear
-                                            value={draftScores[line.id]?.[dimension.key] ?? undefined}
-                                            options={scores}
-                                            onChange={(value) => saveScore(line.id, dimension.key, value)}
-                                        />
-                                    ) : (
-                                        rating?.[dimension.key] ?? ""
-                                    )}
+                                    {rating?.[dimension.key] ?? ""}
                                 </td>
                             ))}
                         {showScores && (
                             <td className="pms-sheet-score">
-                                {canScore
-                                    ? averageOf(draftScores[line.id], user) ?? ""
-                                    : rating?.a != null
-                                      ? Number(rating.a).toFixed(2)
-                                      : ""}
+                                {rating?.a != null ? Number(rating.a).toFixed(2) : ""}
                             </td>
                         )}
                     </tr>
@@ -868,7 +818,18 @@ export default function IpcrSheet({
 
     return (
         <>
-            <LineCards form={form} periodId={periodId} showScores={showScores} onOpen={setOpenLineId} />
+            <LineCards
+                form={form}
+                periodId={periodId}
+                showScores={showScores}
+                onOpen={setOpenLineId}
+                onEnter={canEdit && onExpand ? () => onExpand() : undefined}
+                addSections={canEdit ? ["core", "support"] : []}
+                onAdd={(section) => {
+                    saveOutput.mutate({ section, title: "" });
+                    onExpand?.();
+                }}
+            />
 
             <div className="pms-sheet-wrap">
                 <table className="pms-sheet">
@@ -888,7 +849,7 @@ export default function IpcrSheet({
                                     {scale.dimensions.map((dimension) => (
                                         <th
                                             key={dimension.key}
-                                            style={{ width: canScore ? 76 : 38 }}
+                                            style={{ width: 38 }}
                                             title={dimension.label}
                                         >
                                             {dimension.short}

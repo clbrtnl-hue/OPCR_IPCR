@@ -51,7 +51,7 @@ class QaApprovalQueueTest extends PmsTestCase
         $this->assertSame(collect([$opcr->id, $toRate->id])->sort()->values()->all(), $ids->all());
     }
 
-    public function test_a_rated_form_stays_in_the_qa_queue_until_it_is_closed(): void
+    public function test_a_rated_form_leaves_the_qa_queue(): void
     {
         ['unit' => $unit, 'year' => $year, 'qa' => $qa, 'president' => $president] = $this->college();
 
@@ -68,7 +68,7 @@ class QaApprovalQueueTest extends PmsTestCase
 
         $this->actingAsUser($qa);
         $ids = array_column($this->getJson('/api/pcr-forms?queue=1')->assertSuccessful()->json(), 'id');
-        $this->assertContains($rated->id, $ids);
+        $this->assertNotContains($rated->id, $ids);
         $this->assertNotContains($closed->id, $ids);
 
         $this->actingAsUser($president);

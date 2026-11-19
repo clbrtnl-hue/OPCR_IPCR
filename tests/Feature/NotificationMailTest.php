@@ -102,6 +102,31 @@ class NotificationMailTest extends PmsTestCase
                 && $mail->actorName === null
                 && str_contains($mail->actionUrl, $link);
         });
+
+        Notification::query()->update(['trashed_at' => now()]);
+
+        $this->assertFalse(Notification::remind(
+            $owner->id,
+            'due_soon',
+            'A commitment is due soon',
+            'Publish the research.',
+            null,
+            $link,
+        ));
+        Mail::assertSent(PmsNotificationMail::class, 1);
+
+        Notification::query()->update(['trashed_at' => now()->subDays(30)]);
+        $this->assertSame(1, Notification::purgeTrash());
+
+        $this->assertTrue(Notification::remind(
+            $owner->id,
+            'due_soon',
+            'A commitment is due soon',
+            'Publish the research.',
+            null,
+            $link,
+        ));
+        Mail::assertSent(PmsNotificationMail::class, 2);
     }
 
     public function test_a_bad_address_still_leaves_the_bell(): void

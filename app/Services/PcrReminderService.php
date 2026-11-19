@@ -193,15 +193,15 @@ class PcrReminderService
         return $sent;
     }
 
-    /** Rated, but not yet closed. QA is the one who closes it. */
+    /** Rated, but not yet closed. HR closes it from Close ratings. */
     private function unclosed(): int
     {
-        $qaIds = User::query()
-            ->where('role', 'qa')
+        $hrIds = User::query()
+            ->where('role', 'hr')
             ->where('status', 'active')
             ->pluck('id');
 
-        if ($qaIds->isEmpty()) {
+        if ($hrIds->isEmpty()) {
             return 0;
         }
 
@@ -216,14 +216,14 @@ class PcrReminderService
             $who = $form->owner?->name ?? $form->orgUnit?->name ?? 'this office';
             $label = strtoupper($form->type);
 
-            foreach ($qaIds as $qaId) {
+            foreach ($hrIds as $hrId) {
                 $sent += (int) Notification::remind(
-                    (int) $qaId,
+                    (int) $hrId,
                     'unclosed',
                     'A rated form still needs to be closed',
-                    "{$label} for {$who} has been rated. Open it and close the form.",
+                    "{$label} for {$who} has been rated. Close it from Close ratings.",
                     $form->id,
-                    "/forms/{$form->id}"
+                    "/closing?form={$form->id}"
                 );
             }
         }

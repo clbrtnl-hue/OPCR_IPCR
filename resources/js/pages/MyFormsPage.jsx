@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { Button, Card, Empty, Modal, Form, Select, Space, Table, Tag, message } from "antd";
+import { Button, Card, Empty, Modal, Form, Select, Space, Table, Tabs, Tag, message } from "antd";
 import { PlusOutlined /* , TeamOutlined */ } from "@ant-design/icons";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
@@ -13,7 +13,10 @@ import { useAuth } from "~/hooks/useAuth";
 
 export default function MyFormsPage() {
     const { user, can } = useAuth();
-    const viewOnly = user?.role === "admin" || user?.role === "hr";
+    const isHr = user?.role === "hr";
+    const [list, setList] = useState("mine");
+    const collegeList = isHr && list === "all";
+    const viewOnly = user?.role === "admin" || collegeList;
     const navigate = useNavigate();
     const queryClient = useQueryClient();
     const [form] = Form.useForm();
@@ -23,8 +26,8 @@ export default function MyFormsPage() {
     // const [bulkOpen, setBulkOpen] = useState(false);
 
     const { data: forms = [], isLoading } = useQuery({
-        queryKey: ["pcr-forms", user?.role === "hr" ? "college" : "mine"],
-        queryFn: () => api.get(user?.role === "hr" ? "pcr-forms" : "pcr-forms?mine=1").then((r) => r.data),
+        queryKey: ["pcr-forms", collegeList ? "college" : "mine"],
+        queryFn: () => api.get(collegeList ? "pcr-forms" : "pcr-forms?mine=1").then((r) => r.data),
     });
 
     const { data: years = [] } = useQuery({
@@ -114,9 +117,9 @@ export default function MyFormsPage() {
     return (
         <>
             <PageHeader
-                title={viewOnly ? "Forms" : "My Forms"}
+                title={isHr || user?.role === "admin" ? "Forms" : "My Forms"}
                 subtitle={
-                    viewOnly
+                    collegeList || user?.role === "admin"
                         ? "Every IPCR and OPCR in the college, and where each one sits."
                         : "Your performance commitment for each school year, and where it currently sits."
                 }
@@ -152,6 +155,23 @@ export default function MyFormsPage() {
                 }
             />
 
+            {isHr && (
+                <Tabs
+                    className="pms-line-tabs"
+                    activeKey={list}
+                    onChange={(key) => {
+                        setList(key);
+                        setFormKind("all");
+                        setStatusKind("all");
+                    }}
+                    style={{ marginBottom: 16 }}
+                    items={[
+                        { key: "mine", label: "My Forms" },
+                        { key: "all", label: "All" },
+                    ]}
+                />
+            )}
+
             <Card className="pms-list-panel">
                 {forms.length > 0 && (
                     <FormListFilters
@@ -167,7 +187,7 @@ export default function MyFormsPage() {
                         description={
                             forms.length > 0
                                 ? "No forms match this filter."
-                                : viewOnly
+                                : collegeList
                                   ? "No forms yet."
                                   : "You have no forms yet. Create one for the active school year to get started."
                         }

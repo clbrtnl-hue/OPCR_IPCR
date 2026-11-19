@@ -122,14 +122,15 @@ class PcrReminderTest extends PmsTestCase
         $this->assertSame("/forms/{$ratingForm->id}", Notification::where('user_id', $qa->id)->where('type', 'period')->value('link'));
     }
 
-    public function test_it_reminds_qa_once_that_a_rated_form_still_needs_to_be_closed(): void
+    public function test_it_reminds_hr_once_that_a_rated_form_still_needs_to_be_closed(): void
     {
         $this->makeOrganization();
         $unit = $this->makeUnit();
         $owner = User::factory()->create(['role' => 'employee', 'org_unit_id' => $unit->id, 'name' => 'Ana Cruz']);
         $closed = User::factory()->create(['role' => 'employee', 'org_unit_id' => $unit->id]);
+        $hr = User::factory()->create(['role' => 'hr']);
+        $inactive = User::factory()->create(['role' => 'hr', 'status' => 'inactive']);
         $qa = User::factory()->create(['role' => 'qa']);
-        $inactive = User::factory()->create(['role' => 'qa', 'status' => 'inactive']);
         $president = User::factory()->create(['role' => 'president']);
         $year = $this->makeSchoolYear();
 
@@ -150,12 +151,14 @@ class PcrReminderTest extends PmsTestCase
         $reminders->send();
         $reminders->send();
 
-        $notice = Notification::where('user_id', $qa->id)->where('type', 'unclosed')->get();
+        $notice = Notification::where('user_id', $hr->id)->where('type', 'unclosed')->get();
         $this->assertCount(1, $notice);
         $this->assertSame($open->id, $notice->first()->form_id);
-        $this->assertSame("/forms/{$open->id}", $notice->first()->link);
+        $this->assertSame("/closing?form={$open->id}", $notice->first()->link);
         $this->assertStringContainsString('Ana Cruz', $notice->first()->body);
+        $this->assertStringContainsString('Close ratings', $notice->first()->body);
         $this->assertDatabaseMissing('notifications', ['user_id' => $inactive->id, 'type' => 'unclosed']);
+        $this->assertDatabaseMissing('notifications', ['user_id' => $qa->id, 'type' => 'unclosed']);
         $this->assertDatabaseMissing('notifications', ['user_id' => $president->id, 'type' => 'unclosed']);
     }
 }

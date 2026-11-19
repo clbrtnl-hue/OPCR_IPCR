@@ -11,6 +11,9 @@ class OrgUnit extends Model
     use BelongsToOrganization;
     use StoresUnitReviewers;
 
+    /** Shown on the chart only. Slots named chart_display* are not review steps. */
+    public const CHART_LIMIT = 10;
+
     protected $table = 'org_units';
 
     protected $guarded = [];
@@ -133,7 +136,7 @@ class OrgUnit extends Model
     public function scopeWhereLedBy($query, int $userId)
     {
         return $query->whereHas('reviewers', function ($reviewers) use ($userId) {
-            $reviewers->where('user_id', $userId);
+            $reviewers->where('user_id', $userId)->where('slot', 'not like', 'chart_display%');
         });
     }
 

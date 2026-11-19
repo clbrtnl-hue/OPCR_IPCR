@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\Notification;
 use App\Support\Html;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\Request;
 
 class NotificationController extends Controller
@@ -11,9 +12,10 @@ class NotificationController extends Controller
     public function index(Request $request)
     {
         $userId = $request->user()->id;
-        $query  = Notification::where('user_id', $userId)->orderByDesc('created_at');
+        $trash  = $request->boolean('trash');
+        $query  = $this->owned($userId, $trash)->orderByDesc('created_at');
 
-        if ($request->boolean('unread')) {
+        if (! $trash && $request->boolean('unread')) {
             $query->whereNull('read_at');
         }
 
@@ -34,8 +36,9 @@ class NotificationController extends Controller
         return response()->json([
             'items'  => $items,
             'total'  => $total,
-            'unread' => Notification::where('user_id', $userId)->whereNull('read_at')->count(),
-            'kinds'  => Notification::where('user_id', $userId)
+            'unread' => $this->owned($userId, false)->whereNull('read_at')->count(),
+            'trash'  => $this->owned($userId, true)->count(),
+            'kinds'  => $this->owned($userId, $trash)
                 ->selectRaw('type, count(*) as total')
                 ->groupBy('type')
                 ->pluck('total', 'type'),
@@ -52,10 +55,33 @@ class NotificationController extends Controller
 
     public function markAllRead(Request $request)
     {
-        Notification::where('user_id', $request->user()->id)
+        $this->owned($request->user()->id, false)
             ->whereNull('read_at')
             ->update(['read_at' => now()]);
 
         return response()->json(['data' => 'read']);
+    }
+
+    public function trash(Request $request, $id)
+    {
+        $notification = $this->owned($request->user()->id, false)->findOrFail($id);
+        $notification->update(['trashed_at' => now()]);
+
+        return response()->json(['data' => 'trashed']);
+    }
+
+    public function restore(Request $request, $id)
+    {
+        $notification = $this->owned($request->user()->id, true)->findOrFail($id);
+        $notification->update(['trashed_at' => null]);
+
+        return response()->json(['data' => 'restored']);
+    }
+
+    private function owned(int $userId, bool $trash): Builder
+    {
+        return Notification::where('user_id', $userId)
+            ->when($trash, fn ($query) => $query->whereNotNull('trashed_at'))
+            ->when(! $trash, fn ($query) => $query->whereNull('trashed_at'));
     }
 }

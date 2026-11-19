@@ -12,6 +12,10 @@ class PcrStatusLog extends Model
 
     protected $guarded = [];
 
+    protected $casts = [
+        'scores' => 'array',
+    ];
+
     public function form()
     {
         return $this->belongsTo(PcrForm::class, 'form_id');

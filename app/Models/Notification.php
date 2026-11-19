@@ -16,7 +16,8 @@ class Notification extends Model
     protected $guarded = [];
 
     protected $casts = [
-        'read_at' => 'datetime',
+        'read_at'    => 'datetime',
+        'trashed_at' => 'datetime',
     ];
 
     public function user()
@@ -69,7 +70,9 @@ class Notification extends Model
 
     /**
      * A system reminder. Sent once per person and link, even if that person
-     * happens to be the signed-in user when the job runs.
+     * happens to be the signed-in user when the job runs. A row in Trash still
+     * counts, so deleting it from the inbox does not mail it again. The daily
+     * purge removes that row after 30 days, and a later run may send it then.
      */
     public static function remind(
         ?int $userId,
@@ -114,6 +117,17 @@ class Notification extends Model
         static::deliverMail($userId, $title, $body, $link);
 
         return true;
+    }
+
+    /**
+     * Notifications only. Rows sit in Trash until this removes them.
+     */
+    public static function purgeTrash(int $days = 30): int
+    {
+        return static::query()
+            ->whereNotNull('trashed_at')
+            ->where('trashed_at', '<=', now()->subDays($days))
+            ->delete();
     }
 
     /**

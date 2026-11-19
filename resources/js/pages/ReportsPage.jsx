@@ -46,46 +46,50 @@ const RATING_ORDER = RATING_LEGEND.map((band) => band.label);
 const STATUS_ORDER = Object.keys(STATUS_META);
 const SECTION_ORDER = Object.keys(SECTION_LABELS);
 
-function byText(pick) {
-    return (a, b) =>
-        String(pick(a) ?? "").localeCompare(String(pick(b) ?? ""), undefined, {
-            numeric: true,
-            sensitivity: "base",
-        });
+function compareText(a, b) {
+    return String(a ?? "").localeCompare(String(b ?? ""), undefined, {
+        numeric: true,
+        sensitivity: "base",
+    });
 }
 
-function byNumber(pick) {
-    return (a, b) => (Number(pick(a)) || 0) - (Number(pick(b)) || 0);
-}
-
-const ADJECTIVAL_SCORE = {
-    Poor: 1,
-    Unsatisfactory: 2,
-    Satisfactory: 3,
-    "Very Satisfactory": 4,
-    Outstanding: 5,
+const NAME_OF = {
+    units: (row) => row.name,
+    heads: (row) => row.head,
+    vps: (row) => row.vp,
+    people: (row) => row.name,
+    forms: (row) => row.owner,
+    ratings: (row) => row.owner,
+    commitments: (row) => row.description,
 };
 
-function byAdjectival(pick) {
-    return byNumber((row) => ADJECTIVAL_SCORE[pick(row)] ?? 0);
-}
+const VALUE_OF = {
+    units: (row) => row.average,
+    heads: (row) => row.average,
+    vps: (row) => row.average,
+    people: (row) => row.average,
+    forms: (row) => row.average,
+    ratings: (row) => row.average,
+    commitments: (row) => row.progress_pct,
+};
 
-function standingRank(row) {
-    if (row.is_overdue) return 0;
-    if (row.due_soon) return 1;
-    if (row.progress_status === "completed") return 3;
+function sortRows(list, tab, sort) {
+    const nameOf = NAME_OF[tab];
+    const valueOf = VALUE_OF[tab];
 
-    return 2;
-}
+    return [...list].sort((a, b) => {
+        if (sort === "value") {
+            const av = valueOf(a);
+            const bv = valueOf(b);
+            const aMissing = av == null || av === "";
+            const bMissing = bv == null || bv === "";
 
-function byRank(pick, order) {
-    const rank = (row) => {
-        const index = order.indexOf(pick(row));
+            if (aMissing !== bMissing) return aMissing ? 1 : -1;
+            if (!aMissing && Number(bv) !== Number(av)) return Number(bv) - Number(av);
+        }
 
-        return index === -1 ? order.length : index;
-    };
-
-    return (a, b) => rank(a) - rank(b);
+        return compareText(nameOf(a), nameOf(b));
+    });
 }
 
 function orderedChoices(rows, order, pick, labelOf) {
@@ -156,7 +160,22 @@ function ReportExport({ busy, onDownload }) {
     );
 }
 
-function ReportFilters({ search, onSearch, tab, lateOnly, onLateOnly, children }) {
+function ReportSort({ value, onChange }) {
+    return (
+        <Select
+            aria-label="Sort"
+            value={value}
+            onChange={onChange}
+            style={{ width: 120 }}
+            options={[
+                { value: "az", label: "A–Z" },
+                { value: "value", label: "Value" },
+            ]}
+        />
+    );
+}
+
+function ReportFilters({ search, onSearch, sort, onSort, tab, lateOnly, onLateOnly, children }) {
     return (
         <>
             <Input.Search
@@ -165,6 +184,7 @@ function ReportFilters({ search, onSearch, tab, lateOnly, onLateOnly, children }
                 value={search}
                 onChange={(e) => onSearch(e.target.value)}
             />
+            <ReportSort value={sort} onChange={onSort} />
             {children}
             {tab === "commitments" && (
                 <label className="pms-late-only">
@@ -259,6 +279,7 @@ export default function ReportsPage() {
         return TABS.some((item) => item.value === next) ? next : "units";
     });
     const [search, setSearch] = useState(() => searchParams.get("q") ?? "");
+    const [sort, setSort] = useState("az");
     const [lateOnly, setLateOnly] = useState(() => searchParams.has("late"));
     const [kindByTab, setKindByTab] = useState({});
     const [busy, setBusy] = useState(false);
@@ -454,6 +475,8 @@ export default function ReportsPage() {
             : searched(late, ["description", "owner", "unit", "section"]);
     }, [tabRows, tab, search, lateOnly, kind, kindFields]);
 
+    const sortedRows = useMemo(() => sortRows(rows, tab, sort), [rows, tab, sort]);
+
     const download = async (kind) => {
         setBusy(true);
 
@@ -495,12 +518,11 @@ export default function ReportsPage() {
         value ? <Tag color={ADJECTIVAL_COLORS[value]}>{value}</Tag> : <Tag>Not yet rated</Tag>;
 
     const unitColumns = [
-        { title: "Unit", dataIndex: "name", sorter: byText((row) => row.name) },
-        { title: "Code", dataIndex: "code", sorter: byText((row) => row.code), render: (v) => v || "—" },
+        { title: "Unit", dataIndex: "name" },
+        { title: "Code", dataIndex: "code", render: (v) => v || "—" },
         {
             title: "Level",
             dataIndex: "type",
-            sorter: byRank((row) => row.type, LEVEL_ORDER),
             render: (value, row) =>
                 row.parent_name ? (
                     <Tooltip title={`Under ${row.parent_name}`}>
@@ -510,74 +532,64 @@ export default function ReportsPage() {
                     <span style={{ textTransform: "capitalize" }}>{value ?? "—"}</span>
                 ),
         },
-        { title: "Forms", dataIndex: "total_forms", align: "right", sorter: byNumber((row) => row.total_forms) },
+        { title: "Forms", dataIndex: "total_forms", align: "right" },
         {
             title: "Submitted",
             key: "submitted",
-            sorter: byNumber((row) => row.submitted),
             render: (_, row) => `${row.submitted} / ${row.total_forms}`,
         },
-        { title: "Rated", dataIndex: "rated", align: "right", sorter: byNumber((row) => row.rated) },
-        { title: "Commitments", dataIndex: "commitments", align: "right", sorter: byNumber((row) => row.commitments) },
+        { title: "Rated", dataIndex: "rated", align: "right" },
+        { title: "Commitments", dataIndex: "commitments", align: "right" },
         {
             title: "Progress",
             dataIndex: "progress_pct",
-            sorter: byNumber((row) => row.progress_pct),
             render: (value) => progressBar(value),
         },
         {
             title: "Overdue",
             dataIndex: "overdue",
             align: "right",
-            sorter: byNumber((row) => row.overdue),
             render: (value) => (value > 0 ? <Tag color="error">{value}</Tag> : "—"),
         },
         {
             title: "Average",
             dataIndex: "average",
             align: "right",
-            sorter: byNumber((row) => row.average),
             render: score,
         },
         {
             title: "Adjectival",
             dataIndex: "adjectival",
-            sorter: byAdjectival((row) => row.adjectival),
             render: adjectivalTag,
         },
         ...(data?.dimensions?.keys ?? []).map((key) => ({
             title: data.dimensions.college.find((d) => d.key === key)?.label ?? key.toUpperCase(),
             key,
             align: "right",
-            sorter: byNumber((row) => row.dimension_scores?.[key]),
             render: (_, row) => score(dimensionsByUnit[row.id]?.scores?.[key]),
         })),
     ];
 
     const peopleColumns = [
-        { title: "Name", dataIndex: "name", sorter: byText((row) => row.name) },
-        { title: "Position", dataIndex: "position", sorter: byText((row) => row.position), render: (v) => v || "—" },
-        { title: "Unit", dataIndex: "unit", sorter: byText((row) => row.unit) },
-        { title: "Forms", dataIndex: "forms", align: "right", sorter: byNumber((row) => row.forms) },
+        { title: "Name", dataIndex: "name" },
+        { title: "Position", dataIndex: "position", render: (v) => v || "—" },
+        { title: "Unit", dataIndex: "unit" },
+        { title: "Forms", dataIndex: "forms", align: "right" },
         {
             title: "Commitments",
             dataIndex: "commitments",
             align: "right",
-            sorter: byNumber((row) => row.commitments),
             render: (value, row) => `${row.completed} / ${value}`,
         },
         {
             title: "Progress",
             dataIndex: "progress_pct",
-            sorter: byNumber((row) => row.progress_pct),
             render: (value) => progressBar(value),
         },
         {
             title: "Overdue",
             dataIndex: "overdue",
             align: "right",
-            defaultSortOrder: "descend",
-            sorter: (a, b) => byNumber((row) => row.overdue)(a, b) || byNumber((row) => row.days_late)(a, b),
             render: (value, row) =>
                 value > 0 ? (
                     <Tooltip title={`${row.days_late} day(s) late in total`}>
@@ -591,13 +603,11 @@ export default function ReportsPage() {
             title: "Average",
             dataIndex: "average",
             align: "right",
-            sorter: byNumber((row) => row.average),
             render: score,
         },
         {
             title: "Adjectival",
             dataIndex: "adjectival",
-            sorter: byAdjectival((row) => row.adjectival),
             render: adjectivalTag,
         },
     ];
@@ -606,43 +616,37 @@ export default function ReportsPage() {
         {
             title,
             dataIndex: field,
-            sorter: byText((row) => row[field]),
         },
-        { title: "Position", dataIndex: "position", sorter: byText((row) => row.position), render: (v) => v || "—" },
-        { title: "Unit", dataIndex: "unit", sorter: byText((row) => row.unit) },
-        { title: "Forms", dataIndex: "forms", align: "right", sorter: byNumber((row) => row.forms) },
+        { title: "Position", dataIndex: "position", render: (v) => v || "—" },
+        { title: "Unit", dataIndex: "unit" },
+        { title: "Forms", dataIndex: "forms", align: "right" },
         {
             title: "Submitted",
             key: "submitted",
-            sorter: byNumber((row) => row.submitted),
             render: (_, row) => `${row.submitted} / ${row.forms}`,
         },
-        { title: "Rated", dataIndex: "rated", align: "right", sorter: byNumber((row) => row.rated) },
-        { title: "Commitments", dataIndex: "commitments", align: "right", sorter: byNumber((row) => row.commitments) },
+        { title: "Rated", dataIndex: "rated", align: "right" },
+        { title: "Commitments", dataIndex: "commitments", align: "right" },
         {
             title: "Progress",
             dataIndex: "progress_pct",
-            sorter: byNumber((row) => row.progress_pct),
             render: (value) => progressBar(value),
         },
         {
             title: "Overdue",
             dataIndex: "overdue",
             align: "right",
-            sorter: byNumber((row) => row.overdue),
             render: (value) => (value > 0 ? <Tag color="error">{value}</Tag> : "—"),
         },
         {
             title: "Average",
             dataIndex: "average",
             align: "right",
-            sorter: byNumber((row) => row.average),
             render: score,
         },
         {
             title: "Adjectival",
             dataIndex: "adjectival",
-            sorter: byAdjectival((row) => row.adjectival),
             render: adjectivalTag,
         },
     ];
@@ -654,15 +658,13 @@ export default function ReportsPage() {
         {
             title: "Type",
             dataIndex: "type",
-            sorter: byText((row) => row.type),
             render: (value) => <Tag>{value}</Tag>,
         },
-        { title: "Owner", dataIndex: "owner", sorter: byText((row) => row.owner) },
-        { title: "Unit", dataIndex: "unit", sorter: byText((row) => row.unit) },
+        { title: "Owner", dataIndex: "owner" },
+        { title: "Unit", dataIndex: "unit" },
         {
             title: "Status",
             dataIndex: "status",
-            sorter: byRank((row) => row.status, STATUS_ORDER),
             render: (value) => (
                 <Tooltip title={STATUS_META[value]?.who}>
                     <Tag color={STATUS_META[value]?.color}>{STATUS_META[value]?.label ?? value}</Tag>
@@ -672,63 +674,54 @@ export default function ReportsPage() {
         {
             title: "Submitted",
             dataIndex: "submitted_at",
-            sorter: byText((row) => row.submitted_at),
             render: (value) => (value ? dayjs(value).format("MMM D, YYYY") : "—"),
         },
-        { title: "Lines", dataIndex: "commitments", align: "right", sorter: byNumber((row) => row.commitments) },
+        { title: "Lines", dataIndex: "commitments", align: "right" },
         {
             title: "Progress",
             dataIndex: "progress_pct",
-            sorter: byNumber((row) => row.progress_pct),
             render: (value) => progressBar(value),
         },
         {
             title: "Overdue",
             dataIndex: "overdue",
             align: "right",
-            sorter: byNumber((row) => row.overdue),
             render: (value) => (value > 0 ? <Tag color="error">{value}</Tag> : "—"),
         },
         {
             title: "Final",
             dataIndex: "average",
             align: "right",
-            sorter: byNumber((row) => row.average),
             render: score,
         },
         {
             title: "Adjectival",
             dataIndex: "adjectival",
-            sorter: byAdjectival((row) => row.adjectival),
             render: adjectivalTag,
         },
     ];
 
     const ratingColumns = [
-        { title: "Type", dataIndex: "type", sorter: byText((row) => row.type), render: (value) => <Tag>{value}</Tag> },
-        { title: "Ratee", dataIndex: "owner", sorter: byText((row) => row.owner) },
-        { title: "Unit", dataIndex: "unit", sorter: byText((row) => row.unit) },
-        { title: "Strategic", dataIndex: "strategic", align: "right", sorter: byNumber((row) => row.strategic), render: score },
-        { title: "Core", dataIndex: "core", align: "right", sorter: byNumber((row) => row.core), render: score },
-        { title: "Support", dataIndex: "support", align: "right", sorter: byNumber((row) => row.support), render: score },
+        { title: "Type", dataIndex: "type", render: (value) => <Tag>{value}</Tag> },
+        { title: "Ratee", dataIndex: "owner" },
+        { title: "Unit", dataIndex: "unit" },
+        { title: "Strategic", dataIndex: "strategic", align: "right", render: score },
+        { title: "Core", dataIndex: "core", align: "right", render: score },
+        { title: "Support", dataIndex: "support", align: "right", render: score },
         {
             title: "Final",
             dataIndex: "average",
             align: "right",
-            defaultSortOrder: "descend",
-            sorter: byNumber((row) => row.average),
             render: (value) => <strong>{score(value)}</strong>,
         },
         {
             title: "Adjectival",
             dataIndex: "adjectival",
-            sorter: byAdjectival((row) => row.adjectival),
             render: (value) => <Tag color={ADJECTIVAL_COLORS[value]}>{value}</Tag>,
         },
         {
             title: "Rated on",
             dataIndex: "rated_at",
-            sorter: byText((row) => row.rated_at),
             render: (value) => (value ? dayjs(value).format("MMM D, YYYY") : "—"),
         },
     ];
@@ -738,37 +731,32 @@ export default function ReportsPage() {
             title: "Success indicator",
             dataIndex: "description",
             width: 320,
-            sorter: byText((row) => row.description),
             render: (value) => (
                 <Typography.Text ellipsis={{ tooltip: value }} style={{ maxWidth: 300 }}>
                     {value || "Untitled"}
                 </Typography.Text>
             ),
         },
-        { title: "Owner", dataIndex: "owner", sorter: byText((row) => row.owner) },
-        { title: "Unit", dataIndex: "unit", sorter: byText((row) => row.unit) },
+        { title: "Owner", dataIndex: "owner" },
+        { title: "Unit", dataIndex: "unit" },
         {
             title: "Section",
             dataIndex: "section",
-            sorter: byRank((row) => row.section, SECTION_ORDER),
             render: (value) => SECTION_LABELS[value] ?? value,
         },
         {
             title: "Target date",
             dataIndex: "target_date",
-            sorter: byText((row) => row.target_date),
             render: (value) => (value ? dayjs(value).format("MMM D, YYYY") : "—"),
         },
         {
             title: "Progress",
             dataIndex: "progress_pct",
-            sorter: byNumber((row) => row.progress_pct),
             render: (value, row) => progressBar(value, row.progress_status === "completed"),
         },
         {
             title: "Standing",
             key: "standing",
-            sorter: (a, b) => standingRank(a) - standingRank(b) || byNumber((row) => row.days_late)(a, b),
             render: (_, row) =>
                 row.is_overdue ? (
                     <Tag color="error">{row.days_late} day{row.days_late === 1 ? "" : "s"} late</Tag>
@@ -851,6 +839,7 @@ export default function ReportsPage() {
                                     onChange={(e) => setSearch(e.target.value)}
                                     style={{ width: 220 }}
                                 />
+                                <ReportSort value={sort} onChange={setSort} />
                                 <ReportKinds fields={kindFields} kind={kind} onChange={setKindValue} />
                                 {tab === "commitments" && (
                                     <Space size={6}>
@@ -871,11 +860,11 @@ export default function ReportsPage() {
                             rowKey={table.rowKey}
                             dataSource={
                                 tab === "units"
-                                    ? rows.map((row) => ({
+                                    ? sortedRows.map((row) => ({
                                           ...row,
                                           dimension_scores: dimensionsByUnit[row.id]?.scores,
                                       }))
-                                    : rows
+                                    : sortedRows
                             }
                             columns={table.columns}
                             loading={isLoading || isPlaceholderData}
@@ -915,6 +904,8 @@ export default function ReportsPage() {
                             <ReportFilters
                                 search={search}
                                 onSearch={setSearch}
+                                sort={sort}
+                                onSort={setSort}
                                 tab={tab}
                                 lateOnly={lateOnly}
                                 onLateOnly={setLateOnly}
@@ -924,7 +915,7 @@ export default function ReportsPage() {
                             <ReportExport busy={busy} onDownload={download} />
                         </div>
 
-                        <ReportCards tab={tab} rows={rows} onOpen={(id) => navigate(`/forms/${id}`, { state: { from: "/reports" } })} />
+                        <ReportCards tab={tab} rows={sortedRows} onOpen={(id) => navigate(`/forms/${id}`, { state: { from: "/reports" } })} />
                     </Card>
                     </div>
                 </>

@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Models\PcrForm;
 use App\Models\PcrIndicator;
 use App\Models\PcrPeriodSummary;
+use App\Models\PcrRating;
 use App\Models\RatingPeriod;
 use App\Models\User;
 use Laravel\Passport\Passport;
@@ -195,5 +196,65 @@ class PcrRatingTest extends PmsTestCase
         $this->rate([['indicator_id' => $indicator->id, 'q' => 5, 'e' => 4, 't' => null]])->assertOk();
 
         $this->assertDatabaseHas('pcr_ratings', ['indicator_id' => $indicator->id, 'a' => 4.50]);
+    }
+
+    public function test_a_commitment_approver_can_post_remarks_without_a_score(): void
+    {
+        $year   = $this->makeSchoolYear();
+        $period = $this->makePeriod($year);
+        $unit   = $this->makeUnit();
+        $owner  = User::factory()->create(['role' => 'employee', 'org_unit_id' => $unit->id]);
+        $head   = User::factory()->create(['role' => 'program_head', 'org_unit_id' => $unit->id]);
+
+        $form = $this->makeForm([
+            'school_year_id'         => $year->id,
+            'org_unit_id'            => $unit->id,
+            'user_id'                => $owner->id,
+            'status'                 => 'commitment_review',
+            'rating_period_id'       => $period->id,
+            'commitment_approver_id' => $head->id,
+        ]);
+        $line = $this->makeIndicator($form);
+
+        PcrRating::create([
+            'indicator_id'     => $line->id,
+            'rating_period_id' => $period->id,
+            'q'                => 5,
+            'e'                => 4,
+            't'                => 3,
+            'a'                => 4,
+        ]);
+
+        $this->actingAsUser($head);
+
+        $this->postJson('/api/pcr-ratings', [
+            'form_id'          => $form->id,
+            'rating_period_id' => $period->id,
+            'remarks_only'     => true,
+            'ratings'          => [[
+                'indicator_id' => $line->id,
+                'remarks'      => 'Move the date.',
+            ]],
+        ])->assertOk();
+
+        $this->assertDatabaseHas('pcr_ratings', [
+            'indicator_id' => $line->id,
+            'q'            => 5,
+            'e'            => 4,
+            't'            => 3,
+            'remarks'      => '<p>Move the date.</p>',
+        ]);
+
+        $this->actingAsUser($owner);
+
+        $this->postJson('/api/pcr-ratings', [
+            'form_id'          => $form->id,
+            'rating_period_id' => $period->id,
+            'remarks_only'     => true,
+            'ratings'          => [[
+                'indicator_id' => $line->id,
+                'remarks'      => 'Not my turn.',
+            ]],
+        ])->assertStatus(403);
     }
 }
