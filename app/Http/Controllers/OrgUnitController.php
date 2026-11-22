@@ -38,6 +38,29 @@ class OrgUnitController extends Controller
         return response()->json($units);
     }
 
+    /** People who belong to a unit, for the hierarchy search. Each person stays on their own unit. */
+    public function roster()
+    {
+        $people = User::query()
+            ->whereNotNull('org_unit_id')
+            ->orderBy('name')
+            ->get(['id', 'name', 'position_title', 'org_unit_id']);
+
+        return response()->json($people);
+    }
+
+    /** People assigned to this unit. People in the units under it are not included. */
+    public function members($id)
+    {
+        $unit = OrgUnit::findOrFail($id);
+
+        $people = $unit->members()
+            ->orderBy('name')
+            ->get(['id', 'name', 'position_title', 'image', 'role']);
+
+        return response()->json($people);
+    }
+
     public function store(Request $request)
     {
         $id = $request->input('id');
@@ -59,8 +82,17 @@ class OrgUnitController extends Controller
             'chart_user_ids.*'=> 'integer|exists:users,id',
         ]);
 
-        if ($id && ! empty($data['parent_id']) && (int) $data['parent_id'] === (int) $id) {
-            return response()->json(['message' => 'A unit cannot be its own parent.'], 422);
+        if ($id && ! empty($data['parent_id'])) {
+            $parentId = (int) $data['parent_id'];
+            $underItself = in_array($parentId, OrgUnit::subtreeIds([(int) $id]), true);
+
+            if ($underItself) {
+                $message = $parentId === (int) $id
+                    ? 'A unit cannot be its own parent.'
+                    : 'A unit cannot be placed under one of its own sub-units.';
+
+                return response()->json(['message' => $message], 422);
+            }
         }
 
         $attributes = [

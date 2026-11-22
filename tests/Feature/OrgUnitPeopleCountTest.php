@@ -41,4 +41,60 @@ class OrgUnitPeopleCountTest extends PmsTestCase
         $this->assertSame(4, $counts[$program->id]);
         $this->assertSame(1, $counts[$elsewhere->id]);
     }
+
+    public function test_a_unit_lists_only_the_people_assigned_to_it(): void
+    {
+        $this->makeOrganization();
+
+        $affairs = $this->makeUnit(['name' => 'Academic Affairs and Services', 'code' => 'AAS', 'type' => 'office']);
+        $cit = $this->makeUnit(['name' => 'CIT', 'code' => 'CIT', 'parent_id' => $affairs->id]);
+
+        User::factory()->create([
+            'role' => 'employee', 'name' => 'Zoe Santos', 'position_title' => 'Faculty', 'org_unit_id' => $affairs->id,
+        ]);
+        $ana = User::factory()->create([
+            'role' => 'program_head', 'name' => 'Ana Reyes', 'position_title' => 'Dean', 'org_unit_id' => $affairs->id,
+        ]);
+        User::factory()->create(['role' => 'employee', 'name' => 'Carlo Diaz', 'org_unit_id' => $cit->id]);
+
+        $admin = User::factory()->create(['role' => 'admin']);
+        $this->actingAsUser($admin);
+
+        $listed = collect($this->getJson("/api/org-units/{$affairs->id}/members")->assertOk()->json());
+
+        $this->assertSame(['Ana Reyes', 'Zoe Santos'], $listed->pluck('name')->all());
+        $this->assertSame('Dean', $listed->firstWhere('id', $ana->id)['position_title']);
+
+        foreach ($this->getJson('/api/org-units')->assertOk()->json() as $unit) {
+            $this->assertArrayNotHasKey('members', $unit);
+        }
+
+        $this->actingAsUser(User::factory()->create(['role' => 'employee', 'org_unit_id' => $cit->id]));
+        $this->getJson("/api/org-units/{$affairs->id}/members")->assertForbidden();
+    }
+
+    public function test_the_roster_lists_each_person_on_their_own_unit(): void
+    {
+        $this->makeOrganization();
+
+        $affairs = $this->makeUnit(['name' => 'Academic Affairs and Services', 'code' => 'AAS', 'type' => 'office']);
+        $cit = $this->makeUnit(['name' => 'CIT', 'code' => 'CIT', 'parent_id' => $affairs->id]);
+
+        User::factory()->create(['role' => 'employee', 'name' => 'Ana Reyes', 'org_unit_id' => $affairs->id]);
+        $carlo = User::factory()->create([
+            'role' => 'employee', 'name' => 'Carlo Diaz', 'position_title' => 'Faculty', 'org_unit_id' => $cit->id,
+        ]);
+        User::factory()->create(['role' => 'employee', 'name' => 'No Office']);
+
+        $this->actingAsUser(User::factory()->create(['role' => 'admin']));
+
+        $roster = collect($this->getJson('/api/org-units/roster')->assertOk()->json());
+
+        $this->assertSame(['Ana Reyes', 'Carlo Diaz'], $roster->pluck('name')->all());
+        $this->assertSame($cit->id, $roster->firstWhere('id', $carlo->id)['org_unit_id']);
+        $this->assertSame('Faculty', $roster->firstWhere('id', $carlo->id)['position_title']);
+
+        $this->actingAsUser(User::factory()->create(['role' => 'employee']));
+        $this->getJson('/api/org-units/roster')->assertForbidden();
+    }
 }

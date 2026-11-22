@@ -1,4 +1,4 @@
-import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import React, { forwardRef, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
     Alert,
@@ -226,7 +226,7 @@ function UnitActions({ node, onAdd, onDelete }) {
     );
 }
 
-function UnitNode({ node, depth, rank = "head", onEdit, onAdd, onDelete }) {
+function UnitNode({ node, depth, rank = "head", found = false, onEdit, onAdd, onDelete }) {
     const { openPerson } = usePerson();
     const openUnit = () => onEdit(node);
     const banner = depth === 0 ? "root"
@@ -261,7 +261,10 @@ function UnitNode({ node, depth, rank = "head", onEdit, onAdd, onDelete }) {
     };
 
     return (
-        <div className={`pms-org-node${namedUnit && !showCard ? " is-name" : ""}${flankRight.length || flankLeft.length ? " has-flank" : ""}${depth > 0 && flankRight.length ? " has-side" : ""}`}>
+        <div
+            data-unit-id={node.id}
+            className={`pms-org-node${found ? " is-found" : ""}${namedUnit && !showCard ? " is-name" : ""}${flankRight.length || flankLeft.length ? " has-flank" : ""}${depth > 0 && flankRight.length ? " has-side" : ""}`}
+        >
             {banner && (
                 <div className="pms-org-banner-wrap">
                     <button type="button" className={`pms-org-banner is-${banner}`} onClick={openUnit}>
@@ -354,7 +357,7 @@ function UnitNode({ node, depth, rank = "head", onEdit, onAdd, onDelete }) {
     );
 }
 
-function OrgViewport({ children }) {
+const OrgViewport = forwardRef(function OrgViewport({ children }, ref) {
     const viewport = useRef(null);
     const tree = useRef(null);
     const scaleRef = useRef(1);
@@ -455,6 +458,22 @@ function OrgViewport({ children }) {
         event.stopPropagation();
     };
 
+    useImperativeHandle(ref, () => ({
+        reveal(unitId) {
+            const view = viewport.current;
+            const target = tree.current?.querySelector(`[data-unit-id="${unitId}"]`);
+            if (!view || !target) return;
+
+            const viewRect = view.getBoundingClientRect();
+            const targetRect = target.getBoundingClientRect();
+            view.scrollTo({
+                left: view.scrollLeft + targetRect.left - viewRect.left - (viewRect.width - targetRect.width) / 2,
+                top: view.scrollTop + targetRect.top - viewRect.top - (viewRect.height - targetRect.height) / 2,
+                behavior: "smooth",
+            });
+        },
+    }));
+
     return (
         <div className="pms-org-frame">
             <p className="pms-org-zoom-hint">Mouse wheel zooms. Drag to move around.</p>
@@ -475,7 +494,7 @@ function OrgViewport({ children }) {
             </div>
         </div>
     );
-}
+});
 
 function shownDirector(node, depth) {
     const person = chartPerson(node, depth);
@@ -483,7 +502,7 @@ function shownDirector(node, depth) {
     return Boolean(person?.id && director?.id && person.id === director.id);
 }
 
-function OrgNode({ node, depth = 0, personAbove = false, onEdit, onAdd, onDelete }) {
+function OrgNode({ node, depth = 0, personAbove = false, foundId, onEdit, onAdd, onDelete }) {
     const children = node.children ?? [];
     const childClass = depth < 2 ? "pms-org-tree" : "pms-org-stack";
     const rank = depth === 0 ? "president" : depth === 1 && leadPerson(node, depth)?.name ? "vp" : shownDirector(node, depth) || !personAbove ? "head" : "child";
@@ -491,7 +510,7 @@ function OrgNode({ node, depth = 0, personAbove = false, onEdit, onAdd, onDelete
 
     return (
         <li>
-            <UnitNode node={node} depth={depth} rank={rank} onEdit={onEdit} onAdd={onAdd} onDelete={onDelete} />
+            <UnitNode node={node} depth={depth} rank={rank} found={foundId != null && Number(foundId) === Number(node.id)} onEdit={onEdit} onAdd={onAdd} onDelete={onDelete} />
             {children.length > 0 && (
                 <ul className={childClass}>
                     {children.map((child) => (
@@ -500,6 +519,7 @@ function OrgNode({ node, depth = 0, personAbove = false, onEdit, onAdd, onDelete
                             node={child}
                             depth={depth + 1}
                             personAbove={nextAbove}
+                            foundId={foundId}
                             onEdit={onEdit}
                             onAdd={onAdd}
                             onDelete={onDelete}
@@ -511,7 +531,52 @@ function OrgNode({ node, depth = 0, personAbove = false, onEdit, onAdd, onDelete
     );
 }
 
-function OrgTree({ nodes, onEdit, onAdd, onDelete }) {
+function UnitPeople({ unit }) {
+    const { openPerson } = usePerson();
+    const { data: people = [], isLoading } = useQuery({
+        queryKey: ["org-unit-members", unit?.id],
+        enabled: Boolean(unit?.id),
+        queryFn: () => api.get(`org-units/${unit.id}/members`).then((r) => r.data),
+    });
+
+    if (!unit?.id) return null;
+
+    const under = Math.max(0, (unit.members_count ?? 0) - (unit.direct_members_count ?? 0));
+    const summary = isLoading
+        ? "Loading the people in this unit."
+        : people.length === 0
+            ? "No one is assigned to this unit yet."
+            : `${people.length} ${people.length === 1 ? "person sits" : "people sit"} in this unit.`;
+
+    return (
+        <section className="pms-org-drawer-block is-people">
+            <h3>People here</h3>
+            <p>
+                {summary}
+                {!isLoading && under > 0 ? ` ${under} more sit in the units under it.` : ""}
+            </p>
+            {isLoading ? (
+                <Spin size="small" />
+            ) : people.length > 0 && (
+                <ul className="pms-org-people">
+                    {people.map((person) => (
+                        <li key={person.id}>
+                            <button type="button" onClick={() => openPerson(person.id)}>
+                                <UserAvatar user={person} name={person.name} size={28} showTooltip={false} />
+                                <span>
+                                    <strong>{person.name}</strong>
+                                    {person.position_title && <em>{person.position_title}</em>}
+                                </span>
+                            </button>
+                        </li>
+                    ))}
+                </ul>
+            )}
+        </section>
+    );
+}
+
+function OrgTree({ nodes, foundId, onEdit, onAdd, onDelete }) {
     return (
         <ul className="pms-org-tree">
             {nodes.map((node) => (
@@ -519,6 +584,7 @@ function OrgTree({ nodes, onEdit, onAdd, onDelete }) {
                     key={node.id}
                     node={node}
                     depth={0}
+                    foundId={foundId}
                     onEdit={onEdit}
                     onAdd={onAdd}
                     onDelete={onDelete}
@@ -528,14 +594,66 @@ function OrgTree({ nodes, onEdit, onAdd, onDelete }) {
     );
 }
 
+function peopleOnUnit(unit) {
+    const people = [];
+    const push = (person) => {
+        if (!person?.id || !person.name || people.some((row) => row.id === person.id)) return;
+        people.push(person);
+    };
+
+    push(unit.head);
+    push(unit.dean);
+    push(unit.vp);
+    for (const row of unit.reviewers ?? []) push(row.user);
+
+    return people;
+}
+
+function searchOptions(units, roster) {
+    const options = [];
+    const named = new Set();
+
+    for (const unit of units) {
+        options.push({
+            value: `unit:${unit.id}`,
+            unitId: unit.id,
+            label: unit.code ? `${unit.name} (${unit.code})` : unit.name,
+        });
+
+        for (const person of peopleOnUnit(unit)) {
+            named.add(`${unit.id}:${person.id}`);
+            options.push({
+                value: `person:${unit.id}:${person.id}`,
+                unitId: unit.id,
+                label: `${person.name} · ${unit.name}`,
+            });
+        }
+    }
+
+    for (const person of roster) {
+        const key = `${person.org_unit_id}:${person.id}`;
+        if (named.has(key) || !units.some((unit) => unit.id === person.org_unit_id)) continue;
+        const unit = units.find((item) => item.id === person.org_unit_id);
+        options.push({
+            value: `member:${key}`,
+            unitId: person.org_unit_id,
+            label: `${person.name} · ${unit.name}`,
+        });
+    }
+
+    return options.sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: "base" }));
+}
+
 export default function OrgUnitsPage() {
     const queryClient = useQueryClient();
     const [form] = Form.useForm();
     const [editing, setEditing] = useState(null);
     const [open, setOpen] = useState(false);
     const [wide, setWide] = useState(false);
-    const [placeLocked, setPlaceLocked] = useState(false);
-    const [lockedParentId, setLockedParentId] = useState(null);
+    const [foundId, setFoundId] = useState(null);
+    const [picked, setPicked] = useState(null);
+    const mainChart = useRef(null);
+    const wideChart = useRef(null);
 
     const { data: units = [], isLoading } = useQuery({
         queryKey: ["org-units"],
@@ -545,6 +663,11 @@ export default function OrgUnitsPage() {
     const { data: people = [] } = useQuery({
         queryKey: ["user-options"],
         queryFn: () => api.get("users/options").then((r) => r.data),
+    });
+
+    const { data: roster = [] } = useQuery({
+        queryKey: ["org-unit-roster"],
+        queryFn: () => api.get("org-units/roster").then((r) => r.data),
     });
 
     const { data: workflow } = useQuery({
@@ -562,6 +685,31 @@ export default function OrgUnitsPage() {
     const vps = people.filter((p) => ["vp", "admin"].includes(p.role));
     const viewers = people.filter((p) => p.role !== "admin");
     const tree = useMemo(() => nestUnits(units), [units]);
+    const finderOptions = useMemo(() => searchOptions(units, roster), [units, roster]);
+
+    const reveal = (unitId) => {
+        setFoundId(Number(unitId));
+        const chart = (wide ? wideChart : mainChart).current;
+        requestAnimationFrame(() => chart?.reveal(Number(unitId)));
+    };
+
+    const finder = tree.length > 0 && (
+        <Select
+            showSearch
+            allowClear
+            value={picked}
+            placeholder="Find a unit or person"
+            style={{ width: 280 }}
+            optionFilterProp="label"
+            options={finderOptions}
+            onChange={(value) => {
+                setPicked(value ?? null);
+                const hit = finderOptions.find((option) => option.value === value);
+                if (hit) reveal(hit.unitId);
+                if (!value) setFoundId(null);
+            }}
+        />
+    );
 
     const parentOptions = flattenUnits(tree).filter((unit) => {
         if (unit.id === editing?.id) return false;
@@ -586,11 +734,8 @@ export default function OrgUnitsPage() {
         },
     });
 
-    const openDrawer = (record, parentId = null, lockPlace = false) => {
-        const place = lockPlace ? (record ? record.parent_id ?? null : parentId) : null;
+    const openDrawer = (record, parentId = null) => {
         setEditing(record ?? null);
-        setPlaceLocked(lockPlace);
-        setLockedParentId(place);
         setOpen(true);
         const reviewers = Object.fromEntries((record?.reviewers ?? []).map((row) => [row.slot, row.user_id]));
         const viewerIds = (record?.viewers ?? []).map((row) => row.user_id);
@@ -623,12 +768,10 @@ export default function OrgUnitsPage() {
     const close = () => {
         setOpen(false);
         setEditing(null);
-        setPlaceLocked(false);
-        setLockedParentId(null);
         form.resetFields();
     };
 
-    const renderChart = () => isLoading ? (
+    const renderChart = (chartRef) => isLoading ? (
         <div className="pms-org-chart">
             <div className="pms-org-chart-loading">
                 <Spin />
@@ -639,11 +782,12 @@ export default function OrgUnitsPage() {
             <Empty description="No units yet." />
         </div>
     ) : (
-        <OrgViewport>
+        <OrgViewport ref={chartRef}>
             <OrgTree
                 nodes={tree}
-                onEdit={(node) => openDrawer(node, null, true)}
-                onAdd={(parentId) => openDrawer(null, parentId, true)}
+                foundId={foundId}
+                onEdit={(node) => openDrawer(node)}
+                onAdd={(parentId) => openDrawer(null, parentId)}
                 onDelete={askDelete}
             />
         </OrgViewport>
@@ -656,6 +800,7 @@ export default function OrgUnitsPage() {
                 subtitle="Set who reviews whom. A form walks the steps in Setup → Workflow. An empty Head is skipped. An empty Dean, VP, or extra step uses the parent unit."
                 extra={
                     <>
+                        {finder}
                         {tree.length > 0 && (
                             <Tooltip title="Open the chart full width">
                                 <Button icon={<ExpandOutlined />} onClick={() => setWide(true)} />
@@ -676,7 +821,7 @@ export default function OrgUnitsPage() {
                 description="Employee submits → Head → Dean → Director → VP → QA. Name the Head on this unit. Colleges fill Dean and leave Director empty. Offices fill Director and leave Dean empty. Empty Dean, Director, or VP uses the parent. A person's own form skips the step they themselves would fill."
             />
 
-            {renderChart()}
+            {renderChart(mainChart)}
 
             <Drawer
                 open={wide}
@@ -686,9 +831,14 @@ export default function OrgUnitsPage() {
                 destroyOnClose
                 className="pms-org-wide"
                 title="Hierarchy"
-                extra={<Button onClick={() => setWide(false)}>Close</Button>}
+                extra={
+                    <>
+                        {finder}
+                        <Button onClick={() => setWide(false)}>Close</Button>
+                    </>
+                }
             >
-                {renderChart()}
+                {renderChart(wideChart)}
             </Drawer>
 
             <Drawer
@@ -709,7 +859,6 @@ export default function OrgUnitsPage() {
                     onFinish={(values) => save.mutate({
                         ...values,
                         id: editing?.id,
-                        ...(placeLocked ? { parent_id: lockedParentId } : {}),
                     })}
                 >
                     <section className="pms-org-drawer-block is-unit">
@@ -726,25 +875,18 @@ export default function OrgUnitsPage() {
                                 options={Object.entries(TYPE_LABELS).map(([value, label]) => ({ value, label }))}
                             />
                         </Form.Item>
-                        {placeLocked ? (
-                            <p className="pms-org-place">
-                                {lockedParentId
-                                    ? `Stays under ${units.find((unit) => unit.id === lockedParentId)?.name ?? "the unit you clicked"}.`
-                                    : "Stays at the top of the chart."}
-                            </p>
-                        ) : (
-                            <Form.Item name="parent_id" label="Part of">
-                                <Select
-                                    allowClear
-                                    placeholder="Select a parent unit"
-                                    options={parentOptions.map((unit) => ({
-                                        value: unit.id,
-                                        label: `${"— ".repeat(unit.depth)}${unit.name}`,
-                                    }))}
-                                />
-                            </Form.Item>
-                        )}
+                        <Form.Item name="parent_id" label="Part of">
+                            <Select
+                                allowClear
+                                placeholder="Select a parent unit"
+                                options={parentOptions.map((unit) => ({
+                                    value: unit.id,
+                                    label: `${"— ".repeat(unit.depth)}${unit.name}`,
+                                }))}
+                            />
+                        </Form.Item>
                     </section>
+                    <UnitPeople unit={editing} />
                     <section className="pms-org-drawer-block is-review">
                         <h3>Who reviews</h3>
                         <p>The form walks these steps. An empty Head is skipped. An empty Dean, VP, or later step uses the parent.</p>

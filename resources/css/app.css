@@ -8246,16 +8246,6 @@ html[data-theme="dark"] .pms-rate-stick {
     position: relative;
 }
 
-.pms-org-place {
-    margin: 0 0 16px;
-    color: #5c6b80;
-    font-size: 13px;
-}
-
-html[data-theme="dark"] .pms-org-place {
-    color: rgba(255, 255, 255, 0.65);
-}
-
 .pms-org-drawer-block {
     margin: 0 0 14px;
     padding: 12px 12px 2px;
@@ -8279,6 +8269,11 @@ html[data-theme="dark"] .pms-org-place {
     background: #f3f7fd;
 }
 
+.pms-org-drawer-block.is-people {
+    border-left-color: #0f7b4c;
+    background: #f4fbf7;
+}
+
 .pms-org-drawer-block h3 {
     margin: 0 0 2px;
     color: #1a2744;
@@ -8293,8 +8288,7 @@ html[data-theme="dark"] .pms-org-place {
     line-height: 1.4;
 }
 
-.pms-org-drawer-block .ant-form-item:last-child,
-.pms-org-drawer-block .pms-org-place {
+.pms-org-drawer-block .ant-form-item:last-child {
     margin-bottom: 12px;
 }
 
@@ -8315,12 +8309,72 @@ html[data-theme="dark"] .pms-org-drawer-block.is-chart {
     border-left-color: #69b1ff;
 }
 
+html[data-theme="dark"] .pms-org-drawer-block.is-people {
+    border-left-color: #73d13d;
+}
+
 html[data-theme="dark"] .pms-org-drawer-block h3 {
     color: rgba(255, 255, 255, 0.9);
 }
 
 html[data-theme="dark"] .pms-org-drawer-block > p {
     color: rgba(255, 255, 255, 0.6);
+}
+
+.pms-org-people {
+    list-style: none;
+    max-height: 240px;
+    margin: 0 0 12px;
+    padding: 0;
+    overflow: auto;
+}
+
+.pms-org-people button {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    margin: 0;
+    padding: 6px 4px;
+    border: 0;
+    border-radius: 8px;
+    background: transparent;
+    color: inherit;
+    text-align: left;
+    cursor: pointer;
+}
+
+.pms-org-people button:hover {
+    background: rgba(15, 123, 76, 0.08);
+}
+
+.pms-org-people strong,
+.pms-org-people em {
+    display: block;
+    font-style: normal;
+}
+
+.pms-org-people strong {
+    color: #1a2744;
+    font-size: 13px;
+    line-height: 1.2;
+}
+
+.pms-org-people em {
+    color: #5c6b80;
+    font-size: 12px;
+}
+
+html[data-theme="dark"] .pms-org-people strong {
+    color: rgba(255, 255, 255, 0.9);
+}
+
+html[data-theme="dark"] .pms-org-people em {
+    color: rgba(255, 255, 255, 0.6);
+}
+
+html[data-theme="dark"] .pms-org-people button:hover {
+    background: rgba(255, 255, 255, 0.06);
 }
 
 .pms-org-wide .ant-drawer-body {
@@ -8625,6 +8679,12 @@ html[data-theme="dark"] .pms-org-drawer-block > p {
     flex-direction: column;
     align-items: center;
     width: 172px;
+}
+
+.pms-org-node.is-found > .pms-org-banner-wrap .pms-org-banner,
+.pms-org-node.is-found > .pms-org-card {
+    outline: 3px solid #e10600;
+    outline-offset: 3px;
 }
 
 .pms-org-node:has(> .pms-org-card.is-president) {

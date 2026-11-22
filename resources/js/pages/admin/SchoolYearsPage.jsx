@@ -17,13 +17,14 @@ import {
 } from "antd";
 import {
     CheckCircleOutlined,
+    EditOutlined,
     LockOutlined,
     PlusOutlined,
     UnlockOutlined,
 } from "@ant-design/icons";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import dayjs from "dayjs";
-import api from "~/utils/api";
+import api, { errorText } from "~/utils/api";
 import PageHeader from "~/components/PageHeader";
 
 const PERIOD_STATUS = [
@@ -40,10 +41,17 @@ const rangePickerProps = {
     classNames: { popup: { root: "pms-range-popup" } },
 };
 
+function periodWindow(period) {
+    if (!period?.opens_at || !period?.closes_at) return undefined;
+
+    return [dayjs(period.opens_at), dayjs(period.closes_at)];
+}
+
 export default function SchoolYearsPage() {
     const queryClient = useQueryClient();
     const [form] = Form.useForm();
     const [open, setOpen] = useState(false);
+    const [editing, setEditing] = useState(null);
     const [openIds, setOpenIds] = useState(null);
 
     const { data: years = [], isLoading } = useQuery({
@@ -53,14 +61,47 @@ export default function SchoolYearsPage() {
 
     const invalidate = () => queryClient.invalidateQueries({ queryKey: ["school-years"] });
 
+    const closeDrawer = () => {
+        setOpen(false);
+        setEditing(null);
+        form.resetFields();
+    };
+
+    const openCreate = () => {
+        setEditing(null);
+        form.setFieldsValue({
+            label: undefined,
+            range: undefined,
+            periods: [{ label: "Mid-year Review" }, { label: "End-year Review" }],
+        });
+        setOpen(true);
+    };
+
+    const openEdit = (year) => {
+        const periods = [...(year.periods ?? [])].sort(
+            (a, b) => (a.seq ?? a.id) - (b.seq ?? b.id)
+        );
+
+        setEditing(year);
+        form.setFieldsValue({
+            label: year.label,
+            range: [dayjs(year.start_date), dayjs(year.end_date)],
+            periods: [0, 1].map((index) => ({
+                label: periods[index]?.label ?? (index === 0 ? "Mid-year Review" : "End-year Review"),
+                window: periodWindow(periods[index]),
+            })),
+        });
+        setOpen(true);
+    };
+
     const save = useMutation({
         mutationFn: (values) => api.post("school-years", values),
-        onSuccess: () => {
-            message.success("School year saved.");
+        onSuccess: (_, values) => {
+            message.success(values.id ? "School year updated." : "School year saved.");
             invalidate();
-            setOpen(false);
-            form.resetFields();
+            closeDrawer();
         },
+        onError: (error) => message.error(errorText(error)),
     });
 
     const activateYear = useMutation({
@@ -210,7 +251,7 @@ export default function SchoolYearsPage() {
                 title="School Years"
                 subtitle="Each school year carries one OPCR or IPCR, rated at two review points. Set which year and period is active so people know what they are filling in."
                 extra={
-                    <Button type="primary" icon={<PlusOutlined />} onClick={() => setOpen(true)}>
+                    <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>
                         New school year
                     </Button>
                 }
@@ -253,11 +294,16 @@ export default function SchoolYearsPage() {
                             {dayjs(record.end_date).format("MMM D, YYYY")}
                         </span>
                         <span className="pms-year-row-action">
-                            {!record.is_active && (
-                                <Button size="small" onClick={() => activateYear.mutate(record.id)}>
-                                    Set as active
+                            <Space size={8}>
+                                <Button size="small" icon={<EditOutlined />} onClick={() => openEdit(record)}>
+                                    Edit
                                 </Button>
-                            )}
+                                {!record.is_active && (
+                                    <Button size="small" onClick={() => activateYear.mutate(record.id)}>
+                                        Set as active
+                                    </Button>
+                                )}
+                            </Space>
                         </span>
                     </div>
                     {expanded && (
@@ -340,13 +386,14 @@ export default function SchoolYearsPage() {
             </Card>
 
             <Drawer
-                title="New school year"
+                title={editing ? `Edit ${editing.label}` : "New school year"}
                 open={open}
-                onClose={() => setOpen(false)}
+                onClose={closeDrawer}
                 width={440}
+                destroyOnClose
                 extra={
                     <Button type="primary" loading={save.isPending} onClick={() => form.submit()}>
-                        Save
+                        {editing ? "Save changes" : "Save"}
                     </Button>
                 }
             >
@@ -359,11 +406,12 @@ export default function SchoolYearsPage() {
                     }}
                     onFinish={(values) =>
                         save.mutate({
+                            id: editing?.id,
                             label: values.label,
                             start_date: values.range[0].format("YYYY-MM-DD"),
                             end_date: values.range[1].format("YYYY-MM-DD"),
-                            is_active: false,
-                            periods: values.periods.map((p, index) => ({
+                            is_active: editing ? undefined : false,
+                            periods: values.periods.map((p) => ({
                                 label: p.label,
                                 opens_at: p.window?.[0]?.format("YYYY-MM-DD") ?? null,
                                 closes_at: p.window?.[1]?.format("YYYY-MM-DD") ?? null,

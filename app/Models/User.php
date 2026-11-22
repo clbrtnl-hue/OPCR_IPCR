@@ -114,6 +114,7 @@ class User extends Authenticatable
         return [
             'assign_outputs'    => ! $rules->isTerminalRole($this->role) && $rules->mayAssignOutputs($this->role),
             'assign_indicators' => ! $rules->isTerminalRole($this->role) && $rules->mayAssignIndicators($this->role),
+            'follow_up'         => \App\Services\PcrWorkflow::canFollowUp($this),
         ];
     }
 

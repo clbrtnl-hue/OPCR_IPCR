@@ -98,12 +98,18 @@ class HrAccessTest extends PmsTestCase
             ->assertJsonFragment(['name' => 'Human Resource Management Office']);
     }
 
-    public function test_an_hr_who_heads_no_office_cannot_open_the_roster(): void
+    public function test_an_hr_who_heads_no_office_still_opens_the_college_roster(): void
     {
         $this->makeOrganization();
+        $this->makeSchoolYear();
+        $unit = $this->makeUnit();
+        User::factory()->create(['role' => 'employee', 'org_unit_id' => $unit->id, 'name' => 'Staff One']);
+
         $this->actingAsRole('hr');
 
-        $this->getJson('/api/my-team')->assertStatus(403);
+        $this->getJson('/api/my-team')
+            ->assertOk()
+            ->assertJsonFragment(['name' => 'Staff One']);
         $this->getJson('/api/org-units/leading')->assertOk()->assertExactJson([]);
     }
 

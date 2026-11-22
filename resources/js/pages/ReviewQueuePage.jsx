@@ -75,7 +75,7 @@ export default function ReviewQueuePage() {
     const viewOnly = user?.role === "admin";
     const isQa = user?.role === "qa";
     const monitors = ["admin", "qa", "hr"].includes(user?.role);
-    const canNudge = ["admin", "qa", "hr", "president", "program_head", "vp"].includes(user?.role);
+    const canNudge = Boolean(user?.capabilities?.follow_up);
     const seesRating = user?.role !== "president";
     const periodId = Number(searchParams.get("period")) || null;
     const focusFormId = Number(searchParams.get("form")) || null;

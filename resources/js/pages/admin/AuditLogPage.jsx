@@ -25,6 +25,7 @@ import {
     SearchOutlined,
     StarOutlined,
     SwapOutlined,
+    ToolOutlined,
     UnlockOutlined,
     UploadOutlined,
 } from "@ant-design/icons";
@@ -55,6 +56,7 @@ const ACTIONS = {
     lock:       { label: "Locked",      colour: "red",      icon: <LockOutlined /> },
     unlock:     { label: "Unlocked",    colour: "green",    icon: <UnlockOutlined /> },
     reset:      { label: "Reset",       colour: "orange",   icon: <ReloadOutlined /> },
+    repair:     { label: "Repaired",    colour: "magenta",  icon: <ToolOutlined /> },
 };
 
 /** Class names are how the code refers to things; this is how people do. */
@@ -67,6 +69,8 @@ const SUBJECTS = {
     SchoolYear: "School year",
     RatingPeriod: "Review period",
     WorkflowSetting: "Workflow rules",
+    Organization: "Organization",
+    Announcement: "Announcement",
 };
 
 /** Turn "Form moved from draft to head_review" into words people use. */

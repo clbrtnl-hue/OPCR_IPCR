@@ -38,7 +38,7 @@ const ITEMS = {
 
 const withPersonal = (menu) => [...menu, ITEMS.notifications];
 
-const COLLEGE_MENU_ROLES = ["admin", "president", "hr", "qa"];
+const COLLEGE_MENU_ROLES = ["admin", "president", "hr", "qa", "vp"];
 
 const samePerson = (left, right) => Number(left) === Number(right);
 
@@ -154,17 +154,18 @@ export default function AppLayout({ children }) {
     });
     const seesCollegeOpcr = hasCollegeMenu || accountableOpcrs.length > 0;
     const leadsATeam = ["program_head", "vp", "qa"].includes(user?.role);
+    const canFollowUp = Boolean(user?.capabilities?.follow_up);
     const { data: watchedUnits = [] } = useQuery({
         queryKey: ["watched-units", user?.id],
         queryFn: () => api.get("org-units/watching").then((r) => r.data),
-        enabled: Boolean(user) && !leadsATeam,
+        enabled: Boolean(user) && !leadsATeam && !canFollowUp,
     });
     const { data: ledUnits = [] } = useQuery({
         queryKey: ["led-units", user?.id],
         queryFn: () => api.get("org-units/leading").then((r) => r.data),
         enabled: Boolean(user),
     });
-    const seesTeam = leadsATeam || watchedUnits.length > 0 || ledUnits.length > 0;
+    const seesTeam = canFollowUp || leadsATeam || watchedUnits.length > 0 || ledUnits.length > 0;
     const seesAttendance =
         user?.role !== "vp" &&
         user?.role !== "president" &&

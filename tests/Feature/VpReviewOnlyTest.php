@@ -47,7 +47,11 @@ class VpReviewOnlyTest extends PmsTestCase
     {
         ['vp' => $vp] = $this->college();
 
-        $this->assertSame(['assign_outputs' => false, 'assign_indicators' => true], $vp->capabilities);
+        $this->assertSame([
+            'assign_outputs'    => false,
+            'assign_indicators' => true,
+            'follow_up'         => true,
+        ], $vp->capabilities);
     }
 
     public function test_a_vp_assigns_a_success_indicator_but_not_a_whole_heading(): void
@@ -133,6 +137,45 @@ class VpReviewOnlyTest extends PmsTestCase
 
         $this->postJson('/api/pcr-indicators', [
             'id' => $target->id, 'output_id' => $target->output_id, 'description' => 'Reworded by the VP',
+        ])->assertStatus(409);
+    }
+
+    public function test_a_vp_reads_the_published_college_opcr_without_being_named(): void
+    {
+        $this->makeOrganization();
+
+        $college = $this->makeUnit(['name' => 'Opol Community College', 'code' => 'OCC', 'type' => 'college']);
+        $year    = $this->makeSchoolYear();
+        $afs     = $this->makeUnit([
+            'name' => 'Administrative and Finance Services', 'code' => 'AFS',
+            'type' => 'office', 'parent_id' => $college->id,
+        ]);
+
+        $vp = User::factory()->create(['role' => 'vp', 'org_unit_id' => $afs->id]);
+        $afs->update(['vp_user_id' => $vp->id]);
+
+        $opcr = $this->makeForm([
+            'type' => 'opcr', 'org_unit_id' => $college->id,
+            'school_year_id' => $year->id, 'status' => 'draft',
+        ]);
+        $target = $this->makeIndicator($opcr, 'core');
+
+        $this->actingAsUser($vp);
+
+        $this->getJson("/api/pcr-forms?type=opcr&school_year_id={$year->id}")
+            ->assertOk()
+            ->assertJsonCount(0);
+        $this->getJson("/api/pcr-forms/{$opcr->id}")->assertStatus(403);
+
+        $opcr->update(['status' => 'published']);
+
+        $this->getJson("/api/pcr-forms?type=opcr&school_year_id={$year->id}")
+            ->assertOk()
+            ->assertJsonPath('0.id', $opcr->id);
+        $this->getJson("/api/pcr-forms/{$opcr->id}")->assertOk();
+
+        $this->postJson('/api/pcr-indicators', [
+            'id' => $target->id, 'output_id' => $target->output_id, 'description' => 'Rewritten by a VP',
         ])->assertStatus(409);
     }
 

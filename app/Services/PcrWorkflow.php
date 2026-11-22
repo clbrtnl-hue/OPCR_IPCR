@@ -601,9 +601,50 @@ class PcrWorkflow
             && (int) $form->org_unit_id === (int) $user->org_unit_id;
     }
 
+    /** President, QA, HR, and admin — campus-wide follow-ups, not just one office. */
+    public static function isCollegeMonitor(User $user): bool
+    {
+        return in_array($user->role, ['admin', 'president', 'qa', 'hr'], true);
+    }
+
+    /**
+     * May send a team follow-up: college monitors, named heads/VPs by role, or
+     * anyone named on a review slot (dean, director, head) for an office.
+     */
+    public static function canFollowUp(User $user): bool
+    {
+        if (self::isCollegeMonitor($user) || in_array($user->role, ['program_head', 'vp'], true)) {
+            return true;
+        }
+
+        return OrgUnit::query()->whereLedBy((int) $user->id)->exists();
+    }
+
+    /** May ask this person to start or finish their own IPCR. */
+    public static function canFollowUpWith(User $actor, User $member): bool
+    {
+        if ((int) $actor->id === (int) $member->id) {
+            return false;
+        }
+
+        if ($member->status !== 'active' || $member->role === 'admin') {
+            return false;
+        }
+
+        if (self::isCollegeMonitor($actor)) {
+            return true;
+        }
+
+        if (! $member->org_unit_id) {
+            return false;
+        }
+
+        return in_array((int) $member->org_unit_id, OrgUnit::overseenIds((int) $actor->id), true);
+    }
+
     public static function canView(User $user, PcrForm $form): bool
     {
-        if (in_array($user->role, ['admin', 'qa', 'hr', 'president'], true)) {
+        if (self::isCollegeMonitor($user)) {
             return true;
         }
 
@@ -614,6 +655,12 @@ class PcrWorkflow
                 || in_array($user->role, $rules->opcr('rating_trigger_roles'), true)
                 || $rules->isRater($user->role)
             ) {
+                return true;
+            }
+
+            // VPs read the published college plan so they can cascade into
+            // their IPCR. Drafts stay with the president until published.
+            if ($user->role === 'vp' && self::opcrIsVisible($form)) {
                 return true;
             }
         }
@@ -640,9 +687,11 @@ class PcrWorkflow
             return true;
         }
 
-        if (in_array($user->role, ['program_head', 'vp'], true)) {
-            $overseen = OrgUnit::overseenIds((int) $user->id);
+        // Anyone who leads an office (role or Hierarchy slot) reads the people
+        // under them — not only accounts with role program_head / vp.
+        $overseen = OrgUnit::overseenIds((int) $user->id);
 
+        if ($overseen !== []) {
             if (in_array((int) $form->org_unit_id, $overseen, true)) {
                 return true;
             }
@@ -659,10 +708,6 @@ class PcrWorkflow
             if ($ownerUnitId && in_array((int) $ownerUnitId, $overseen, true)) {
                 return true;
             }
-
-            return $user->role === 'vp'
-                && $form->type === 'opcr'
-                && (int) $form->org_unit_id === (int) $user->org_unit_id;
         }
 
         return false;
@@ -843,7 +888,8 @@ class PcrWorkflow
 
     /**
      * Why Send stays closed. Null when an approver can be chosen, or when the
-     * form simply has nobody in the chain.
+     * form simply has nobody in the chain. Everyone — including QA and people
+     * not named on the OPCR — waits until the college OPCR is published.
      */
     public static function commitmentWait(PcrForm $form): ?string
     {
@@ -853,7 +899,7 @@ class PcrWorkflow
             return null;
         }
 
-        if ($owner->role !== 'qa' && ! self::accountableOnPublishedOpcr($form, $owner) && self::namedOnOpcr($form, $owner)) {
+        if (! self::collegeOpcrPublished($form)) {
             return 'The college OPCR is not published yet, so these commitments cannot be sent.';
         }
 
@@ -866,6 +912,16 @@ class PcrWorkflow
         }
 
         return null;
+    }
+
+    /** This year's college OPCR is visible to the rest of the campus. */
+    private static function collegeOpcrPublished(PcrForm $form): bool
+    {
+        return PcrForm::query()
+            ->where('type', 'opcr')
+            ->where('school_year_id', $form->school_year_id)
+            ->whereIn('status', self::OPCR_VISIBLE)
+            ->exists();
     }
 
     /**

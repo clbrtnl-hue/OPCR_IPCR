@@ -897,24 +897,187 @@ class PcrFormController extends Controller
     }
 
     /**
-     * College roles ask the person holding a form why it is still waiting.
-     * Heads and VPs can also tap their people: the owner of a draft / returned
-     * form, or whoever is holding it in the review chain.
+     * Admin support desk. Reopen a stuck form to the owner, force a status
+     * move outside the normal role gates, or refresh named reviewers after the
+     * hierarchy changed. Always needs a note so the audit trail stays honest.
+     */
+    public function repair(Request $request, $id)
+    {
+        $data = $request->validate([
+            'action' => ['required', Rule::in(['reopen', 'move', 'refresh_reviewers'])],
+            'status' => ['nullable', 'string', 'max:40'],
+            'note'   => ['required', 'string', 'max:500'],
+        ]);
+
+        $note = Html::clean($data['note']);
+
+        if (Html::isBlank($note)) {
+            return response()->json([
+                'message' => 'Say why this repair is needed.',
+            ], 422);
+        }
+
+        $form = PcrForm::with(['owner:id,name', 'orgUnit:id,name'])->findOrFail($id);
+        $from = $form->status;
+        $plain = Html::toText($note);
+
+        if ($data['action'] === 'refresh_reviewers') {
+            if ($form->type !== 'ipcr') {
+                return response()->json([
+                    'message' => 'Only an IPCR has named reviewers to refresh.',
+                ], 422);
+            }
+
+            $form->forceFill(PcrWorkflow::resolveReviewers($form))->save();
+
+            ActivityLog::record(
+                'PcrForm',
+                $form->id,
+                'repair',
+                "Refreshed reviewers on {$form->type} (still {$from})",
+                ['note' => $plain]
+            );
+
+            return response()->json([
+                'data'    => 'updated',
+                'message' => 'Reviewers refreshed from the hierarchy.',
+                'form'    => $form->fresh(),
+            ]);
+        }
+
+        $to = $data['action'] === 'reopen' ? 'returned' : ($data['status'] ?? null);
+
+        if (! $to) {
+            return response()->json(['message' => 'Choose where to move this form.'], 422);
+        }
+
+        $allowed = $this->repairDestinations($form->type);
+
+        if (! in_array($to, $allowed, true)) {
+            return response()->json([
+                'message' => 'That is not a step this form can be moved to.',
+            ], 422);
+        }
+
+        if ($from === $to) {
+            return response()->json([
+                'message' => "This form is already {$to}.",
+            ], 409);
+        }
+
+        // Closing to final stays with HR. Admin may pull a form back out of it.
+        if ($to === 'final') {
+            return response()->json([
+                'message' => 'Closing a form to final stays with HR.',
+            ], 422);
+        }
+
+        DB::transaction(function () use ($form, $from, $to, $plain) {
+            $attributes = ['status' => $to];
+
+            if ($form->type === 'ipcr' && in_array($to, ['draft', 'commitment_review'], true)) {
+                $attributes['commitment_approved_by']      = null;
+                $attributes['commitment_approved_by_name'] = null;
+                $attributes['commitment_approved_at']      = null;
+            }
+
+            if ($form->type === 'ipcr' && $to === 'commitment_review' && ! $form->commitment_approver_id) {
+                $approver = PcrWorkflow::commitmentApprover($form);
+
+                if ($approver) {
+                    $attributes['commitment_approver_id'] = $approver->id;
+                }
+            }
+
+            if ($form->type === 'ipcr'
+                && (PcrWorkflow::isReviewDestination($to) || $to === 'commitments_approved')
+            ) {
+                $attributes = array_merge($attributes, PcrWorkflow::resolveReviewers($form));
+            }
+
+            $form->update($attributes);
+
+            PcrStatusLog::record(
+                $form->id,
+                $from,
+                $to,
+                'Admin repair: '.$plain
+            );
+        });
+
+        ActivityLog::record(
+            'PcrForm',
+            $form->id,
+            'repair',
+            "Form repaired from {$from} to {$to}",
+            ['note' => $plain]
+        );
+
+        $form->refresh();
+        $label = strtoupper($form->type);
+        $subject = $form->owner?->name ?? $form->orgUnit?->name ?? 'this form';
+
+        if ($form->user_id) {
+            Notification::send(
+                $form->user_id,
+                'status',
+                "{$label} moved by an administrator",
+                $to === 'returned'
+                    ? "Your {$label} was reopened so you can correct it. {$plain}"
+                    : "Your {$label} was moved to {$to}. {$plain}",
+                $form->id
+            );
+        }
+
+        if ($to === 'commitment_review' && $form->commitment_approver_id) {
+            Notification::send(
+                (int) $form->commitment_approver_id,
+                'approval',
+                "IPCR commitments from {$subject} need your approval",
+                'An administrator sent this form back to commitment approval.',
+                $form->id,
+                $form->queueLink()
+            );
+        }
+
+        return response()->json([
+            'data'    => 'updated',
+            'message' => $to === 'returned'
+                ? 'Form reopened for the owner.'
+                : "Form moved from {$from} to {$to}.",
+            'form'    => $form,
+        ]);
+    }
+
+    /** Statuses an admin may force a form into from the support desk. */
+    private function repairDestinations(string $type): array
+    {
+        $map = PcrWorkflow::TRANSITIONS[$type] ?? [];
+        $statuses = array_unique(array_merge(array_keys($map), ...array_values($map)));
+
+        return array_values(array_filter(
+            $statuses,
+            fn ($status) => $status !== 'final'
+        ));
+    }
+
+    /**
+     * College monitors ask the person holding a form why it is still waiting.
+     * Anyone who leads a team can also tap their people: the owner of a draft /
+     * returned form, or whoever is holding it in the review chain.
      * One follow-up per form per day keeps the inbox from stacking duplicates.
      */
     public function nudge(Request $request, $id)
     {
         $actor = $request->user();
-        $college = ['president', 'qa', 'hr', 'admin'];
-        $leaders = ['program_head', 'vp'];
 
-        if (! in_array($actor->role, [...$college, ...$leaders], true)) {
+        if (! PcrWorkflow::canFollowUp($actor)) {
             return response()->json([
-                'message' => 'Only the President, QA, HR, a head, or a VP can send this follow-up.',
+                'message' => 'Only college monitors and people who lead a team can send this follow-up.',
             ], 403);
         }
 
-        $form = PcrForm::with('owner:id,name')->findOrFail($id);
+        $form = PcrForm::with('owner:id,name,status,role,org_unit_id')->findOrFail($id);
 
         if (! PcrWorkflow::canView($actor, $form)) {
             return response()->json(['message' => 'You do not have access to this form.'], 403);
@@ -927,8 +1090,9 @@ class PcrFormController extends Controller
             ], 409);
         }
 
-        $ownerTap = in_array($actor->role, $leaders, true)
-            && in_array($form->status, ['draft', 'returned', 'commitments_approved'], true);
+        $ownerTap = in_array($form->status, ['draft', 'returned', 'commitments_approved'], true)
+            && $form->owner
+            && PcrWorkflow::canFollowUpWith($actor, $form->owner);
 
         $targets = $ownerTap
             ? $this->ownerNudgeRecipients($form, $actor)
@@ -964,6 +1128,7 @@ class PcrFormController extends Controller
             'president'    => 'the President',
             'qa'           => 'QA',
             'hr'           => 'HR',
+            'admin'        => 'Admin',
             'program_head' => $actor->name,
             'vp'           => $actor->name,
             default        => $actor->name,
@@ -2666,6 +2831,15 @@ class PcrFormController extends Controller
                     ->orWhere('user_id', $user->id)
                     ->orWhere(fn ($inner) => $inner->namedFor($user->id))
                     ->orWhere(fn ($inner) => $inner->accountableTo((int) $user->id));
+
+                // VPs always see the published college OPCR in the list, even
+                // when it sits on the college unit outside their division.
+                if ($user->role === 'vp') {
+                    $q->orWhere(function ($inner) {
+                        $inner->where('type', 'opcr')
+                            ->whereIn('status', PcrWorkflow::OPCR_VISIBLE);
+                    });
+                }
 
                 if ($watched !== []) {
                     $q->orWhereIn('org_unit_id', $watched)

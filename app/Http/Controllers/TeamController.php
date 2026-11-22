@@ -2,6 +2,8 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\ActivityLog;
+use App\Models\Notification;
 use App\Models\OrgUnit;
 use App\Models\PcrForm;
 use App\Models\PcrIndicator;
@@ -11,6 +13,7 @@ use App\Models\PcrTargetAssignment;
 use App\Models\RatingPeriod;
 use App\Models\SchoolYear;
 use App\Models\User;
+use App\Services\PcrWorkflow;
 use Illuminate\Http\Request;
 
 class TeamController extends Controller
@@ -106,11 +109,107 @@ class TeamController extends Controller
         ]);
     }
 
+    /**
+     * Ask a teammate who has no IPCR yet to start one. Same once-a-day rule as
+     * the form nudge — the inbox should not stack duplicates for the same ask.
+     */
+    public function remindStart(Request $request, $userId)
+    {
+        $actor = $request->user();
+
+        if (! PcrWorkflow::canFollowUp($actor)) {
+            return response()->json([
+                'message' => 'Only college monitors and people who lead a team can send this follow-up.',
+            ], 403);
+        }
+
+        $data = $request->validate([
+            'school_year_id'   => 'nullable|integer|exists:school_years,id',
+            'rating_period_id' => 'nullable|integer|exists:rating_periods,id',
+        ]);
+
+        $member = User::where('status', 'active')->findOrFail($userId);
+
+        if (! PcrWorkflow::canFollowUpWith($actor, $member)) {
+            return response()->json([
+                'message' => 'That person is not on a team you follow up with.',
+            ], 403);
+        }
+
+        $year = ($data['school_year_id'] ?? null)
+            ? SchoolYear::find($data['school_year_id'])
+            : SchoolYear::where('is_active', true)->first() ?? SchoolYear::orderByDesc('start_date')->first();
+
+        if (! $year) {
+            return response()->json(['message' => 'No school year is set up yet.'], 422);
+        }
+
+        $period = ($data['rating_period_id'] ?? null)
+            ? RatingPeriod::where('school_year_id', $year->id)->find($data['rating_period_id'])
+            : RatingPeriod::where('school_year_id', $year->id)->where('is_active', true)->first()
+                ?? RatingPeriod::where('school_year_id', $year->id)->orderBy('seq')->first();
+
+        if ($period && ($message = PcrWorkflow::lockMessage($actor, (int) $period->id))) {
+            return response()->json([
+                'message' => 'This review period is locked. Unlock it before sending a follow-up.',
+            ], 409);
+        }
+
+        $alreadyHas = PcrForm::query()
+            ->where('type', 'ipcr')
+            ->where('school_year_id', $year->id)
+            ->where('user_id', $member->id)
+            ->where(fn ($q) => $period
+                ? $q->where('rating_period_id', $period->id)
+                : $q->whereNull('rating_period_id'))
+            ->exists();
+
+        if ($alreadyHas) {
+            return response()->json([
+                'message' => 'They already have an IPCR for this period. Open it and nudge from there.',
+            ], 422);
+        }
+
+        $link = '/my-ipcr';
+        $already = Notification::query()
+            ->where('type', 'nudge')
+            ->where('user_id', $member->id)
+            ->where('actor_id', $actor->id)
+            ->whereNull('form_id')
+            ->where('link', $link)
+            ->where('created_at', '>=', now()->subDay())
+            ->exists();
+
+        if ($already) {
+            return response()->json([
+                'message' => 'A follow-up was already sent to this person today.',
+            ], 409);
+        }
+
+        $when = $period?->label ?? $year->label;
+        $title = 'Start your IPCR';
+        $body = "{$actor->name} asked you to start your IPCR for {$when}.";
+
+        Notification::send($member->id, 'nudge', $title, $body, null, $link);
+        ActivityLog::record(
+            'User',
+            $member->id,
+            'nudge',
+            "Asked {$member->name} to start an IPCR for {$when}"
+        );
+
+        return response()->json([
+            'data'    => 'nudged',
+            'message' => 'Follow-up sent.',
+        ]);
+    }
+
     private function unitsFor(User $user)
     {
         $query = OrgUnit::query()->with(['reviewers', 'viewers'])->orderBy('name');
 
-        if ($user->isAdmin()) {
+        // College monitors see every office so they can follow up campus-wide.
+        if (PcrWorkflow::isCollegeMonitor($user)) {
             return $query->get(['id', 'name', 'code']);
         }
 
@@ -285,9 +384,8 @@ class TeamController extends Controller
 
     private function mayOpen(User $user): bool
     {
-        return in_array($user->role, ['program_head', 'vp', 'qa'], true)
-            || OrgUnit::watchedIds((int) $user->id) !== []
-            || OrgUnit::query()->whereLedBy((int) $user->id)->exists();
+        return PcrWorkflow::canFollowUp($user)
+            || OrgUnit::watchedIds((int) $user->id) !== [];
     }
 
     private function emptyProgress(?SchoolYear $year, ?RatingPeriod $period): array

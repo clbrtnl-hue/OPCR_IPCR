@@ -9,8 +9,9 @@ use Tests\PmsTestCase;
 
 /**
  * Commitments are approved before anyone cascades or records tasks.
- * People named on the published OPCR are approved by the president.
- * Everyone below them is approved by the person who handed them the work.
+ * Nobody sends until the college OPCR is published. People named on that
+ * OPCR (and QA) are approved by the president; everyone else by the person
+ * who handed them the work or their unit head.
  */
 class CommitmentApprovalTest extends PmsTestCase
 {
@@ -236,48 +237,69 @@ class CommitmentApprovalTest extends PmsTestCase
         $this->assertSame($chair->id, (int) $facultyForm->fresh()->commitment_approver_id);
     }
 
-    public function test_an_unpublished_opcr_does_not_send_its_people_to_their_vp(): void
+    public function test_nobody_sends_commitments_until_the_opcr_is_published(): void
     {
-        ['period' => $period, 'president' => $president, 'vp' => $vp, 'dean' => $dean, 'opcr' => $opcr, 'target' => $target] = $this->college();
+        ['office' => $office, 'year' => $year, 'period' => $period, 'president' => $president, 'vp' => $vp, 'dean' => $dean, 'chair' => $chair, 'faculty' => $faculty, 'opcr' => $opcr, 'target' => $target] = $this->college();
 
         $opcr->update(['status' => 'draft']);
 
         $this->actingAsUser($president);
         app(PcrAssignmentService::class)->assignIndicator($target, $dean, $president, $period->id);
 
-        $form = PcrForm::where('type', 'ipcr')->where('user_id', $dean->id)->firstOrFail();
-        $this->makeIndicator($form, 'core', ['rating_period_id' => $period->id]);
+        $named = PcrForm::where('type', 'ipcr')->where('user_id', $dean->id)->firstOrFail();
+        $this->makeIndicator($named, 'core', ['rating_period_id' => $period->id]);
 
-        $this->actingAsUser($dean);
+        $qa = User::factory()->create(['role' => 'qa', 'org_unit_id' => $office->id, 'name' => 'QA Director']);
+        $qaForm = $this->makeForm([
+            'org_unit_id' => $office->id, 'school_year_id' => $year->id, 'user_id' => $qa->id, 'rating_period_id' => $period->id,
+        ]);
+        $this->makeIndicator($qaForm, 'core', ['rating_period_id' => $period->id]);
 
-        $this->getJson("/api/pcr-forms/{$form->id}")
-            ->assertOk()
-            ->assertJsonPath('commitment_approver', null)
-            ->assertJsonPath(
-                'commitment_wait',
-                'The college OPCR is not published yet, so these commitments cannot be sent.'
-            );
+        $unrelated = $this->makeForm([
+            'org_unit_id' => $office->id, 'school_year_id' => $year->id, 'user_id' => $faculty->id, 'rating_period_id' => $period->id,
+        ]);
+        $this->makeIndicator($unrelated, 'support', ['rating_period_id' => $period->id]);
 
-        $this->postJson("/api/pcr-forms/{$form->id}/status", ['status' => 'commitment_review'])
-            ->assertStatus(422)
-            ->assertJsonPath(
-                'message',
-                'The college OPCR is not published yet, so these commitments cannot be sent.'
-            );
+        $wait = 'The college OPCR is not published yet, so these commitments cannot be sent.';
 
-        $this->assertSame('draft', $form->fresh()->status);
-        $this->assertNull($form->fresh()->commitment_approver_id);
+        foreach ([[$dean, $named, null], [$qa, $qaForm, $president->id], [$faculty, $unrelated, $chair->id]] as [$actor, $form, $approverId]) {
+            $this->actingAsUser($actor);
+
+            $sheet = $this->getJson("/api/pcr-forms/{$form->id}")->assertOk();
+            $sheet->assertJsonPath('commitment_wait', $wait);
+            if ($approverId === null) {
+                $sheet->assertJsonPath('commitment_approver', null);
+            } else {
+                $sheet->assertJsonPath('commitment_approver.id', $approverId);
+            }
+
+            $this->postJson("/api/pcr-forms/{$form->id}/status", ['status' => 'commitment_review'])
+                ->assertStatus(422)
+                ->assertJsonPath('message', $wait);
+
+            $this->assertSame('draft', $form->fresh()->status);
+            $this->assertNull($form->fresh()->commitment_approver_id);
+        }
+
         $this->assertDatabaseMissing('notifications', [
             'user_id' => $vp->id,
-            'form_id' => $form->id,
+            'form_id' => $named->id,
             'type'    => 'approval',
         ]);
 
         $opcr->update(['status' => 'published']);
 
-        $this->postJson("/api/pcr-forms/{$form->id}/status", ['status' => 'commitment_review'])->assertOk();
+        $this->actingAsUser($dean);
+        $this->postJson("/api/pcr-forms/{$named->id}/status", ['status' => 'commitment_review'])->assertOk();
+        $this->assertSame($president->id, (int) $named->fresh()->commitment_approver_id);
 
-        $this->assertSame($president->id, (int) $form->fresh()->commitment_approver_id);
+        $this->actingAsUser($qa);
+        $this->postJson("/api/pcr-forms/{$qaForm->id}/status", ['status' => 'commitment_review'])->assertOk();
+        $this->assertSame($president->id, (int) $qaForm->fresh()->commitment_approver_id);
+
+        $this->actingAsUser($faculty);
+        $this->postJson("/api/pcr-forms/{$unrelated->id}/status", ['status' => 'commitment_review'])->assertOk();
+        $this->assertSame($chair->id, (int) $unrelated->fresh()->commitment_approver_id);
     }
 
     public function test_a_head_under_two_vps_has_commitments_approved_by_the_president(): void
@@ -307,6 +329,11 @@ class CommitmentApprovalTest extends PmsTestCase
         $head->update(['org_unit_id' => $support->id]);
 
         $staff = User::factory()->create(['role' => 'employee', 'org_unit_id' => $maintenance->id]);
+
+        $this->makeForm([
+            'type' => 'opcr', 'org_unit_id' => $college->id, 'school_year_id' => $year->id,
+            'status' => 'published', 'user_id' => $president->id,
+        ]);
 
         $own = $this->makeForm([
             'org_unit_id' => $support->id, 'school_year_id' => $year->id, 'user_id' => $head->id, 'rating_period_id' => $period->id,
@@ -349,6 +376,11 @@ class CommitmentApprovalTest extends PmsTestCase
             'name'           => 'Fabian Singuil',
             'org_unit_id'    => $college->id,
             'position_title' => 'Executive Secretary',
+        ]);
+
+        $this->makeForm([
+            'type' => 'opcr', 'org_unit_id' => $college->id, 'school_year_id' => $year->id,
+            'status' => 'published', 'user_id' => $president->id,
         ]);
 
         $form = $this->makeForm([

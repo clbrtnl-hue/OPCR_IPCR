@@ -16,7 +16,7 @@ export default function MyTeamPage() {
     const navigate = useNavigate();
     const queryClient = useQueryClient();
     const { user } = useAuth();
-    const canNudge = ["program_head", "vp"].includes(user?.role);
+    const canNudge = Boolean(user?.capabilities?.follow_up);
     const [yearId, setYearId] = React.useState(null);
     const [periodId, setPeriodId] = React.useState(null);
 
@@ -48,8 +48,7 @@ export default function MyTeamPage() {
         enabled: Boolean(year?.id),
     });
 
-    const nudge = useMutation({
-        mutationFn: (formId) => api.post(`pcr-forms/${formId}/nudge`),
+    const onNudgeDone = {
         onSuccess: ({ data: payload }) => {
             message.success(payload?.message ?? "Follow-up sent.");
             queryClient.invalidateQueries({ queryKey: ["my-team"] });
@@ -57,7 +56,23 @@ export default function MyTeamPage() {
         onError: (error) => {
             message.error(error?.response?.data?.message ?? "Could not send the follow-up.");
         },
+    };
+
+    const nudge = useMutation({
+        mutationFn: (formId) => api.post(`pcr-forms/${formId}/nudge`),
+        ...onNudgeDone,
     });
+
+    const remindStart = useMutation({
+        mutationFn: (memberId) =>
+            api.post(`my-team/${memberId}/remind-start`, {
+                school_year_id: year?.id,
+                ...(chosenPeriodId ? { rating_period_id: chosenPeriodId } : {}),
+            }),
+        ...onNudgeDone,
+    });
+
+    const followUpBusy = nudge.isPending || remindStart.isPending;
 
     const members = data?.members ?? [];
     const units = data?.units ?? [];
@@ -140,7 +155,23 @@ export default function MyTeamPage() {
             key: "actions",
             render: (_, record) => {
                 if (!record.form) {
-                    return <Typography.Text type="secondary">—</Typography.Text>;
+                    if (!canNudge || periodLocked) {
+                        return <Typography.Text type="secondary">—</Typography.Text>;
+                    }
+
+                    return (
+                        <Popconfirm
+                            title={`Ask ${record.name} to start their IPCR?`}
+                            description="They get a notification linking to My IPCR. One follow-up per person per day."
+                            okText="Remind"
+                            onConfirm={() => remindStart.mutate(record.id)}
+                            disabled={followUpBusy}
+                        >
+                            <Button type="link" size="small" disabled={followUpBusy}>
+                                Remind
+                            </Button>
+                        </Popconfirm>
+                    );
                 }
 
                 const showNudge =
@@ -157,9 +188,9 @@ export default function MyTeamPage() {
                                 description="They get a notification asking them to finish their IPCR. One follow-up per form per day."
                                 okText="Nudge"
                                 onConfirm={() => nudge.mutate(record.form.id)}
-                                disabled={nudge.isPending}
+                                disabled={followUpBusy}
                             >
-                                <Button type="link" size="small" disabled={nudge.isPending}>
+                                <Button type="link" size="small" disabled={followUpBusy}>
                                     Nudge
                                 </Button>
                             </Popconfirm>

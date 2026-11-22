@@ -50,6 +50,12 @@ class ChartDisplayTest extends PmsTestCase
         $this->actingAsUser($second);
         $this->assertSame([], $this->getJson('/api/org-units/leading')->assertOk()->json());
 
+        $president = User::factory()->create(['role' => 'president', 'name' => 'President']);
+        $this->makeForm([
+            'type' => 'opcr', 'org_unit_id' => $office->id, 'school_year_id' => $year->id,
+            'status' => 'published', 'user_id' => $president->id,
+        ]);
+
         $form = $this->makeForm([
             'org_unit_id' => $office->id, 'school_year_id' => $year->id, 'user_id' => $staff->id,
         ]);

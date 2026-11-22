@@ -45,6 +45,8 @@ Route::middleware('auth:api')->group(function () {
     Route::get('org-units/leading', [OrgUnitController::class, 'leading']);
     Route::get('org-units/watching', [OrgUnitController::class, 'watching']);
     Route::get('org-units', [OrgUnitController::class, 'index']);
+    Route::get('org-units/roster', [OrgUnitController::class, 'roster'])->middleware($PMS_ADMIN);
+    Route::get('org-units/{id}/members', [OrgUnitController::class, 'members'])->middleware($PMS_ADMIN);
     Route::post('org-units', [OrgUnitController::class, 'store'])->middleware($PMS_ADMIN);
     Route::delete('org-units/{id}', [OrgUnitController::class, 'destroy'])->middleware($PMS_ADMIN);
 
@@ -73,6 +75,7 @@ Route::middleware('auth:api')->group(function () {
     Route::get('assignable-users', [PcrAssignmentController::class, 'assignableUsers']);
     Route::get('my-team', [TeamController::class, 'index']);
     Route::get('my-team/progress', [TeamController::class, 'progress']);
+    Route::post('my-team/{userId}/remind-start', [TeamController::class, 'remindStart']);
     Route::get('attendance', [AttendanceController::class, 'index']);
     Route::put('attendance/days', [AttendanceController::class, 'markDay']);
     Route::post('attendance/meetings', [AttendanceController::class, 'storeMeeting']);
@@ -98,6 +101,7 @@ Route::middleware('auth:api')->group(function () {
     Route::post('pcr-forms/{id}/apply-template', [PcrFormController::class, 'applyTemplate']);
     Route::post('pcr-forms/{id}/status', [PcrFormController::class, 'setStatus']);
     Route::post('pcr-forms/{id}/nudge', [PcrFormController::class, 'nudge']);
+    Route::post('pcr-forms/{id}/repair', [PcrFormController::class, 'repair'])->middleware($PMS_ADMIN);
     Route::delete('pcr-forms/{id}', [PcrFormController::class, 'destroy']);
 
     Route::post('pcr-outputs', [PcrOutputController::class, 'store']);
