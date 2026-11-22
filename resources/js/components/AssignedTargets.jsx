@@ -135,9 +135,20 @@ export default function AssignedTargets({ form, targets, notedIds, canWrite, per
                 rating_period_id: periodId || undefined,
             });
 
+            const homeTitle = (form.outputs ?? []).find((output) => output.id === homeId)?.title;
+            const openOutput = Boolean(createdOutputId) || !toPlainText(homeTitle || "");
+
             await queryClient.invalidateQueries({ queryKey: ["pcr-form", String(form.id)] });
-            message.success("Commitment added. Write the target and measure.");
-            onArrive?.(saved.data.indicator.id);
+            message.success(
+                openOutput
+                    ? "Commitment added. Name the MFO/PPA, then write the target and measure."
+                    : "Commitment added. Write the target and measure."
+            );
+            onArrive?.({
+                id: saved.data.indicator.id,
+                outputId: homeId,
+                openOutput,
+            });
             setChoice(null);
         } catch {
             if (createdOutputId) {
@@ -151,14 +162,25 @@ export default function AssignedTargets({ form, targets, notedIds, canWrite, per
     const onWrite = (target) => {
         if (writingId != null) return;
 
-        const homes = commitmentHomes(target, form.outputs);
+        // A heading handed down from the college OPCR is already the MFO —
+        // commitments sit under it. Every other assigned target gets its own
+        // new MFO/PPA and success indicator, not an existing sheet heading.
+        const locked = commitmentHomes(target, form.outputs).filter(
+            (output) =>
+                output.assigned_by && Number(output.parent_output_id) === Number(target?.output_id)
+        );
 
-        if (homes.length > 1) {
-            setChoice({ target, homes, outputId: homes[0].id });
+        if (locked.length > 1) {
+            setChoice({ target, homes: locked, outputId: locked[0].id });
             return;
         }
 
-        place(target, homes[0]?.id);
+        if (locked.length === 1) {
+            place(target, locked[0].id);
+            return;
+        }
+
+        place(target, null);
     };
 
     const listProps = { form, canWrite, writingId, onWrite, onOpen: onArrive };

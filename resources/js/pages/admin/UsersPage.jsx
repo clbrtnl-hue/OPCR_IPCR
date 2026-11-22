@@ -23,6 +23,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import api from "~/utils/api";
 import { ROLE_LABELS } from "~/utils/constants";
 import PageHeader from "~/components/PageHeader";
+import ListPager, { tablePager } from "~/components/ListPager";
 import UserAvatar from "~/components/UserAvatar";
 
 const PINNED_ROLES = ["admin", "president"];
@@ -120,7 +121,7 @@ export default function UsersPage() {
         form.setFieldsValue(
             record
                 ? { ...record, password: undefined }
-                : { role: "employee", status: "active" }
+                : { role: role || "employee", status: "active" }
         );
     };
 
@@ -243,7 +244,7 @@ export default function UsersPage() {
                 ))}
             </div>
 
-            <Card className="pms-list-panel pms-accounts">
+            <Card className="pms-list-panel pms-list-fill pms-accounts">
                 <div className="pms-account-tools">
                     <Input
                         allowClear
@@ -276,8 +277,9 @@ export default function UsersPage() {
                     ) : rows.length === 0 ? (
                         <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={emptyText} />
                     ) : (
+                        <>
                         <div className="pms-account-list">
-                            {rows.map((record) => (
+                            {rows.slice((page - 1) * 12, page * 12).map((record) => (
                                 <article
                                     key={record.id}
                                     className={`pms-account-card${record.status === "active" ? "" : " is-inactive"}`}
@@ -292,6 +294,8 @@ export default function UsersPage() {
                                 </article>
                             ))}
                         </div>
+                        <ListPager page={page} pageSize={12} total={rows.length} onChange={setPage} />
+                        </>
                     )}
                 </div>
                 <div className="pms-desktop-only">
@@ -301,12 +305,7 @@ export default function UsersPage() {
                         dataSource={rows}
                         columns={columns}
                         rowClassName={(record) => (record.status === "active" ? "" : "is-inactive")}
-                        pagination={{
-                            current: page,
-                            pageSize: 12,
-                            onChange: setPage,
-                            hideOnSinglePage: true,
-                        }}
+                        pagination={tablePager(12, { current: page, onChange: setPage })}
                         locale={{ emptyText }}
                     />
                 </div>

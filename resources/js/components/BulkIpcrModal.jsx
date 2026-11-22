@@ -107,7 +107,7 @@ export default function BulkIpcrModal({ open, onClose }) {
                         }}
                         options={years.map((y) => ({
                             value: y.id,
-                            label: y.is_active ? `${y.label} (active)` : y.label,
+                            label: y.is_active ? `${y.label} ★` : y.label,
                         }))}
                     />
                 </Form.Item>
@@ -121,7 +121,7 @@ export default function BulkIpcrModal({ open, onClose }) {
                     <Select
                         options={periods.map((p) => ({
                             value: p.id,
-                            label: p.is_active ? `${p.label} (active)` : p.label,
+                            label: p.is_active ? `${p.label} ★` : p.label,
                         }))}
                     />
                 </Form.Item>

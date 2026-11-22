@@ -311,19 +311,19 @@ class PcrAssignmentController extends Controller
         return $this->accountableClosed($form);
     }
 
-    /** Cascade waits until commitments are approved, and closes again once rating starts. */
+    /** Handout closes while commitments sit with an approver, or once rating starts. */
     private function ipcrSubmitted(PcrForm $form)
     {
         if ($form->type !== 'ipcr' || PcrWorkflow::mayHandOut($form)) {
             return null;
         }
 
-        $waiting = ! $form->commitment_approved_at
-            && in_array($form->status, ['draft', 'returned', 'commitment_review'], true);
+        $waitingOnApprover = ! $form->commitment_approved_at
+            && $form->status === 'commitment_review';
 
         return response()->json([
-            'message' => $waiting
-                ? 'Commitments have to be approved before work can be handed on.'
+            'message' => $waitingOnApprover
+                ? 'Commitments are waiting for approval. People can be named again once they come back.'
                 : 'This IPCR has been submitted. People can no longer be assigned.',
         ], 409);
     }

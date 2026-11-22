@@ -123,7 +123,9 @@ class PcrAccomplishmentController extends Controller
 
         if (! PcrWorkflow::mayRecordWork($form)) {
             return response()->json([
-                'message' => 'Commitments have to be approved before tasks can be recorded.',
+                'message' => $form->type === 'opcr'
+                    ? 'Publish the OPCR targets before recording office accomplishments.'
+                    : 'Commitments have to be approved before tasks can be recorded.',
             ], 409);
         }
 
@@ -188,7 +190,9 @@ class PcrAccomplishmentController extends Controller
 
         if (! PcrWorkflow::mayRecordWork($form)) {
             return response()->json([
-                'message' => 'Commitments have to be approved before tasks can be recorded.',
+                'message' => $form->type === 'opcr'
+                    ? 'Publish the OPCR targets before recording office accomplishments.'
+                    : 'Commitments have to be approved before tasks can be recorded.',
             ], 409);
         }
 

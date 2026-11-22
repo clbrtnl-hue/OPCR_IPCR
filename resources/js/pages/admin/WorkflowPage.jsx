@@ -373,7 +373,7 @@ export default function WorkflowPage() {
                     {[
                         ["creator_roles", "Opens it"],
                         ["approver_roles", "Approves the targets"],
-                        ["publisher_roles", "Publishes and unpublishes"],
+                        ["publisher_roles", "Publishes it"],
                         ["rating_trigger_roles", "Sends it for rating"],
                     ].map(([slot, label]) => (
                         <Col xs={24} md={6} key={slot}>

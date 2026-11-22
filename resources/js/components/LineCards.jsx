@@ -17,7 +17,18 @@ function Score({ label, value }) {
     );
 }
 
-function SectionCards({ group, periodId, showScores, dimensions, user, onOpen, onEnter, canAdd, onAdd }) {
+function SectionCards({
+    group,
+    periodId,
+    showScores,
+    showAccomplishments,
+    dimensions,
+    user,
+    onOpen,
+    onEnter,
+    canAdd,
+    onAdd,
+}) {
     const [open, setOpen] = useState(false);
 
     return (
@@ -93,7 +104,9 @@ function SectionCards({ group, periodId, showScores, dimensions, user, onOpen, o
                                     />
                                 )}
                             </span>
-                            <span className="pms-line-body">{text || "No accomplishment yet"}</span>
+                            {showAccomplishments && (
+                                <span className="pms-line-body">{text || "No accomplishment yet"}</span>
+                            )}
                             {showScores && (
                                 <span className="pms-line-scores">
                                     {dimensions.map((dimension) => (
@@ -121,7 +134,16 @@ function SectionCards({ group, periodId, showScores, dimensions, user, onOpen, o
     );
 }
 
-export default function LineCards({ form, periodId, showScores = false, onOpen, onEnter, addSections = [], onAdd }) {
+export default function LineCards({
+    form,
+    periodId,
+    showScores = false,
+    showAccomplishments = true,
+    onOpen,
+    onEnter,
+    addSections = [],
+    onAdd,
+}) {
     const { user } = useAuth();
     const dimensions = ratingRules(user).dimensions;
     const addable = new Set(addSections);
@@ -153,6 +175,7 @@ export default function LineCards({ form, periodId, showScores = false, onOpen, 
                     group={group}
                     periodId={periodId}
                     showScores={showScores}
+                    showAccomplishments={showAccomplishments}
                     dimensions={dimensions}
                     user={user}
                     onOpen={onOpen}

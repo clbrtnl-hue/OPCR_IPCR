@@ -117,7 +117,7 @@ class PcrReminderService
                     : "{$count} commitments in your office are overdue",
                 'They are past their target date.',
                 null,
-                '/reports?late=' . now()->toDateString()
+                '/reports?tab=commitments&late=1'
             );
         }
 
@@ -175,7 +175,7 @@ class PcrReminderService
             foreach ($queue as $reviewerId => $formIds) {
                 $formIds = array_values($formIds);
                 $count = count($formIds);
-                $only = $count === 1 ? $formIds[0] : null;
+                $only = $count === 1 ? $forms->firstWhere('id', $formIds[0]) : null;
 
                 $sent += (int) Notification::remind(
                     $reviewerId,
@@ -184,8 +184,10 @@ class PcrReminderService
                     $count === 1
                         ? "1 form is still in your review queue for {$period->label}."
                         : "{$count} forms are still in your review queue for {$period->label}.",
-                    $only,
-                    $only ? "/forms/{$only}" : "/review-queue?period={$period->id}"
+                    $only?->id,
+                    $only
+                        ? $only->queueLink()
+                        : "/review-queue?period={$period->id}"
                 );
             }
         }

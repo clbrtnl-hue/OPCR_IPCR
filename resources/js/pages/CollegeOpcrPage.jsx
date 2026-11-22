@@ -70,12 +70,12 @@ export default function CollegeOpcrPage() {
                 extra={
                     years.length > 1 && (
                         <Select
-                            style={{ width: 180 }}
+                            className="pms-filter-select"
                             value={chosen}
                             onChange={setYearId}
                             options={years.map((y) => ({
                                 value: y.id,
-                                label: y.is_active ? `${y.label} (active)` : y.label,
+                                label: y.is_active ? `${y.label} ★` : y.label,
                             }))}
                         />
                     )

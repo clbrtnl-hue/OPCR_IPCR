@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Button, Card, Drawer, Empty, Select, Space, Table, Tag, Typography, message } from "antd";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import dayjs from "dayjs";
 import api from "~/utils/api";
 import { useAuth } from "~/hooks/useAuth";
 import { useOrganization } from "~/hooks/useOrganization";
@@ -22,17 +23,26 @@ function accomplishmentFor(line, periodId) {
 
 const TARGET_KIND_LABELS = {
     opcr: "OPCR",
+    ipcr: "IPCR",
     vp: "VP",
     program_head: "Head",
 };
 
-const TARGET_KIND_ORDER = ["opcr", "vp", "program_head"];
+const TARGET_KIND_ORDER = ["opcr", "ipcr", "vp", "program_head"];
 
 function targetKindLabel(kind) {
     return TARGET_KIND_LABELS[kind] || ROLE_LABELS[kind] || "Other";
 }
 
-export default function TargetRating({ periodFilter = null }) {
+function targetGroupKind(item, role) {
+    const kind = item.kind || "opcr";
+
+    if (role === "qa" && kind !== "opcr") return "ipcr";
+
+    return kind;
+}
+
+export default function TargetRating({ periodFilter = null, ahead = null }) {
     const { user } = useAuth();
     const organization = useOrganization();
     const queryClient = useQueryClient();
@@ -154,14 +164,30 @@ export default function TargetRating({ periodFilter = null }) {
         {
             title: "Success indicator",
             dataIndex: "description",
-            width: 260,
+            width: 220,
             fixed: "left",
             render: (value) => <RichTextView html={value} />,
         },
         {
+            title: "Target date",
+            dataIndex: "target_date",
+            width: 120,
+            render: (value) => {
+                if (!value) return "—";
+
+                const stamp = dayjs(value);
+
+                return (
+                    <span className="pms-review-date">
+                        {stamp.isValid() ? stamp.format("MMM D, YYYY") : String(value)}
+                    </span>
+                );
+            },
+        },
+        {
             title: "Actual accomplishment",
             key: "accomplishment",
-            width: 260,
+            width: 240,
             render: (_, record) => {
                 const accomplishment = accomplishmentFor(record, linePeriodId(record, activeChosen));
 
@@ -203,9 +229,9 @@ export default function TargetRating({ periodFilter = null }) {
             },
         },
         {
-            title: "Remarks",
+            title: "Score note",
             key: "remarks",
-            width: 200,
+            width: 220,
             render: (_, record) =>
                 record.can_score ? (
                     <RichText
@@ -238,7 +264,7 @@ export default function TargetRating({ periodFilter = null }) {
         const buckets = new Map();
 
         targets.forEach((item) => {
-            const kind = item.kind || "opcr";
+            const kind = targetGroupKind(item, user?.role);
             const bucket = buckets.get(kind) ?? [];
 
             bucket.push({
@@ -261,36 +287,39 @@ export default function TargetRating({ periodFilter = null }) {
                 label: targetKindLabel(kind),
                 options: buckets.get(kind),
             }));
-    }, [targets, organization.name]);
+    }, [targets, organization.name, user?.role]);
 
     return (
         <>
-            <Card style={{ marginBottom: 16 }}>
-                <Space wrap className="pms-rate-pick">
-                    <span>Target:</span>
-                    <Select
-                        className="pms-rate-form pms-rate-target"
-                        classNames={{ popup: { root: "pms-rate-form-popup pms-rate-target-popup" } }}
-                        popupMatchSelectWidth={false}
-                        loading={isLoading}
-                        placeholder="Select a target"
-                        value={selectedId}
-                        onChange={(value) => {
-                            setSelectedId(value);
-                            setChosenPeriodId(null);
-                            setOpenLineId(null);
-                        }}
-                        options={targetOptions}
-                    />
-                    {needsPeriod && periodChoices.length > 0 && (
+            <div className="pms-rate-stick">
+                {ahead}
+                <Card className="pms-rate-picker" size="small" style={{ marginBottom: 16 }}>
+                    <Space wrap className="pms-rate-pick">
+                        <span>Target:</span>
                         <Select
-                            value={activeChosen}
-                            onChange={setChosenPeriodId}
-                            options={periodChoices.map((period) => ({ value: period.id, label: period.label }))}
+                            className="pms-rate-form pms-rate-target"
+                            classNames={{ popup: { root: "pms-rate-form-popup pms-rate-target-popup" } }}
+                            popupMatchSelectWidth={false}
+                            loading={isLoading}
+                            placeholder="Select a target"
+                            value={selectedId}
+                            onChange={(value) => {
+                                setSelectedId(value);
+                                setChosenPeriodId(null);
+                                setOpenLineId(null);
+                            }}
+                            options={targetOptions}
                         />
-                    )}
-                </Space>
-            </Card>
+                        {needsPeriod && periodChoices.length > 0 && (
+                            <Select
+                                value={activeChosen}
+                                onChange={setChosenPeriodId}
+                                options={periodChoices.map((period) => ({ value: period.id, label: period.label }))}
+                            />
+                        )}
+                    </Space>
+                </Card>
+            </div>
 
             {!target ? (
                 <Card>
@@ -323,10 +352,10 @@ export default function TargetRating({ periodFilter = null }) {
                     }
                 >
                     <Typography.Paragraph type="secondary">
-                        Score the ones waiting on you. Return, send on, and finalize stay on By form.
+                        Score the ones waiting on you. Return, send on, finalize, and messages to the ratee stay on By form.
                     </Typography.Paragraph>
                     <div className="pms-desktop-only">
-                        <Table rowKey="id" dataSource={lines} columns={columns} pagination={false} size="small" scroll={{ x: 1340 }} />
+                        <Table rowKey="id" dataSource={lines} columns={columns} pagination={false} size="small" scroll={{ x: 1480 }} />
                     </div>
                     <div className="pms-mobile-only pms-rate-rows">
                         {lines.map((record) => (
@@ -367,6 +396,16 @@ export default function TargetRating({ periodFilter = null }) {
                             <div>{toPlainText(openLine.description) || "Untitled line"}</div>
                         </div>
                         <div className="pms-rate-field">
+                            <span>Target date</span>
+                            <div>
+                                <span className="pms-review-date">
+                                    {openLine.target_date && dayjs(openLine.target_date).isValid()
+                                        ? dayjs(openLine.target_date).format("MMM D, YYYY")
+                                        : "—"}
+                                </span>
+                            </div>
+                        </div>
+                        <div className="pms-rate-field">
                             <span>Actual accomplishment</span>
                             <div>
                                 <AccomplishmentView
@@ -400,7 +439,7 @@ export default function TargetRating({ periodFilter = null }) {
                             </div>
                         ))}
                         <div className="pms-rate-field">
-                            <span>Remarks</span>
+                            <span>Score note</span>
                             {openLine.can_score ? (
                                 <RichText
                                     rows={3}
@@ -410,7 +449,7 @@ export default function TargetRating({ periodFilter = null }) {
                             ) : scores[openLine.id]?.remarks ? (
                                 <RichTextView html={scores[openLine.id].remarks} />
                             ) : (
-                                <Typography.Text type="secondary">No remarks yet</Typography.Text>
+                                <Typography.Text type="secondary">No score note yet</Typography.Text>
                             )}
                         </div>
                     </>

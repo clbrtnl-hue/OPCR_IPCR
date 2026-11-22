@@ -92,13 +92,13 @@ class PcrCommentController extends Controller
 
         if ($user->isAdmin()) {
             return response()->json([
-                'message' => 'An administrator can read remarks, not post them.',
+                'message' => 'An administrator can read feedback, not post it.',
             ], 403);
         }
 
         if ($user->role === 'hr' && ! PcrWorkflow::owns($user, $form)) {
             return response()->json([
-                'message' => 'Human Resource can read this form, not remark on it.',
+                'message' => 'Human Resource can read this form, not leave feedback on it.',
             ], 403);
         }
 
@@ -165,7 +165,7 @@ class PcrCommentController extends Controller
             $period = RatingPeriod::find($periodId);
 
             if ($period && $period->status === 'closed') {
-                return "{$period->label} is closed. Remarks can no longer be added.";
+                return "{$period->label} is closed. Feedback can no longer be added.";
             }
 
             return null;
@@ -177,7 +177,7 @@ class PcrCommentController extends Controller
             $form->loadMissing('schoolYear');
             $label = $form->schoolYear?->label ?: 'This school year';
 
-            return "{$label} is closed. Remarks can no longer be added.";
+            return "{$label} is closed. Feedback can no longer be added.";
         }
 
         return null;
@@ -221,7 +221,7 @@ class PcrCommentController extends Controller
         Notification::sendMany(
             $watchers,
             'comment',
-            "New remark on {$subject}'s " . strtoupper($form->type),
+            "New feedback on {$subject}'s " . strtoupper($form->type),
             $excerpt,
             $form->id,
             $link

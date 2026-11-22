@@ -27,6 +27,7 @@ class AppealTest extends PmsTestCase
             'user_id' => $president->id,
             'type'    => 'appeal',
             'form_id' => $form->id,
+            'link'    => "/review-queue?form={$form->id}",
         ]);
         $this->assertDatabaseHas('notifications', [
             'user_id' => $hr->id,

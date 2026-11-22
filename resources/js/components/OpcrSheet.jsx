@@ -60,7 +60,7 @@ function siblingsOf(outputs, output) {
  * rather than opening a dialog for every line — the paper form is the mental
  * model, so the screen should not fight it.
  */
-export default function OpcrSheet({ form, periodId, canEdit, canAssign, canRecordProgress, showScores = false, summary, focusLineId = null, focusOutputId = null, returnMarks = [], onExpand }) {
+export default function OpcrSheet({ form, periodId, canEdit, canAssign, canRecordProgress, showScores = false, showAccomplishments = true, summary, focusLineId = null, focusOutputId = null, openFocusedLine = true, returnMarks = [], onExpand }) {
     const { user } = useAuth();
     const dimensions = ratingRules(user).dimensions;
     const queryClient = useQueryClient();
@@ -286,7 +286,10 @@ export default function OpcrSheet({ form, periodId, canEdit, canAssign, canRecor
         if (!exists) return;
 
         focusedLine.current = focusLineId;
-        setCommentLineId(focusLineId);
+
+        if (openFocusedLine) {
+            setCommentLineId(focusLineId);
+        }
 
         const row = document.querySelector(`[data-row="indicator-${focusLineId}"]`);
 
@@ -297,7 +300,7 @@ export default function OpcrSheet({ form, periodId, canEdit, canAssign, canRecor
         const timer = setTimeout(() => row.classList.remove("is-new"), 2200);
 
         return () => clearTimeout(timer);
-    }, [focusLineId, form.outputs]);
+    }, [focusLineId, form.outputs, openFocusedLine]);
 
     useEffect(() => {
         if (!focusOutputId || focusedOutput.current === focusOutputId) return;
@@ -407,7 +410,8 @@ export default function OpcrSheet({ form, periodId, canEdit, canAssign, canRecor
         return null;
     }, [openLineId, form.outputs]);
 
-    const columnCount = 7 + (showScores ? dimensions.length + 1 : 0);
+    const columnCount =
+        6 + (showAccomplishments ? 1 : 0) + (showScores ? dimensions.length + 1 : 0);
     const rows = [];
 
     SECTIONS.forEach((section) => {
@@ -770,76 +774,78 @@ export default function OpcrSheet({ form, periodId, canEdit, canAssign, canRecor
                             {accountableMark && <div className="pms-cell-mark">{accountableMark}</div>}
                         </td>
 
-                        <td className="pms-sheet-muted">
-                            <div className={accomplishmentMark ? "pms-flag" : undefined}>
-                            {accomplishment?.actual_accomplishment && (
-                                <div
-                                    className="pms-richtext-view"
-                                    dangerouslySetInnerHTML={{
-                                        __html: accomplishment.actual_accomplishment,
-                                    }}
-                                />
-                            )}
+                        {showAccomplishments && (
+                            <td className="pms-sheet-muted">
+                                <div className={accomplishmentMark ? "pms-flag" : undefined}>
+                                {accomplishment?.actual_accomplishment && (
+                                    <div
+                                        className="pms-richtext-view"
+                                        dangerouslySetInnerHTML={{
+                                            __html: accomplishment.actual_accomplishment,
+                                        }}
+                                    />
+                                )}
 
-                            {delivery.people > 0 ? (
-                                <span
-                                    className={
-                                        delivery.recorded ? "pms-delivery-count" : "pms-cell-empty"
-                                    }
-                                >
-                                    {delivery.recorded} of {delivery.people} recorded
-                                </span>
-                            ) : (
-                                !accomplishment?.actual_accomplishment && (
-                                    <span className="pms-cell-empty">
-                                        {Number(output.delegated_outputs_count ?? 0) > 0
-                                            ? "Handed out with the MFO/PPA"
-                                            : "Not yet recorded"}
+                                {delivery.people > 0 ? (
+                                    <span
+                                        className={
+                                            delivery.recorded ? "pms-delivery-count" : "pms-cell-empty"
+                                        }
+                                    >
+                                        {delivery.recorded} of {delivery.people} recorded
                                     </span>
-                                )
-                            )}
-                            {accomplishmentMark && <div className="pms-cell-mark">{accomplishmentMark}</div>}
-                            </div>
+                                ) : (
+                                    !accomplishment?.actual_accomplishment && (
+                                        <span className="pms-cell-empty">
+                                            {Number(output.delegated_outputs_count ?? 0) > 0
+                                                ? "Handed out with the MFO/PPA"
+                                                : "Not yet recorded"}
+                                        </span>
+                                    )
+                                )}
+                                {accomplishmentMark && <div className="pms-cell-mark">{accomplishmentMark}</div>}
+                                </div>
 
-                            <div className={evidenceMark ? "pms-flag" : undefined} style={{ marginTop: 4 }}>
-                                <Space size={6}>
-                                    <Button
-                                        size="small"
-                                        type="text"
-                                        icon={<ExpandOutlined />}
-                                        onClick={() => setOpenLineId(line.id)}
-                                    >
-                                        Open
-                                    </Button>
-                                    <Badge
-                                        count={commentCounts[line.id] ?? 0}
-                                        size="small"
-                                        color="#1e3a72"
-                                        offset={[-4, 2]}
-                                    >
+                                <div className={evidenceMark ? "pms-flag" : undefined} style={{ marginTop: 4 }}>
+                                    <Space size={6}>
                                         <Button
                                             size="small"
                                             type="text"
-                                            icon={<MessageOutlined />}
-                                            onClick={() => setCommentLineId(line.id)}
+                                            icon={<ExpandOutlined />}
+                                            onClick={() => setOpenLineId(line.id)}
                                         >
-                                            Comment
+                                            Open
                                         </Button>
-                                    </Badge>
-                                    {delivery.files > 0 && (
                                         <Badge
-                                            count={delivery.files}
+                                            count={commentCounts[line.id] ?? 0}
                                             size="small"
                                             color="#1e3a72"
-                                            offset={[4, 0]}
+                                            offset={[-4, 2]}
                                         >
-                                            <PaperClipOutlined style={{ opacity: 0.6 }} />
+                                            <Button
+                                                size="small"
+                                                type="text"
+                                                icon={<MessageOutlined />}
+                                                onClick={() => setCommentLineId(line.id)}
+                                            >
+                                                Comment
+                                            </Button>
                                         </Badge>
-                                    )}
-                                </Space>
-                                {evidenceMark && <div className="pms-cell-mark">{evidenceMark}</div>}
-                            </div>
-                        </td>
+                                        {delivery.files > 0 && (
+                                            <Badge
+                                                count={delivery.files}
+                                                size="small"
+                                                color="#1e3a72"
+                                                offset={[4, 0]}
+                                            >
+                                                <PaperClipOutlined style={{ opacity: 0.6 }} />
+                                            </Badge>
+                                        )}
+                                    </Space>
+                                    {evidenceMark && <div className="pms-cell-mark">{evidenceMark}</div>}
+                                </div>
+                            </td>
+                        )}
 
                         {showScores && (
                             <>
@@ -874,7 +880,7 @@ export default function OpcrSheet({ form, periodId, canEdit, canAssign, canRecor
                     <td className="pms-sheet-money">
                         {sectionBudget > 0 ? `₱${sectionBudget.toLocaleString()}` : ""}
                     </td>
-                    <td colSpan={2} />
+                    <td colSpan={showAccomplishments ? 2 : 1} />
                     <td colSpan={dimensions.length} />
                     <td className="pms-sheet-score">
                         {sectionAverage != null ? Number(sectionAverage).toFixed(2) : ""}
@@ -908,7 +914,7 @@ export default function OpcrSheet({ form, periodId, canEdit, canAssign, canRecor
                 <td className="pms-sheet-money">
                     {totalBudget > 0 ? `₱${totalBudget.toLocaleString()}` : ""}
                 </td>
-                <td colSpan={2} />
+                <td colSpan={showAccomplishments ? 2 : 1} />
                 <td colSpan={dimensions.length} />
                 <td className="pms-sheet-score">
                     {summary?.final_average != null
@@ -949,6 +955,7 @@ export default function OpcrSheet({ form, periodId, canEdit, canAssign, canRecor
                 form={form}
                 periodId={periodId}
                 showScores={showScores}
+                showAccomplishments={showAccomplishments}
                 onOpen={setOpenLineId}
                 onEnter={canEdit && onExpand ? () => onExpand() : undefined}
                 addSections={canEdit ? ["strategic", "core", "support"] : []}
@@ -974,7 +981,9 @@ export default function OpcrSheet({ form, periodId, canEdit, canAssign, canRecor
                             <th style={{ width: 140 }}>Progress</th>
                             <th style={{ width: 110 }}>Alloted Budget</th>
                             <th style={{ width: 190 }}>Individual / Accountable</th>
-                            <th style={{ width: 210 }}>Actual Accomplishments</th>
+                            {showAccomplishments && (
+                                <th style={{ width: 210 }}>Actual Accomplishments</th>
+                            )}
                             {showScores && (
                                 <>
                                     {dimensions.map((dimension) => (
@@ -1026,6 +1035,7 @@ export default function OpcrSheet({ form, periodId, canEdit, canAssign, canRecor
                         periodId={periodId}
                         canAssign={canAssign}
                         canRecordProgress={canRecordProgress}
+                        showAccomplishments={showAccomplishments}
                     />
                 )}
             </Drawer>

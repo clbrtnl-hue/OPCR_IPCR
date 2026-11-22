@@ -1,5 +1,5 @@
-import React, { useMemo, useState } from "react";
-import { Button, Card, Empty, Segmented, Skeleton, Space, Tabs, Tag, Typography, message } from "antd";
+import React, { useEffect, useMemo, useState } from "react";
+import { Button, Card, Empty, Segmented, Skeleton, Space, Tabs, Tag, message } from "antd";
 import { CheckOutlined, DeleteOutlined, UndoOutlined } from "@ant-design/icons";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
@@ -8,10 +8,11 @@ import api from "~/utils/api";
 import PageHeader from "~/components/PageHeader";
 import UserAvatar from "~/components/UserAvatar";
 import { dayLabel, notificationHref, notificationMeta, notificationNavState } from "~/utils/notifications";
+import ListPager from "~/components/ListPager";
 
 const PAGE = 25;
 
-function AlertList({ items, total, limit, onMore, isFetching, open, onTrash, onRestore, trashing, restoring, trashed, web }) {
+function AlertList({ items, isFetching, open, onTrash, onRestore, trashing, restoring, trashed, web }) {
     const now = dayjs();
     let lastDay = null;
 
@@ -95,15 +96,6 @@ function AlertList({ items, total, limit, onMore, isFetching, open, onTrash, onR
                 );
             })}
 
-            {items.length < total && (
-                <Button block style={{ marginTop: 12 }} onClick={onMore}>
-                    Show older ({total - items.length} more)
-                </Button>
-            )}
-
-            <Typography.Paragraph type="secondary" style={{ marginTop: 12, fontSize: 12 }}>
-                Showing {items.length} of {total}.
-            </Typography.Paragraph>
         </div>
     );
 }
@@ -113,15 +105,16 @@ export default function NotificationsPage() {
     const queryClient = useQueryClient();
     const [scope, setScope] = useState("all");
     const [kind, setKind] = useState("all");
-    const [limit, setLimit] = useState(PAGE);
+    const [page, setPage] = useState(1);
 
     const { data, isLoading, isFetching } = useQuery({
-        queryKey: ["notifications", "page", scope, kind, limit],
+        queryKey: ["notifications", "page", scope, kind, page],
         queryFn: () =>
             api
                 .get("notifications", {
                     params: {
-                        limit,
+                        limit: PAGE,
+                        offset: (page - 1) * PAGE,
                         unread: scope === "unread" ? 1 : undefined,
                         trash: scope === "trash" ? 1 : undefined,
                         type: kind === "all" ? undefined : kind,
@@ -133,8 +126,16 @@ export default function NotificationsPage() {
 
     const items = data?.items ?? [];
     const unread = data?.unread ?? 0;
+    const inboxCount = data?.inbox ?? 0;
     const trashCount = data?.trash ?? 0;
     const total = data?.total ?? 0;
+    const pageCount = Math.max(1, Math.ceil(total / PAGE) || 1);
+
+    useEffect(() => {
+        if (page > pageCount) {
+            setPage(pageCount);
+        }
+    }, [page, pageCount]);
     const inTrash = scope === "trash";
 
     const invalidate = () => queryClient.invalidateQueries({ queryKey: ["notifications"] });
@@ -156,6 +157,14 @@ export default function NotificationsPage() {
         mutationFn: (id) => api.post(`notifications/${id}/trash`),
         onSuccess: () => {
             message.success("Moved to Trash. You can restore it for 30 days.");
+            invalidate();
+        },
+    });
+
+    const trashAll = useMutation({
+        mutationFn: () => api.post("notifications/trash-all"),
+        onSuccess: () => {
+            message.success("All notifications moved to Trash. You can restore them for 30 days.");
             invalidate();
         },
     });
@@ -198,7 +207,7 @@ export default function NotificationsPage() {
             activeKey={kind}
             onChange={(value) => {
                 setKind(value);
-                setLimit(PAGE);
+                setPage(1);
             }}
             items={kinds.map((item) => ({ key: item.value, label: item.label }))}
         />
@@ -210,7 +219,7 @@ export default function NotificationsPage() {
             onChange={(value) => {
                 setScope(value);
                 setKind("all");
-                setLimit(PAGE);
+                setPage(1);
             }}
             options={[
                 { value: "all", label: "All" },
@@ -231,6 +240,18 @@ export default function NotificationsPage() {
         </Button>
     );
 
+    const deleteAllButton = () => (
+        <Button
+            icon={<DeleteOutlined />}
+            danger
+            disabled={inboxCount === 0}
+            loading={trashAll.isPending}
+            onClick={() => trashAll.mutate()}
+        >
+            Delete all
+        </Button>
+    );
+
     const body = isLoading ? (
         <Skeleton active paragraph={{ rows: 6 }} />
     ) : items.length === 0 ? (
@@ -241,9 +262,6 @@ export default function NotificationsPage() {
     ) : (
         <AlertList
             items={items}
-            total={total}
-            limit={limit}
-            onMore={() => setLimit(limit + PAGE)}
             isFetching={isFetching}
             open={open}
             onTrash={(item) => trash.mutate(item.id)}
@@ -265,9 +283,6 @@ export default function NotificationsPage() {
     ) : (
         <AlertList
             items={items}
-            total={total}
-            limit={limit}
-            onMore={() => setLimit(limit + PAGE)}
             isFetching={isFetching}
             open={open}
             onTrash={(item) => trash.mutate(item.id)}
@@ -294,13 +309,17 @@ export default function NotificationsPage() {
                         <Space wrap>
                             {scopeControl()}
                             {!inTrash && markAllButton()}
+                            {!inTrash && deleteAllButton()}
                         </Space>
                     }
                 />
 
-                <Card>
+                <Card className="pms-list-panel pms-list-fill">
                     {kinds.length > 2 && kindTabs()}
-                    {body}
+                    <div className="pms-paged">
+                        {body}
+                        <ListPager page={page} pageSize={PAGE} total={total} onChange={setPage} />
+                    </div>
                 </Card>
             </div>
 
@@ -318,7 +337,12 @@ export default function NotificationsPage() {
 
                 <div className="pms-alerts-bar">
                     {scopeControl()}
-                    {!inTrash && markAllButton()}
+                    {!inTrash && (
+                        <div className="pms-alerts-actions">
+                            {markAllButton()}
+                            {deleteAllButton()}
+                        </div>
+                    )}
                 </div>
 
                 <Card className="pms-alerts-card">
@@ -326,6 +350,7 @@ export default function NotificationsPage() {
                         <div className="pms-alerts-kinds">{kindTabs()}</div>
                     )}
                     {mobileBody}
+                    <ListPager page={page} pageSize={PAGE} total={total} onChange={setPage} />
                 </Card>
             </div>
         </>

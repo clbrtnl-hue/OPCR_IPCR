@@ -7,9 +7,9 @@ use Illuminate\Http\UploadedFile;
 use Tests\PmsTestCase;
 
 /**
- * The cut-off. A locked rating period is finished. It is view-only for
- * everyone, including an administrator: no edits, no assignments, no
- * accomplishments, no evidence, no progress, no rating.
+ * The cut-off. A locked rating period is view-only for everyone, including
+ * an administrator: no edits, no assignments, no accomplishments, no
+ * evidence, no progress, no rating.
  */
 class PeriodLockTest extends PmsTestCase
 {

@@ -40,7 +40,7 @@ class PcrFormController extends Controller
             'schoolYear:id,label',
             'orgUnit:id,name,code',
             'owner:id,name,position_title,image',
-            'ratingPeriod:id,label,seq,is_active',
+            'ratingPeriod:id,label,seq,is_active,is_locked',
             'stageReviewers',
         ])
             ->withCount('outputs')
@@ -178,7 +178,9 @@ class PcrFormController extends Controller
                 'position_title' => $approver->position_title,
                 'label'          => PcrWorkflow::commitmentApproverLabel($approver),
             ] : null;
-            $payload['commitment_wait'] = $approver || $form->commitment_approved_at
+            // Wait can apply even when an approver is already known — e.g. the
+            // assigner's commitments are not approved yet.
+            $payload['commitment_wait'] = $form->commitment_approved_at
                 ? null
                 : PcrWorkflow::commitmentWait($form);
         }
@@ -625,12 +627,15 @@ class PcrFormController extends Controller
                 ], 422);
             }
 
+            if ($wait = PcrWorkflow::commitmentWait($form)) {
+                return response()->json(['message' => $wait], 422);
+            }
+
             $approver = PcrWorkflow::commitmentApprover($form);
 
             if (! $approver) {
                 return response()->json([
-                    'message' => PcrWorkflow::commitmentWait($form)
-                        ?? 'There is nobody to approve these commitments.',
+                    'message' => 'There is nobody to approve these commitments.',
                 ], 422);
             }
 
@@ -892,6 +897,171 @@ class PcrFormController extends Controller
     }
 
     /**
+     * College roles ask the person holding a form why it is still waiting.
+     * Heads and VPs can also tap their people: the owner of a draft / returned
+     * form, or whoever is holding it in the review chain.
+     * One follow-up per form per day keeps the inbox from stacking duplicates.
+     */
+    public function nudge(Request $request, $id)
+    {
+        $actor = $request->user();
+        $college = ['president', 'qa', 'hr', 'admin'];
+        $leaders = ['program_head', 'vp'];
+
+        if (! in_array($actor->role, [...$college, ...$leaders], true)) {
+            return response()->json([
+                'message' => 'Only the President, QA, HR, a head, or a VP can send this follow-up.',
+            ], 403);
+        }
+
+        $form = PcrForm::with('owner:id,name')->findOrFail($id);
+
+        if (! PcrWorkflow::canView($actor, $form)) {
+            return response()->json(['message' => 'You do not have access to this form.'], 403);
+        }
+
+        // A locked period is view-only — follow-ups are useless until it is reopened.
+        if ($message = PcrWorkflow::formLockMessage($actor, $form)) {
+            return response()->json([
+                'message' => 'This review period is locked. Unlock it before sending a follow-up.',
+            ], 409);
+        }
+
+        $ownerTap = in_array($actor->role, $leaders, true)
+            && in_array($form->status, ['draft', 'returned', 'commitments_approved'], true);
+
+        $targets = $ownerTap
+            ? $this->ownerNudgeRecipients($form, $actor)
+            : array_values(array_filter(
+                $this->nudgeRecipients($form),
+                fn ($userId) => (int) $userId !== (int) $actor->id
+            ));
+
+        if ($targets === []) {
+            return response()->json([
+                'message' => $ownerTap
+                    ? 'There is no one to follow up with on this form.'
+                    : 'This form is not waiting on a reviewer right now.',
+            ], 422);
+        }
+
+        $already = Notification::query()
+            ->where('type', 'nudge')
+            ->where('form_id', $form->id)
+            ->where('actor_id', $actor->id)
+            ->where('created_at', '>=', now()->subDay())
+            ->exists();
+
+        if ($already) {
+            return response()->json([
+                'message' => 'A follow-up was already sent for this form today.',
+            ], 409);
+        }
+
+        $owner = $form->owner?->name ?? 'Someone';
+        $stage = $this->nudgeStageLabel($form->status);
+        $who = match ($actor->role) {
+            'president'    => 'the President',
+            'qa'           => 'QA',
+            'hr'           => 'HR',
+            'program_head' => $actor->name,
+            'vp'           => $actor->name,
+            default        => $actor->name,
+        };
+
+        if ($ownerTap) {
+            $title = 'Follow-up on your IPCR';
+            $body = $form->status === 'returned'
+                ? "{$who} asked you to finish your IPCR — it was returned for correction."
+                : "{$who} asked you to finish your IPCR.";
+            $link = "/forms/{$form->id}";
+            $log = "Follow-up sent to the owner by {$actor->name}";
+        } else {
+            $title = 'Follow-up on a form in your queue';
+            $body = "{$owner}'s form has been waiting in {$stage}. {$who} asked you to review it.";
+            $link = $this->nudgeLink($form);
+            $log = "Follow-up sent to the reviewer by {$actor->name}";
+        }
+
+        Notification::sendMany($targets, 'nudge', $title, $body, $form->id, $link);
+        ActivityLog::record('PcrForm', $form->id, 'status', $log);
+
+        return response()->json([
+            'data'    => 'nudged',
+            'message' => 'Follow-up sent.',
+            'targets' => count($targets),
+        ]);
+    }
+
+    /** Open the workspace where that stage is actually handled. */
+    private function nudgeLink(PcrForm $form): string
+    {
+        return $form->queueLink();
+    }
+
+    /** @return array<int, int> */
+    private function nudgeRecipients(PcrForm $form): array
+    {
+        if ($form->type === 'ipcr' && $form->status === 'commitment_review' && $form->commitment_approver_id) {
+            return [(int) $form->commitment_approver_id];
+        }
+
+        if ($form->type === 'ipcr' && PcrWorkflow::isReviewDestination($form->status) && $form->status !== 'qa_rating') {
+            $column = PcrWorkflow::REVIEWER_COLUMNS[$form->status] ?? null;
+
+            if ($column && $form->{$column}) {
+                return [(int) $form->{$column}];
+            }
+
+            $named = PcrFormReviewer::where('form_id', $form->id)
+                ->where('stage', $form->status)
+                ->whereNotNull('user_id')
+                ->value('user_id');
+
+            return $named ? [(int) $named] : [];
+        }
+
+        if ($form->status === 'qa_rating' || ($form->type === 'opcr' && $form->status === 'qa_approval')) {
+            return User::query()
+                ->where('role', 'qa')
+                ->where('status', 'active')
+                ->pluck('id')
+                ->map(fn ($id) => (int) $id)
+                ->all();
+        }
+
+        return [];
+    }
+
+    /** Head / VP tapping a subordinate who still needs to finish their own form. */
+    private function ownerNudgeRecipients(PcrForm $form, $actor): array
+    {
+        if ($form->type !== 'ipcr' || ! $form->user_id) {
+            return [];
+        }
+
+        if ((int) $form->user_id === (int) $actor->id) {
+            return [];
+        }
+
+        return [(int) $form->user_id];
+    }
+
+    private function nudgeStageLabel(string $status): string
+    {
+        return match ($status) {
+            'commitment_review' => 'commitment approval',
+            'head_review'       => 'Head review',
+            'dean_review'       => 'Dean review',
+            'director_review'   => 'Director review',
+            'vp_review'         => 'VP review',
+            'qa_rating'         => 'QA rating',
+            'qa_approval'       => 'QA approval',
+            default             => str_replace('_', ' ', $status),
+        };
+    }
+
+    /**
      * Recorded attendance for the person on this form. The percentage is
      * evidence, and it carries a suggested score. Saving a rating is still
      * the rater's act: this does not write Q, E, or T.
@@ -935,20 +1105,25 @@ class PcrFormController extends Controller
     }
 
     /**
-     * Marks from the latest return, shown only while the form is still back
-     * with the writer. A later resubmit leaves them in the log.
+     * Marks from the latest return stay visible after the writer resubmits so
+     * the next reviewer still sees what had to change. They clear once someone
+     * moves the form forward from a review stage (not a resubmit from returned).
      *
      * @return array<int, array<string, mixed>>
      */
     private function openReturnMarks(PcrForm $form): array
     {
-        if ($form->status !== 'returned') {
-            return [];
-        }
-
         $log = $form->statusLogs->where('to_status', 'returned')->sortByDesc('id')->first();
 
         if (! $log) {
+            return [];
+        }
+
+        $cleared = $form->statusLogs
+            ->where('id', '>', $log->id)
+            ->contains(fn ($entry) => $entry->from_status !== 'returned' && $entry->to_status !== 'returned');
+
+        if ($cleared) {
             return [];
         }
 
@@ -1087,15 +1262,17 @@ class PcrFormController extends Controller
      */
     private function placeLink(PcrForm $form, array $places = []): string
     {
+        // fix=1: scroll to the marked row; the sheet already highlights what to
+        // change, so the line drawer stays closed.
         foreach ($places as $place) {
             if (! empty($place['indicator_id'])) {
-                return "/forms/{$form->id}?line={$place['indicator_id']}";
+                return "/forms/{$form->id}?line={$place['indicator_id']}&fix=1";
             }
         }
 
         foreach ($places as $place) {
             if (! empty($place['output_id'])) {
-                return "/forms/{$form->id}?output={$place['output_id']}";
+                return "/forms/{$form->id}?output={$place['output_id']}&fix=1";
             }
         }
 
@@ -1120,7 +1297,7 @@ class PcrFormController extends Controller
                 "An IPCR appeal from {$subject} needs your decision",
                 $note,
                 $form->id,
-                '/review-queue'
+                $form->queueLink()
             );
             Notification::sendMany(
                 $this->usersWithRoles(['hr']),
@@ -1175,7 +1352,8 @@ class PcrFormController extends Controller
                 'approval',
                 "IPCR commitments from {$subject} need your approval",
                 'They are waiting in your review queue.',
-                $form->id
+                $form->id,
+                $form->queueLink()
             );
 
             return;
@@ -1214,7 +1392,8 @@ class PcrFormController extends Controller
                 'review',
                 "{$label} from {$subject} needs your review",
                 'It is waiting in your review queue.',
-                $form->id
+                $form->id,
+                $form->queueLink()
             );
 
             return;
@@ -1226,7 +1405,8 @@ class PcrFormController extends Controller
                 'review',
                 "{$label} from {$subject} needs your review",
                 'It is waiting in your review queue.',
-                $form->id
+                $form->id,
+                $form->queueLink()
             );
 
             return;
@@ -1238,7 +1418,8 @@ class PcrFormController extends Controller
                 'review',
                 "{$label} from {$subject} needs your review",
                 'It has been endorsed and is waiting in your review queue.',
-                $form->id
+                $form->id,
+                $form->queueLink()
             );
 
             return;
@@ -1250,7 +1431,8 @@ class PcrFormController extends Controller
                 'review',
                 "{$label} from {$subject} needs your review",
                 'It is waiting in your review queue.',
-                $form->id
+                $form->id,
+                $form->queueLink()
             );
 
             return;
@@ -1264,7 +1446,8 @@ class PcrFormController extends Controller
                 'approval',
                 "OPCR for {$subject} needs your approval",
                 'The targets are waiting for approval in your review queue.',
-                $form->id
+                $form->id,
+                $form->queueLink()
             );
 
             return;
@@ -1305,7 +1488,8 @@ class PcrFormController extends Controller
                     : ($sentBack
                         ? 'The office average is above the college OPCR. It is back in your queue.'
                         : 'It is waiting for a rating.'),
-                $form->id
+                $form->id,
+                $form->queueLink()
             );
 
             return;
@@ -1411,7 +1595,8 @@ class PcrFormController extends Controller
             'published',
             'The college OPCR is published',
             "The {$year} OPCR is out. Targets are visible and accountable staff can write their IPCR commitments.",
-            $form->id
+            $form->id,
+            '/college-opcr'
         );
 
         foreach ($people as $person) {
@@ -1698,7 +1883,13 @@ class PcrFormController extends Controller
      */
     public function copyFrom(Request $request, $id)
     {
-        $data = $request->validate(['source_form_id' => 'required|integer|exists:pcr_forms,id']);
+        $data = $request->validate([
+            'source_form_id' => 'required|integer|exists:pcr_forms,id',
+            'output_ids'     => 'sometimes|array',
+            'output_ids.*'   => 'integer',
+            'indicator_ids'  => 'sometimes|array',
+            'indicator_ids.*'=> 'integer',
+        ]);
 
         $target = PcrForm::with('outputs')->findOrFail($id);
         $source = PcrForm::with(['outputs.indicators', 'ratingPeriod', 'schoolYear'])->findOrFail($data['source_form_id']);
@@ -1732,6 +1923,28 @@ class PcrFormController extends Controller
             ], 409);
         }
 
+        $selective = array_key_exists('output_ids', $data) || array_key_exists('indicator_ids', $data);
+        $pickOutputs = array_key_exists('output_ids', $data)
+            ? collect($data['output_ids'])->map(fn ($id) => (int) $id)->unique()->all()
+            : null;
+        $pickLines = array_key_exists('indicator_ids', $data)
+            ? collect($data['indicator_ids'])->map(fn ($id) => (int) $id)->unique()->all()
+            : null;
+
+        if ($selective && ($pickOutputs === [] || $pickOutputs === null) && ($pickLines === [] || $pickLines === null)) {
+            return response()->json([
+                'message' => 'Pick at least one commitment to copy.',
+            ], 422);
+        }
+
+        [$outputsToCopy, $linesByOutput] = $this->copySelection($source, $pickOutputs, $pickLines);
+
+        if ($outputsToCopy->isEmpty()) {
+            return response()->json([
+                'message' => 'None of those commitments belong to the source form.',
+            ], 422);
+        }
+
         // A period-pinned IPCR copies every line into its own period; an OPCR
         // maps each source line's period onto the matching seq in its year.
         $targetPeriods = RatingPeriod::where('school_year_id', $target->school_year_id)
@@ -1755,11 +1968,11 @@ class PcrFormController extends Controller
 
         $copied = 0;
 
-        DB::transaction(function () use ($source, $target, $periodFor, &$copied) {
+        DB::transaction(function () use ($outputsToCopy, $linesByOutput, $target, $periodFor, &$copied) {
             $outputMap = [];
             $lineMap   = [];
 
-            foreach ($source->outputs as $output) {
+            foreach ($outputsToCopy as $output) {
                 $new = PcrOutput::create([
                     'form_id'          => $target->id,
                     'section'          => $output->section,
@@ -1771,7 +1984,7 @@ class PcrFormController extends Controller
 
                 $outputMap[$output->id] = $new->id;
 
-                foreach ($output->indicators as $line) {
+                foreach ($linesByOutput->get($output->id, collect()) as $line) {
                     $created = PcrIndicator::create([
                         'output_id'        => $new->id,
                         'rating_period_id' => $periodFor($line),
@@ -1787,7 +2000,7 @@ class PcrFormController extends Controller
                 }
             }
 
-            foreach ($source->outputs as $output) {
+            foreach ($outputsToCopy as $output) {
                 $parentId = $this->copiedParentOutputId($output->parent_output_id, $outputMap, $target);
 
                 if (! $parentId) {
@@ -1801,8 +2014,8 @@ class PcrFormController extends Controller
 
             $officeParents = $this->officeParentsFor(array_keys($lineMap), $target);
 
-            foreach ($source->outputs as $output) {
-                foreach ($output->indicators as $line) {
+            foreach ($outputsToCopy as $output) {
+                foreach ($linesByOutput->get($output->id, collect()) as $line) {
                     $parentId = $this->copiedParentIndicatorId($line->parent_indicator_id, $lineMap, $officeParents);
 
                     if (! $parentId) {
@@ -1823,6 +2036,70 @@ class PcrFormController extends Controller
         ActivityLog::record('PcrForm', $target->id, 'create', "Copied commitments from {$from}");
 
         return response()->json(['data' => 'copied', 'lines' => $copied]);
+    }
+
+    /**
+     * Resolve which source outputs/lines to copy. Null picks mean "all".
+     * Parent headings of selected outputs are pulled in so nesting still wires up.
+     */
+    private function copySelection(PcrForm $source, ?array $pickOutputs, ?array $pickLines): array
+    {
+        $allOutputs = $source->outputs->keyBy('id');
+        $wantedOutputIds = collect();
+        $linesByOutput = collect();
+
+        if ($pickOutputs === null && $pickLines === null) {
+            foreach ($allOutputs as $output) {
+                $wantedOutputIds->push($output->id);
+                $linesByOutput[$output->id] = $output->indicators;
+            }
+
+            return [$allOutputs->values(), $linesByOutput];
+        }
+
+        $pickOutputSet = collect($pickOutputs ?? []);
+        $pickLineSet = collect($pickLines ?? []);
+
+        foreach ($allOutputs as $output) {
+            $selectedLines = $output->indicators->filter(
+                fn ($line) => $pickLineSet->contains((int) $line->id)
+            );
+
+            $outputPicked = $pickOutputSet->contains((int) $output->id);
+
+            if ($selectedLines->isNotEmpty()) {
+                $wantedOutputIds->push($output->id);
+                $linesByOutput[$output->id] = $selectedLines->values();
+            } elseif ($outputPicked) {
+                $wantedOutputIds->push($output->id);
+                $linesByOutput[$output->id] = $output->indicators;
+            }
+        }
+
+        // Keep heading ancestry so nested MFO/PPAs still point at a parent.
+        $byId = $allOutputs;
+        foreach ($wantedOutputIds->all() as $outputId) {
+            $cursor = $byId->get($outputId);
+
+            while ($cursor?->parent_output_id) {
+                $parentId = (int) $cursor->parent_output_id;
+
+                if (! $wantedOutputIds->contains($parentId) && $byId->has($parentId)) {
+                    $wantedOutputIds->push($parentId);
+                    $linesByOutput[$parentId] = $linesByOutput->get($parentId, collect());
+                }
+
+                $cursor = $byId->get($parentId);
+            }
+        }
+
+        $outputsToCopy = $wantedOutputIds
+            ->unique()
+            ->map(fn ($id) => $byId->get($id))
+            ->filter()
+            ->values();
+
+        return [$outputsToCopy, $linesByOutput];
     }
 
     /** The owner's other IPCR for this school year — not somebody else's, and not another year. */

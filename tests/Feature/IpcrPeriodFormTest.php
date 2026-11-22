@@ -428,7 +428,7 @@ class IpcrPeriodFormTest extends PmsTestCase
             'form_id' => $midYear->id,
             'body'    => '<p>Too late for mid-year.</p>',
         ])->assertStatus(409)
-            ->assertJsonPath('message', 'Mid-year Review is closed. Remarks can no longer be added.');
+            ->assertJsonPath('message', 'Mid-year Review is closed. Feedback can no longer be added.');
 
         $this->postJson('/api/pcr-comments', [
             'form_id' => $endYear->id,

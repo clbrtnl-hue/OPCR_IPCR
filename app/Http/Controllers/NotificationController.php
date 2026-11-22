@@ -37,6 +37,7 @@ class NotificationController extends Controller
             'items'  => $items,
             'total'  => $total,
             'unread' => $this->owned($userId, false)->whereNull('read_at')->count(),
+            'inbox'  => $this->owned($userId, false)->count(),
             'trash'  => $this->owned($userId, true)->count(),
             'kinds'  => $this->owned($userId, $trash)
                 ->selectRaw('type, count(*) as total')
@@ -60,6 +61,13 @@ class NotificationController extends Controller
             ->update(['read_at' => now()]);
 
         return response()->json(['data' => 'read']);
+    }
+
+    public function trashAll(Request $request)
+    {
+        $this->owned($request->user()->id, false)->update(['trashed_at' => now()]);
+
+        return response()->json(['data' => 'trashed']);
     }
 
     public function trash(Request $request, $id)

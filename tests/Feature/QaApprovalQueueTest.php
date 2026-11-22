@@ -89,7 +89,7 @@ class QaApprovalQueueTest extends PmsTestCase
                 'user_id' => $reviewer->id,
                 'type'    => 'approval',
                 'form_id' => $opcr->id,
-                'link'    => "/forms/{$opcr->id}",
+                'link'    => "/review-queue?form={$opcr->id}",
             ]);
         }
     }
@@ -129,6 +129,6 @@ class QaApprovalQueueTest extends PmsTestCase
 
         $this->assertNotNull($note);
         $this->assertSame('Targets need a measure.', $note->body);
-        $this->assertSame("/forms/{$opcr->id}?line={$line->id}", $note->link);
+        $this->assertSame("/forms/{$opcr->id}?line={$line->id}&fix=1", $note->link);
     }
 }

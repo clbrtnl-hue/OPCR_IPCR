@@ -234,7 +234,7 @@ class DatabaseSeeder extends Seeder
             'school_year_id' => $year->id,
             'seq'            => 1,
             'label'          => 'January to June',
-            'opens_at'       => '2026-06-01',
+            'opens_at'       => '2026-01-01',
             'closes_at'      => '2026-06-30',
             'status'         => 'open',
             'is_active'      => true,
@@ -244,7 +244,7 @@ class DatabaseSeeder extends Seeder
             'school_year_id' => $year->id,
             'seq'            => 2,
             'label'          => 'July to December',
-            'opens_at'       => '2026-12-01',
+            'opens_at'       => '2026-07-01',
             'closes_at'      => '2026-12-31',
             'status'         => 'upcoming',
         ]);

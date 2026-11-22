@@ -6,8 +6,10 @@ import api from "~/utils/api";
 import { useAuth } from "~/hooks/useAuth";
 import { useOrganization } from "~/hooks/useOrganization";
 import { APPROVAL_QUEUE_STATUSES, ROLE_LABELS } from "~/utils/constants";
+import { formIsWithReviewer } from "~/utils/formReviewer";
 import UserAvatar from "~/components/UserAvatar";
 import NotificationBell from "~/components/NotificationBell";
+import NotificationToasts from "~/components/NotificationToasts";
 import NavIcon from "~/components/NavIcon";
 import ThemeToggle from "~/components/ThemeToggle";
 import { useTheme } from "~/hooks/useTheme";
@@ -40,47 +42,6 @@ const COLLEGE_MENU_ROLES = ["admin", "president", "hr", "qa"];
 
 const samePerson = (left, right) => Number(left) === Number(right);
 
-/** This form is sitting with the signed-in person for review, approval, or rating. */
-function formIsWithReviewer(user, form) {
-    if (!user || !form) {
-        return false;
-    }
-
-    if (user.role === "president" && form.status === "appeal") {
-        return true;
-    }
-
-    if (
-        form.status === "commitment_review" &&
-        samePerson(form.commitment_approver?.id ?? form.commitment_approver_id, user.id)
-    ) {
-        return true;
-    }
-
-    const approves = (user.workflow?.opcr?.approver_roles ?? ["qa"]).includes(user.role);
-    const rates = (user.workflow?.rater_roles ?? ["qa"]).includes(user.role);
-
-    if ((approves && form.status === "qa_approval") || (rates && form.status === "qa_rating")) {
-        return true;
-    }
-
-    if (samePerson(form.user_id, user.id)) {
-        return false;
-    }
-
-    const step = (form.review_steps ?? []).find((item) => item.status === form.status);
-
-    if (step && samePerson(step.reviewer_id ?? step.reviewer?.id, user.id)) {
-        return true;
-    }
-
-    return (
-        (form.status === "head_review" && samePerson(form.head_reviewer_id, user.id)) ||
-        (form.status === "dean_review" && samePerson(form.dean_reviewer_id, user.id)) ||
-        (form.status === "vp_review" && samePerson(form.vp_reviewer_id, user.id))
-    );
-}
-
 function menuFor(role, showCollegeOpcr, showTeam, showRating, showAttendance) {
     const menu = [...(MENUS[role] ?? MENUS.employee)];
 
@@ -96,7 +57,9 @@ function menuFor(role, showCollegeOpcr, showTeam, showRating, showAttendance) {
 
     if (showTeam && !menu.some((item) => item.key === "/my-team")) {
         const ipcrAt = menu.findIndex((item) => item.key === "/my-ipcr");
-        menu.splice(ipcrAt >= 0 ? ipcrAt + 1 : 1, 0, ITEMS.myTeam);
+        const formsAt = menu.findIndex((item) => item.key === "/my-forms");
+        const insertAt = ipcrAt >= 0 ? ipcrAt + 1 : formsAt >= 0 ? formsAt + 1 : 1;
+        menu.splice(insertAt, 0, ITEMS.myTeam);
     }
 
     if (showAttendance && !menu.some((item) => item.key === "/attendance")) {
@@ -123,10 +86,10 @@ const MENUS = {
             children: [ITEMS.users, ITEMS.orgUnits, ITEMS.schoolYears, ITEMS.workflow, ITEMS.audit],
         },
     ],
-    president: [ITEMS.dashboard, ITEMS.collegeOpcr, ITEMS.reviewQueue, ITEMS.myForms, ITEMS.reports],
+    president: [ITEMS.dashboard, ITEMS.collegeOpcr, ITEMS.myForms, ITEMS.reviewQueue, ITEMS.reports],
     qa: [ITEMS.dashboard, ITEMS.collegeOpcr, ITEMS.myIpcr, ITEMS.myForms, ITEMS.myTeam, ITEMS.reviewQueue, ITEMS.reports],
-    vp: [ITEMS.dashboard, ITEMS.myIpcr, ITEMS.myForms, ITEMS.myTeam, ITEMS.reviewQueue],
-    program_head: [ITEMS.dashboard, ITEMS.myIpcr, ITEMS.myForms, ITEMS.myTeam, ITEMS.reviewQueue],
+    vp: [ITEMS.dashboard, ITEMS.myIpcr, ITEMS.myForms, ITEMS.myTeam, ITEMS.reviewQueue, ITEMS.reports],
+    program_head: [ITEMS.dashboard, ITEMS.myIpcr, ITEMS.myForms, ITEMS.myTeam, ITEMS.reviewQueue, ITEMS.reports],
     hr: [ITEMS.dashboard, ITEMS.myIpcr, ITEMS.collegeOpcr, ITEMS.forms, ITEMS.reviewQueue, ITEMS.closing, ITEMS.reports],
     employee: [ITEMS.dashboard, ITEMS.myIpcr, ITEMS.myForms],
 };
@@ -143,7 +106,7 @@ export default function AppLayout({ children }) {
     const [tabAway, setTabAway] = useState(false);
 
     const { data: notifications } = useQuery({
-        queryKey: ["notifications", "bell"],
+        queryKey: ["notifications", "bell", user?.id],
         queryFn: () => api.get("notifications?limit=6").then((r) => r.data),
         enabled: Boolean(user),
         refetchInterval: 4000,
@@ -202,7 +165,10 @@ export default function AppLayout({ children }) {
         enabled: Boolean(user),
     });
     const seesTeam = leadsATeam || watchedUnits.length > 0 || ledUnits.length > 0;
-    const seesAttendance = user?.role === "hr" || ledUnits.length > 0;
+    const seesAttendance =
+        user?.role !== "vp" &&
+        user?.role !== "president" &&
+        (user?.role === "hr" || ledUnits.length > 0);
     const openFormId = location.pathname.match(/^\/forms\/(\d+)/)?.[1] ?? null;
     const { data: openForm } = useQuery({
         queryKey: ["pcr-form", openFormId],
@@ -349,7 +315,7 @@ export default function AppLayout({ children }) {
         navigate(key);
     };
 
-    const rail = (isCollapsed, menuItems = items) => (
+    const rail = (isCollapsed, menuItems = items, pmsBrand = false) => (
         <div className="pms-sider">
             <div
                 className={isCollapsed ? "pms-brand is-collapsed" : "pms-brand"}
@@ -365,12 +331,14 @@ export default function AppLayout({ children }) {
                 />
                 {!isCollapsed && (
                     <span className="pms-brand-words">
-                        <span className="pms-brand-name">
-                            {organization.short_name ?? "OCC"} PMS
+                        <span className={pmsBrand ? "pms-brand-name is-pms" : "pms-brand-name"}>
+                            {pmsBrand ? "PMS" : `${organization.short_name ?? "OCC"} PMS`}
                         </span>
-                        <span className="pms-brand-sub">
-                            {organization.name ?? "Opol Community College"}
-                        </span>
+                        {!pmsBrand && (
+                            <span className="pms-brand-sub">
+                                {organization.name ?? "Opol Community College"}
+                            </span>
+                        )}
                     </span>
                 )}
             </div>
@@ -453,6 +421,7 @@ export default function AppLayout({ children }) {
     return (
         <PersonProvider>
         <Layout className="pms-shell">
+            <NotificationToasts userId={user?.id} items={notifications?.items} />
             <Sider
                 className="pms-sider-desktop"
                 collapsible
@@ -461,7 +430,7 @@ export default function AppLayout({ children }) {
                 theme={menuTheme}
                 width={248}
             >
-                {rail(collapsed)}
+                {rail(collapsed, items, true)}
             </Sider>
             <Drawer
                 className="pms-nav-drawer"
@@ -522,12 +491,6 @@ export default function AppLayout({ children }) {
                             menu={{
                                 items: [
                                     {
-                                        key: "profile",
-                                        icon: <NavIcon name="user" />,
-                                        label: "My profile",
-                                        onClick: () => navigate("/profile"),
-                                    },
-                                    {
                                         key: "logout",
                                         icon: <NavIcon name="logout" />,
                                         label: "Sign out",
@@ -540,7 +503,11 @@ export default function AppLayout({ children }) {
                             }}
                         >
                             <Space className="pms-header-account" style={{ cursor: "pointer" }}>
-                                <UserAvatar user={user} showTooltip={false} />
+                                <UserAvatar
+                                    user={user}
+                                    showTooltip={false}
+                                    size={{ lg: 40, xl: 40, xxl: 40 }}
+                                />
                                 <span className="pms-header-user">
                                     <div style={{ lineHeight: 1.2 }}>{user?.name}</div>
                                     <div style={{ lineHeight: 1.2 }}>

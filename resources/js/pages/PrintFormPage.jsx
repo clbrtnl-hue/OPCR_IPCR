@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from "react";
-import { Button, Segmented, Space, Spin, message } from "antd";
+import { Button, Select, Space, Spin, message } from "antd";
 import { FileExcelOutlined, PrinterOutlined } from "@ant-design/icons";
 import { useQuery } from "@tanstack/react-query";
 import { useParams } from "react-router-dom";
@@ -149,7 +149,8 @@ export default function PrintFormPage() {
                     Excel
                 </Button>
                 {!isOpcr && !formPeriodId && periods.length > 1 && (
-                    <Segmented
+                    <Select
+                        style={{ minWidth: 180 }}
                         value={activePeriodId}
                         onChange={setPeriodId}
                         options={periods.map((p) => ({ value: p.id, label: p.label }))}

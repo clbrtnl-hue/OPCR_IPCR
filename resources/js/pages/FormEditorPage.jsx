@@ -13,7 +13,7 @@ import {
     Modal,
     Popconfirm,
     Row,
-    Segmented,
+    Select,
     Space,
     Spin,
     Steps,
@@ -67,7 +67,7 @@ import CopyPreviousPeriod from "~/components/CopyPreviousPeriod";
 import CommentThread from "~/components/CommentThread";
 import FormHistory from "~/components/FormHistory";
 import ReturnPlacesModal from "~/components/ReturnPlacesModal";
-import { RETURN_FIELD_LABELS } from "~/utils/returnMarks";
+import { RETURN_FIELD_LABELS, displayReturnMarks } from "~/utils/returnMarks";
 
 /**
  * What each step in a form's life looks like. The icon carries the meaning at a
@@ -153,6 +153,163 @@ function writeUpGaps(form) {
     return gaps;
 }
 
+const SOFT_ALERT_MS = 5000;
+
+/**
+ * Sticky (lock / appeal / returned): stay until closed.
+ * Soft (planning / waiting / approved): auto-hide after a few seconds, also closable.
+ */
+function FormStatusAlerts({
+    form,
+    isOwner,
+    isOpcr,
+    periodLocked,
+    viewedPeriod,
+    planningOpen,
+    approverLabel,
+    returnMarks,
+    returnedFromRating,
+}) {
+    const [hidden, setHidden] = useState(() => new Set());
+    const softKey = periodLocked
+        ? null
+        : planningOpen
+          ? "planning"
+          : form.status === "commitment_review" && !isOpcr
+            ? "commitment_review"
+            : form.status === "commitments_approved"
+              ? "commitments_approved"
+              : null;
+
+    useEffect(() => {
+        setHidden(new Set());
+    }, [form.id, form.status, periodLocked, planningOpen, form.appeal?.can_file]);
+
+    useEffect(() => {
+        if (!softKey || !isOwner) return undefined;
+        const timer = window.setTimeout(() => {
+            setHidden((prev) => {
+                if (prev.has(softKey)) return prev;
+                const next = new Set(prev);
+                next.add(softKey);
+                return next;
+            });
+        }, SOFT_ALERT_MS);
+        return () => window.clearTimeout(timer);
+    }, [softKey, isOwner, form.id]);
+
+    const hide = (key) =>
+        setHidden((prev) => {
+            if (prev.has(key)) return prev;
+            const next = new Set(prev);
+            next.add(key);
+            return next;
+        });
+
+    const alertProps = (key) => ({
+        showIcon: true,
+        closable: true,
+        style: { marginBottom: 16 },
+        onClose: () => hide(key),
+    });
+
+    if (periodLocked) {
+        if (hidden.has("locked")) return null;
+        return (
+            <Alert
+                type="warning"
+                {...alertProps("locked")}
+                message={
+                    form.type === "opcr"
+                        ? `${form.school_year?.label || "This school year"} is closed`
+                        : `${viewedPeriod.label} is locked`
+                }
+                description={
+                    form.type === "opcr"
+                        ? "The OPCR is view-only now — ask an administrator to unlock a review period."
+                        : "It is view-only now — ask an administrator to unlock it."
+                }
+            />
+        );
+    }
+
+    if (!isOwner) return null;
+
+    return (
+        <>
+            {form.appeal?.can_file && !hidden.has("appeal_file") && (
+                <Alert
+                    type="info"
+                    {...alertProps("appeal_file")}
+                    message="This rating can be appealed"
+                    description={`Tell the President why it should be reviewed. The last day is ${dayjs(form.appeal.deadline).format("MMMM D, YYYY")}.`}
+                />
+            )}
+            {form.status === "appeal" && !hidden.has("appeal") && (
+                <Alert
+                    type="warning"
+                    {...alertProps("appeal")}
+                    message="This rating is under appeal"
+                    description={form.appeal?.reason || "The President has not decided yet."}
+                />
+            )}
+            {planningOpen && softKey === "planning" && !hidden.has("planning") && (
+                <Alert
+                    type="info"
+                    {...alertProps("planning")}
+                    message="Commitments need approval first"
+                    description={
+                        form.commitment_wait
+                            ? form.commitment_wait
+                            : form.commitment_approver
+                              ? `Send them to ${approverLabel}. You can name accountable people now; tasks stay closed until commitments are approved.`
+                              : "There is nobody to approve these commitments yet."
+                    }
+                />
+            )}
+            {softKey === "commitment_review" && !hidden.has("commitment_review") && (
+                <Alert
+                    type="info"
+                    {...alertProps("commitment_review")}
+                    message={`Waiting for ${approverLabel} to approve your commitments`}
+                    description="Tasks and handing work down open after approval."
+                />
+            )}
+            {softKey === "commitments_approved" && !hidden.has("commitments_approved") && (
+                <Alert
+                    type="success"
+                    {...alertProps("commitments_approved")}
+                    message="Commitments approved"
+                    description="You can hand work to your team and record tasks. Submit for review once every line has a narrative and two files."
+                />
+            )}
+            {form.status === "returned" && !hidden.has("returned") && (
+                <Alert
+                    type="warning"
+                    {...alertProps("returned")}
+                    message="This form was sent back to you"
+                    description={
+                        returnMarks.length ? (
+                            <ul className="pms-return-list">
+                                {returnMarks.map((mark) => (
+                                    <li key={mark.id}>
+                                        <strong>{RETURN_FIELD_LABELS[mark.field] ?? "This part"}.</strong>{" "}
+                                        {mark.note}
+                                    </li>
+                                ))}
+                            </ul>
+                        ) : isOpcr && returnedFromRating ? (
+                            "Targets and success indicators stay as they are. Update the actual accomplishment and the evidence, then send it back for rating."
+                        ) : (
+                            "Read the feedback below, make the corrections, then submit it again."
+                        )
+                    }
+                />
+            )}
+        </>
+    );
+}
+
 function ExportMenu({ excelBusy, onPrint, onExcel }) {
     return (
         <Dropdown
@@ -178,10 +335,12 @@ function ExportMenu({ excelBusy, onPrint, onExcel }) {
 // An OPCR is planned and published first; it is rated later on the same document.
 const OPCR_CHAIN = ["draft", "qa_approval", "approved", "published", "qa_rating", "rated", "final"];
 
-export default function FormEditorPage({ formId = null, periodBar = null, yearSelect = null }) {
+export default function FormEditorPage({ formId = null, periodBar = null, yearSelect = null, filters = null }) {
     const { id: routeId } = useParams();
     const [searchParams] = useSearchParams();
     const focusLineId = Number(searchParams.get("line")) || null;
+    // Return notices use fix=1 — highlight the row, leave the drawer closed.
+    const openFocusedLine = searchParams.get("fix") !== "1";
     const focusTargetsKey = [
         ...new Set(
             [searchParams.get("targets"), searchParams.get("target")]
@@ -229,7 +388,21 @@ export default function FormEditorPage({ formId = null, periodBar = null, yearSe
     const [cascadeOpen, setCascadeOpen] = useState(false);
     const [templateOpen, setTemplateOpen] = useState(false);
     const [arrived, setArrived] = useState(null);
-    const showLine = (id) => setArrived({ id, tick: Date.now() });
+    const showLine = (arrive) => {
+        if (arrive == null) return;
+
+        if (typeof arrive === "object") {
+            setArrived({
+                id: arrive.id,
+                outputId: arrive.outputId ?? null,
+                openOutput: Boolean(arrive.openOutput),
+                tick: Date.now(),
+            });
+            return;
+        }
+
+        setArrived({ id: arrive, outputId: null, openOutput: false, tick: Date.now() });
+    };
 
     const { data: opcrTargets = [] } = useQuery({
         queryKey: ["opcr-targets", id],
@@ -349,11 +522,20 @@ export default function FormEditorPage({ formId = null, periodBar = null, yearSe
         isOpcr ||
         commitmentsApproved ||
         !["draft", "returned", "commitment_review"].includes(form.status);
+    // OPCR delivery opens once targets are published (or sent back from rating).
+    const opcrDeliveryOpen =
+        ["published", "qa_rating", "rated", "final"].includes(form.status) || returnedFromRating;
     const canRecordProgress =
-        isOwner && workOpen && !["rated", "final"].includes(form.status) && !periodLocked;
-    // Cascade opens once commitments are approved, and closes when rating starts.
+        isOwner &&
+        workOpen &&
+        !["rated", "final"].includes(form.status) &&
+        !periodLocked &&
+        (!isOpcr || opcrDeliveryOpen);
+    // Name people while writing commitments (like OPCR), and keep handing work
+    // out after approval until rating starts.
     const handoutOpen =
-        commitmentsApproved && ["commitments_approved", "returned"].includes(form.status);
+        (planningOpen && !commitmentsApproved) ||
+        (commitmentsApproved && ["commitments_approved", "returned"].includes(form.status));
     // Offer only what the server would accept: the organization decides which
     // roles hand work out, and terminal roles deliver their own commitments.
     const canAssignHeadings =
@@ -406,6 +588,9 @@ export default function FormEditorPage({ formId = null, periodBar = null, yearSe
             ? ["qa_rating", "rated", "final"]
             : ["head_review", "dean_review", "director_review", "vp_review", "qa_rating", "rated", "final"]
     ).includes(form.status);
+    // Actual accomplishments stay hidden while the plan is still being written
+    // or approved. IPCR waits on commitment approval; OPCR waits on publish.
+    const showAccomplishments = isOpcr ? opcrDeliveryOpen : workOpen;
 
     const opcrAction = !isOpcr
         ? null
@@ -419,7 +604,6 @@ export default function FormEditorPage({ formId = null, periodBar = null, yearSe
                 ? { status: "published", label: "Publish" }
                 : null;
 
-    const canUnpublish = isOpcr && canPublishOpcr && form.status === "published";
     const canSendForRating = isOpcr && canTriggerRating && form.status === "published";
     const canSendCommitments = canEditCommitment && !isOpcr;
     const canSubmitForRating =
@@ -432,13 +616,8 @@ export default function FormEditorPage({ formId = null, periodBar = null, yearSe
         !isOpcr &&
         form.status === "commitment_review" &&
         samePerson(form.commitment_approver?.id, user.id);
-    // The owner always sees the step bar. Someone else sees it only while the
-    // form is waiting on them.
-    const seesSteps =
-        isOwner ||
-        canDecideCommitments ||
-        isMyReviewStep ||
-        ((isRater && form.status === "qa_rating") || (canApproveOpcr && isOpcr && form.status === "qa_approval"));
+    // Step progress is for the account owner only — reviewers keep the status tag.
+    const seesSteps = isOwner;
     const approverLabel = form.commitment_approver?.label || "approval";
     const canReturnOpcr = isOpcr && canApproveOpcr && form.status === "qa_approval";
 
@@ -508,7 +687,162 @@ export default function FormEditorPage({ formId = null, periodBar = null, yearSe
     const shownChain = (isOwner || !chain.includes(form.status) ? chain : [form.status])
         .filter((status) => status === form.status || !skippedStages.includes(status));
     const stepIndex = Math.max(shownChain.indexOf(form.status), 0);
-    const returnMarks = form.return_marks ?? [];
+    const returnMarks = displayReturnMarks(form.return_marks, form.status);
+
+    const formBar = (className = "pms-form-bar") => (
+        <div className={className}>
+            <Tag
+                className={phoneChain && seesSteps ? "pms-form-status" : undefined}
+                color={metaFor(form.status).color}
+            >
+                {metaFor(form.status).label}
+            </Tag>
+            <Space wrap={false} className="pms-form-tools" size={8}>
+                <Badge count={(form.comments_count ?? 0) || 0} size="small" offset={[-4, 4]}>
+                    <Button icon={<MessageOutlined />} onClick={() => setPanelOpen(true)}>
+                        Feedback &amp; history
+                    </Button>
+                </Badge>
+                {yearSelect}
+                <ExportMenu
+                    excelBusy={excelBusy}
+                    onPrint={() => setPdfOpen(true)}
+                    onExcel={exportExcel}
+                />
+                {canSendCommitments && (
+                    <Button
+                        type="primary"
+                        loading={move.isPending}
+                        disabled={!form.commitment_approver || Boolean(form.commitment_wait)}
+                        onClick={() => move.mutate({ status: "commitment_review" })}
+                    >
+                        <span className="pms-btn-long">
+                            {form.commitment_approver ? `Send to ${approverLabel}` : "Send"}
+                        </span>
+                        <span className="pms-btn-short">Send</span>
+                    </Button>
+                )}
+                {canSubmitForRating && (
+                    <Button
+                        type="primary"
+                        loading={move.isPending}
+                        onClick={() => {
+                            const gaps = writeUpGaps(form);
+
+                            if (gaps.length) {
+                                setWriteUpIssues(gaps);
+
+                                return;
+                            }
+
+                            move.mutate({ status: "head_review" });
+                        }}
+                    >
+                        {isRater ? "Start rating" : "Submit for review"}
+                    </Button>
+                )}
+                {opcrAction && (
+                    <Button
+                        type="primary"
+                        loading={move.isPending || checking}
+                        onClick={async () => {
+                            if (opcrAction.status !== "qa_approval") {
+                                move.mutate({ status: opcrAction.status });
+
+                                return;
+                            }
+
+                            setChecking(true);
+
+                            try {
+                                const { data } = await api.get(`pcr-forms/${form.id}/readiness`);
+
+                                if (data.ready) {
+                                    move.mutate({ status: opcrAction.status });
+                                } else {
+                                    setIssues(data.issues);
+                                }
+                            } finally {
+                                setChecking(false);
+                            }
+                        }}
+                    >
+                        <span className="pms-btn-long">{opcrAction.label}</span>
+                        <span className="pms-btn-short">{opcrAction.short ?? opcrAction.label}</span>
+                    </Button>
+                )}
+            </Space>
+            <Space wrap={false} className="pms-form-actions" size={8}>
+                {form.appeal?.can_file && isOwner && (
+                    <Button
+                        onClick={() => {
+                            setAppealTo("appeal");
+                            setAppealNote("");
+                            setAppealOpen(true);
+                        }}
+                    >
+                        Appeal
+                    </Button>
+                )}
+                {user.role === "president" && form.status === "appeal" && (
+                    <>
+                        <Button
+                            danger
+                            onClick={() => {
+                                setAppealTo("final");
+                                setAppealNote("");
+                                setAppealOpen(true);
+                            }}
+                        >
+                            Deny appeal
+                        </Button>
+                        <Button
+                            type="primary"
+                            onClick={() => {
+                                setAppealTo("qa_rating");
+                                setAppealNote("");
+                                setAppealOpen(true);
+                            }}
+                        >
+                            Uphold appeal
+                        </Button>
+                    </>
+                )}
+                {canDecideCommitments && (
+                    <>
+                        <Button danger onClick={() => setReturnModal(true)}>
+                            Return
+                        </Button>
+                        <Popconfirm
+                            title="Approve these commitments?"
+                            description="The writer can then hand work down and record tasks."
+                            okText="Approve"
+                            onConfirm={() => move.mutate({ status: "commitments_approved" })}
+                        >
+                            <Button type="primary" loading={move.isPending}>
+                                Approve commitments
+                            </Button>
+                        </Popconfirm>
+                    </>
+                )}
+                {canReturnOpcr && (
+                    <Button danger onClick={() => setReturnModal(true)}>
+                        Return
+                    </Button>
+                )}
+                {canSendForRating && (
+                    <Button
+                        type="primary"
+                        loading={move.isPending}
+                        onClick={() => move.mutate({ status: "qa_rating" })}
+                    >
+                        <span className="pms-btn-long">Send for rating</span>
+                        <span className="pms-btn-short">For rating</span>
+                    </Button>
+                )}
+            </Space>
+        </div>
+    );
 
     return (
         <>
@@ -517,13 +851,16 @@ export default function FormEditorPage({ formId = null, periodBar = null, yearSe
                 subtitle={
                     <>
                         <span className="pms-desktop-only">
-                            {[
-                                form.school_year?.label,
-                                form.org_unit?.name,
-                                formPeriodId &&
-                                    (periods.find((p) => p.id === formPeriodId)?.label ??
-                                        form.rating_period?.label),
-                            ]
+                            {(filters
+                                ? [form.org_unit?.name]
+                                : [
+                                      form.school_year?.label,
+                                      form.org_unit?.name,
+                                      formPeriodId &&
+                                          (periods.find((p) => p.id === formPeriodId)?.label ??
+                                              form.rating_period?.label),
+                                  ]
+                            )
                                 .filter(Boolean)
                                 .join(" · ")}
                         </span>
@@ -534,282 +871,28 @@ export default function FormEditorPage({ formId = null, periodBar = null, yearSe
                 }
                 extra={
                     <div className="pms-form-head">
-                        <Tag
-                            className={phoneChain && seesSteps ? "pms-form-status" : undefined}
-                            color={metaFor(form.status).color}
-                        >
-                            {metaFor(form.status).label}
-                        </Tag>
-                        <Space wrap={false} className="pms-form-tools" size={8}>
-                            <Badge count={(form.comments_count ?? 0) || 0} size="small" offset={[-4, 4]}>
-                                <Button
-                                    icon={<MessageOutlined />}
-                                    onClick={() => setPanelOpen(true)}
-                                >
-                                    Remarks &amp; history
-                                </Button>
-                            </Badge>
-                            {yearSelect}
-                            <ExportMenu
-                                excelBusy={excelBusy}
-                                onPrint={() => setPdfOpen(true)}
-                                onExcel={exportExcel}
-                            />
-                            {canSendCommitments && (
-                                <Button
-                                    type="primary"
-                                    loading={move.isPending}
-                                    disabled={!form.commitment_approver}
-                                    onClick={() => move.mutate({ status: "commitment_review" })}
-                                >
-                                    <span className="pms-btn-long">
-                                        {form.commitment_approver ? `Send to ${approverLabel}` : "Send"}
-                                    </span>
-                                    <span className="pms-btn-short">Send</span>
-                                </Button>
-                            )}
-                            {canSubmitForRating && (
-                                <Button
-                                    type="primary"
-                                    loading={move.isPending}
-                                    onClick={() => {
-                                        const gaps = writeUpGaps(form);
-
-                                        if (gaps.length) {
-                                            setWriteUpIssues(gaps);
-
-                                            return;
-                                        }
-
-                                        move.mutate({ status: "head_review" });
-                                    }}
-                                >
-                                    {isRater ? "Start rating" : "Submit for review"}
-                                </Button>
-                            )}
-                            {opcrAction && (
-                                <Button
-                                    type="primary"
-                                    loading={move.isPending || checking}
-                                    onClick={async () => {
-                                        if (opcrAction.status !== "qa_approval") {
-                                            move.mutate({ status: opcrAction.status });
-
-                                            return;
-                                        }
-
-                                        setChecking(true);
-
-                                        try {
-                                            const { data } = await api.get(
-                                                `pcr-forms/${form.id}/readiness`
-                                            );
-
-                                            if (data.ready) {
-                                                move.mutate({ status: opcrAction.status });
-                                            } else {
-                                                setIssues(data.issues);
-                                            }
-                                        } finally {
-                                            setChecking(false);
-                                        }
-                                    }}
-                                >
-                                    <span className="pms-btn-long">{opcrAction.label}</span>
-                                    <span className="pms-btn-short">
-                                        {opcrAction.short ?? opcrAction.label}
-                                    </span>
-                                </Button>
-                            )}
-                        </Space>
-                        <Space wrap={false} className="pms-form-actions" size={8}>
-                        {form.appeal?.can_file && isOwner && (
-                            <Button
-                                onClick={() => {
-                                    setAppealTo("appeal");
-                                    setAppealNote("");
-                                    setAppealOpen(true);
-                                }}
-                            >
-                                Appeal
-                            </Button>
-                        )}
-                        {user.role === "president" && form.status === "appeal" && (
-                            <>
-                                <Button
-                                    danger
-                                    onClick={() => {
-                                        setAppealTo("final");
-                                        setAppealNote("");
-                                        setAppealOpen(true);
-                                    }}
-                                >
-                                    Deny appeal
-                                </Button>
-                                <Button
-                                    type="primary"
-                                    onClick={() => {
-                                        setAppealTo("qa_rating");
-                                        setAppealNote("");
-                                        setAppealOpen(true);
-                                    }}
-                                >
-                                    Uphold appeal
-                                </Button>
-                            </>
-                        )}
-                        {canDecideCommitments && (
-                            <>
-                                <Button danger onClick={() => setReturnModal(true)}>
-                                    Return
-                                </Button>
-                                <Popconfirm
-                                    title="Approve these commitments?"
-                                    description="The writer can then hand work down and record tasks."
-                                    okText="Approve"
-                                    onConfirm={() => move.mutate({ status: "commitments_approved" })}
-                                >
-                                    <Button type="primary" loading={move.isPending}>
-                                        Approve commitments
-                                    </Button>
-                                </Popconfirm>
-                            </>
-                        )}
-                        {canReturnOpcr && (
-                            <Button danger onClick={() => setReturnModal(true)}>
-                                Return
-                            </Button>
-                        )}
-                        {canUnpublish && (
-                            <Popconfirm
-                                title="Unpublish this OPCR?"
-                                description="It goes back to draft and its targets stop being available to new IPCR lines."
-                                onConfirm={() => move.mutate({ status: "draft" })}
-                            >
-                                <Button>Unpublish</Button>
-                            </Popconfirm>
-                        )}
-                                {canSendForRating && (
-                            <Button
-                                type="primary"
-                                loading={move.isPending}
-                                onClick={() => move.mutate({ status: "qa_rating" })}
-                            >
-                                <span className="pms-btn-long">Send for rating</span>
-                                <span className="pms-btn-short">For rating</span>
-                            </Button>
-                        )}
-                        </Space>
+                        {filters}
+                        {formBar()}
                     </div>
                 }
             />
 
             {periodBar}
 
-            {form.appeal?.can_file && isOwner && (
-                <Alert
-                    type="info"
-                    showIcon
-                    style={{ marginBottom: 16 }}
-                    message="This rating can be appealed"
-                    description={`Tell the President why it should be reviewed. The last day is ${dayjs(form.appeal.deadline).format("MMMM D, YYYY")}.`}
-                />
-            )}
-            {form.status === "appeal" && (
-                <Alert
-                    type="warning"
-                    showIcon
-                    style={{ marginBottom: 16 }}
-                    message="This rating is under appeal"
-                    description={form.appeal?.reason || "The President has not decided yet."}
-                />
-            )}
-
-            {periodLocked && (
-                <Alert
-                    type="warning"
-                    showIcon
-                    style={{ marginBottom: 16 }}
-                    message={
-                        form.type === "opcr"
-                            ? `${form.school_year?.label || "This school year"} is closed`
-                            : `${viewedPeriod.label} is locked`
-                    }
-                    description={
-                        form.type === "opcr"
-                            ? "This school year is finished. The OPCR is view-only now — ask an administrator to unlock a review period."
-                            : "This period is finished. It is view-only now — ask an administrator to unlock it."
-                    }
-                />
-            )}
-
-            {planningOpen && isOwner && (
-                <Alert
-                    type="info"
-                    showIcon
-                    style={{ marginBottom: 16 }}
-                    message="Commitments need approval first"
-                    description={
-                        form.commitment_wait
-                            ? form.commitment_wait
-                            : form.commitment_approver
-                              ? `Send them to ${approverLabel}. Tasks and handing work down stay closed until they are approved.`
-                              : "There is nobody to approve these commitments yet."
-                    }
-                />
-            )}
-
-            {form.status === "commitment_review" && !isOpcr && (
-                <Alert
-                    type="info"
-                    showIcon
-                    style={{ marginBottom: 16 }}
-                    message={
-                        isOwner
-                            ? `Waiting for ${approverLabel} to approve your commitments`
-                            : "These commitments are waiting for approval"
-                    }
-                    description="Tasks and handing work down open after approval."
-                />
-            )}
-
-            {form.status === "commitments_approved" && isOwner && (
-                <Alert
-                    type="success"
-                    showIcon
-                    style={{ marginBottom: 16 }}
-                    message="Commitments approved"
-                    description="You can hand work to your team and record tasks. Submit for review once every line has a narrative and two files."
-                />
-            )}
-
-            {form.status === "returned" && (
-                <Alert
-                    type="warning"
-                    showIcon
-                    style={{ marginBottom: 16 }}
-                    message="This form was sent back to you"
-                    description={
-                        returnMarks.length ? (
-                            <ul className="pms-return-list">
-                                {returnMarks.map((mark) => (
-                                    <li key={mark.id}>
-                                        <strong>{RETURN_FIELD_LABELS[mark.field] ?? "This part"}.</strong>{" "}
-                                        {mark.note}
-                                    </li>
-                                ))}
-                            </ul>
-                        ) : isOpcr && returnedFromRating ? (
-                            "Targets and success indicators stay as they are. Update the actual accomplishment and the evidence, then send it back for rating."
-                        ) : (
-                            "Read the remarks below, make the corrections, then submit it again."
-                        )
-                    }
-                />
-            )}
+            <FormStatusAlerts
+                form={form}
+                isOwner={isOwner}
+                isOpcr={isOpcr}
+                periodLocked={periodLocked}
+                viewedPeriod={viewedPeriod}
+                planningOpen={planningOpen}
+                approverLabel={approverLabel}
+                returnMarks={returnMarks}
+                returnedFromRating={returnedFromRating}
+            />
 
             {seesSteps && phoneChain && (
-            <Card className="pms-chain-card" style={{ marginBottom: 16 }}>
+            <Card className="pms-chain-card">
                 <p className="pms-chain-now">
                     <span
                         className="pms-chain-now-icon"
@@ -831,7 +914,7 @@ export default function FormEditorPage({ formId = null, periodBar = null, yearSe
             )}
 
             {seesSteps && !phoneChain && (
-            <Card className="pms-chain-card" style={{ marginBottom: 16 }}>
+            <Card className="pms-chain-card">
                 <Steps
                     size="small"
                     className={`pms-chain${shownChain.length <= 2 ? " is-compact" : ""}`}
@@ -903,7 +986,11 @@ export default function FormEditorPage({ formId = null, periodBar = null, yearSe
 
             <Row gutter={16}>
                 <Col xs={24} lg={24}>
-                    <Card title="Commitments" style={{ marginBottom: 16 }}>
+                    <Card
+                        title="Commitments"
+                        style={{ marginBottom: 16 }}
+                        extra={formBar("pms-form-bar pms-form-bar-sheet")}
+                    >
                         <div className="pms-commit-bar">
                             <div className="pms-commit-period">
                                 {isOpcr ? (
@@ -914,8 +1001,8 @@ export default function FormEditorPage({ formId = null, periodBar = null, yearSe
                                             form.rating_period?.label}
                                     </Tag>
                                 ) : (
-                                    <Segmented
-                                        block
+                                    <Select
+                                        style={{ minWidth: 180 }}
                                         value={activePeriodId}
                                         onChange={setPeriodId}
                                         options={periods.map((p) => ({
@@ -999,9 +1086,11 @@ export default function FormEditorPage({ formId = null, periodBar = null, yearSe
                                 canAssign={canNameAccountable}
                                 canRecordProgress={canRecordProgress}
                                 showScores={showScores}
+                                showAccomplishments={showAccomplishments}
                                 summary={summary}
                                 focusLineId={focusLineId}
                                 focusOutputId={focusOutputId}
+                                openFocusedLine={openFocusedLine}
                                 returnMarks={returnMarks}
                                 onExpand={() => setSheetFull(true)}
                             />
@@ -1016,13 +1105,17 @@ export default function FormEditorPage({ formId = null, periodBar = null, yearSe
                                 canAssign={canAssign}
                                 canAssignHeadings={canAssignHeadings}
                                 showScores={showScores}
+                                showAccomplishments={showAccomplishments}
                                 opcrTargets={opcrTargets}
                                 summary={summary}
                                 focusLineId={focusLineId}
                                 focusOutputId={focusOutputId}
+                                openFocusedLine={openFocusedLine}
                                 returnMarks={returnMarks}
                                 assignedOnly={user?.role === "employee"}
                                 arriveLineId={sheetFull ? null : arrived?.id}
+                                arriveOutputId={sheetFull ? null : arrived?.outputId}
+                                arriveOpenOutput={sheetFull ? false : Boolean(arrived?.openOutput)}
                                 arriveTick={sheetFull ? null : arrived?.tick}
                                 onExpand={() => setSheetFull(true)}
                             />
@@ -1066,9 +1159,9 @@ export default function FormEditorPage({ formId = null, periodBar = null, yearSe
                                         form.rating_period?.label}
                                 </Tag>
                             ) : (
-                                <Segmented
-                                    block
+                                <Select
                                     size="small"
+                                    style={{ minWidth: 160 }}
                                     value={activePeriodId}
                                     onChange={setPeriodId}
                                     options={periods.map((p) => ({
@@ -1097,6 +1190,7 @@ export default function FormEditorPage({ formId = null, periodBar = null, yearSe
                         canAssign={canNameAccountable}
                         canRecordProgress={canRecordProgress}
                         showScores={showScores}
+                        showAccomplishments={showAccomplishments}
                         summary={summary}
                         returnMarks={returnMarks}
                     />
@@ -1109,11 +1203,14 @@ export default function FormEditorPage({ formId = null, periodBar = null, yearSe
                         canAssign={canAssign}
                         canAssignHeadings={canAssignHeadings}
                         showScores={showScores}
+                        showAccomplishments={showAccomplishments}
                         opcrTargets={opcrTargets}
                         summary={summary}
                         returnMarks={returnMarks}
                         assignedOnly={user?.role === "employee"}
                         arriveLineId={sheetFull ? arrived?.id : null}
+                        arriveOutputId={sheetFull ? arrived?.outputId : null}
+                        arriveOpenOutput={sheetFull ? Boolean(arrived?.openOutput) : false}
                         arriveTick={sheetFull ? arrived?.tick : null}
                     />
                 )}
@@ -1198,7 +1295,7 @@ export default function FormEditorPage({ formId = null, periodBar = null, yearSe
             />
 
             <Drawer
-                title={`${form.type.toUpperCase()} — remarks and history`}
+                title={`${form.type.toUpperCase()} — feedback and history`}
                 placement="right"
                 width={560}
                 open={panelOpen}
@@ -1234,7 +1331,7 @@ export default function FormEditorPage({ formId = null, periodBar = null, yearSe
                         </Card>
                     )}
 
-                    <Card title="Remarks" style={{ marginBottom: 16 }}>
+                    <Card title="Feedback" className="pms-rate-feedback" style={{ marginBottom: 16 }}>
                         <CommentThread formId={form.id} />
                     </Card>
 

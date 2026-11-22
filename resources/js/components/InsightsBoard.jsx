@@ -1,5 +1,6 @@
 import React from "react";
-import { Card, Col, Empty, List, Row, Space, Tag, Typography } from "antd";
+import { Button, Card, Col, Empty, List, Popconfirm, Row, Space, Tag, Typography, message } from "antd";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import { RiseOutlined, TrophyOutlined, WarningOutlined } from "@ant-design/icons";
 import BarRows from "~/components/charts/BarRows";
@@ -9,6 +10,8 @@ import TrendLine from "~/components/charts/TrendLine";
 import StatTile from "~/components/charts/StatTile";
 import { ADJECTIVAL_COLORS, RATING_LEGEND, STATUS_META } from "~/utils/constants";
 import { useTheme } from "~/hooks/useTheme";
+import { useAuth } from "~/hooks/useAuth";
+import api from "~/utils/api";
 
 function reportPath(tab, q) {
     const params = new URLSearchParams({ tab });
@@ -87,6 +90,35 @@ function statusFillFor(viz) {
     };
 }
 
+function FillingTrend(props) {
+    const ref = React.useRef(null);
+    const [height, setHeight] = React.useState(props.height ?? 220);
+
+    React.useEffect(() => {
+        const node = ref.current;
+
+        if (!node || typeof ResizeObserver === "undefined") return undefined;
+
+        const measure = () => {
+            const next = Math.floor(node.clientHeight);
+
+            if (next > 0) setHeight(next);
+        };
+
+        measure();
+        const observer = new ResizeObserver(measure);
+        observer.observe(node);
+
+        return () => observer.disconnect();
+    }, []);
+
+    return (
+        <div className="pms-trend-fill" ref={ref}>
+            <TrendLine {...props} height={height} />
+        </div>
+    );
+}
+
 function useCompactCharts() {
     const query = "(max-width: 991px)";
     const [compact, setCompact] = React.useState(() =>
@@ -103,8 +135,10 @@ function useCompactCharts() {
     return compact;
 }
 
-export default function InsightsBoard({ data }) {
+export default function InsightsBoard({ data, periodLocked = false }) {
     const navigate = useNavigate();
+    const queryClient = useQueryClient();
+    const { user } = useAuth();
     const { viz } = useTheme();
     const compact = useCompactCharts();
     const chartHeight = {
@@ -115,6 +149,31 @@ export default function InsightsBoard({ data }) {
     const bandFill = bandFillFor(viz);
     const statusFill = statusFillFor(viz);
     const [scene, setScene] = React.useState("look");
+    const [seen, setSeen] = React.useState({ look: true });
+    const showScene = (key) => {
+        setScene(key);
+        setSeen((current) => (current[key] ? current : { ...current, [key]: true }));
+    };
+
+    const nudge = useMutation({
+        mutationFn: (formId) => api.post(`pcr-forms/${formId}/nudge`),
+        onSuccess: ({ data: payload }) => {
+            message.success(payload?.message ?? "Follow-up sent.");
+            queryClient.invalidateQueries({ queryKey: ["report-summary"] });
+        },
+        onError: (error) => {
+            message.error(error?.response?.data?.message ?? "Could not send the follow-up.");
+        },
+    });
+
+    React.useEffect(() => {
+        const id = window.requestAnimationFrame(() => {
+            window.dispatchEvent(new Event("resize"));
+        });
+
+        return () => window.cancelAnimationFrame(id);
+    }, [scene]);
+
     const totals = data?.totals;
     const open = (target) => {
         const href = typeof target === "string" ? target : target?.href;
@@ -328,34 +387,74 @@ export default function InsightsBoard({ data }) {
                     dataSource={(data.turnaround?.reviewers ?? [])
                         .filter((row) => row.pending > 0)
                         .sort((a, b) => (b.oldest_pending_days ?? 0) - (a.oldest_pending_days ?? 0))
-                        .slice(0, 5)}
-                    renderItem={(row) => (
-                        <List.Item
-                            className={row.name ? "pms-click-row" : undefined}
-                            onClick={
-                                row.name
-                                    ? (event) => {
-                                          event.stopPropagation();
-                                          open(reportPath("people", row.name));
-                                      }
-                                    : undefined
-                            }
-                            actions={[
-                                <Typography.Text key="oldest" type="secondary">
-                                    oldest {Math.round(row.oldest_pending_days ?? 0)}d
-                                </Typography.Text>,
-                            ]}
-                        >
-                            <List.Item.Meta
-                                title={row.name ?? "Unassigned"}
-                                description={`${row.pending} waiting · ${
-                                    row.forms >= 3
-                                        ? `usually ${row.median_days}d`
-                                        : `too few finished forms to judge speed`
-                                }`}
-                            />
-                        </List.Item>
-                    )}
+                        .slice(0, 3)}
+                    renderItem={(row) => {
+                        const oldestDays = Math.round(row.oldest_pending_days ?? 0);
+                        const who = row.name ?? "Unassigned";
+                        const owner = row.oldest_owner_name ?? "a staff member";
+                        const onMyStep = Number(row.id) === Number(user?.id);
+                        const canNudge =
+                            Boolean(row.oldest_form_id) &&
+                            !periodLocked &&
+                            !nudge.isPending &&
+                            !onMyStep;
+
+                        return (
+                            <List.Item
+                                className={row.name ? "pms-click-row" : undefined}
+                                onClick={
+                                    row.name
+                                        ? (event) => {
+                                              event.stopPropagation();
+                                              open(reportPath("people", row.name));
+                                          }
+                                        : undefined
+                                }
+                                actions={[
+                                    <Typography.Text key="oldest" type="secondary">
+                                        oldest {oldestDays}d
+                                    </Typography.Text>,
+                                    <Popconfirm
+                                        key="nudge"
+                                        title="Send a follow-up?"
+                                        description={
+                                            periodLocked
+                                                ? "This review period is locked. Unlock it before sending a follow-up."
+                                                : `Ask ${who} about ${owner}'s form — waiting ${oldestDays} day${oldestDays === 1 ? "" : "s"}.`
+                                        }
+                                        okText="Nudge"
+                                        cancelText="Cancel"
+                                        disabled={!canNudge}
+                                        onConfirm={() => nudge.mutate(row.oldest_form_id)}
+                                    >
+                                        <Button
+                                            size="small"
+                                            disabled={!canNudge}
+                                            title={
+                                                onMyStep
+                                                    ? "This form is already waiting on you."
+                                                    : periodLocked
+                                                      ? "Unlock the review period before sending a follow-up."
+                                                      : "Ask this reviewer to check the oldest waiting form"
+                                            }
+                                            onClick={(event) => event.stopPropagation()}
+                                        >
+                                            Nudge
+                                        </Button>
+                                    </Popconfirm>,
+                                ]}
+                            >
+                                <List.Item.Meta
+                                    title={who}
+                                    description={`${row.pending} waiting · ${
+                                        row.forms >= 3
+                                            ? `usually ${row.median_days}d`
+                                            : `too few finished forms to judge speed`
+                                    }`}
+                                />
+                            </List.Item>
+                        );
+                    }}
                 />
             )}
         </Card>
@@ -373,164 +472,162 @@ export default function InsightsBoard({ data }) {
                             role="tab"
                             aria-selected={scene === item.key}
                             className={scene === item.key ? "is-on" : ""}
-                            onClick={() => setScene(item.key)}
+                            onClick={() => showScene(item.key)}
                         >
                             {item.label}
                         </button>
                     ))}
                 </div>
 
-                <div key={scene} className="pms-scene">
-                    {scene === "look" && (
-                        <>
-                            {lookTiles}
-                            <Row gutter={[16, 16]}>
-                                <Col xs={24} lg={12}>
-                                    <Card
-                                        title="Rating spread"
-                                        className="viz-card viz-card-link"
-                                        onClick={() => open(reportPath("ratings"))}
-                                    >
-                                        <SpreadRing
-                                            slices={bands}
-                                            caption="rated"
-                                            onOpen={open}
-                                        />
-                                    </Card>
-                                </Col>
-                                <Col xs={24} lg={12}>
-                                    <Card
-                                        className="viz-card viz-card-link"
-                                        title="Rating trend"
-                                        extra={<Typography.Text type="secondary">Average of every rated form</Typography.Text>}
-                                        onClick={() => open(reportPath("ratings"))}
-                                    >
-                                        <TrendLine
-                                            points={trend}
-                                            height={chartHeight.trend}
-                                            min={0}
-                                            max={5}
-                                            format={(value) => Number(value).toFixed(2)}
-                                            emptyText="No period has been rated yet."
-                                            onSelect={(datum) => open(datum?.href || reportPath("ratings"))}
-                                        />
-                                    </Card>
-                                </Col>
-                            </Row>
-                        </>
-                    )}
+                {seen.look && (
+                    <div className={scene === "look" ? "pms-scene" : "pms-scene is-idle"}>
+                        {lookTiles}
+                        <Row gutter={[16, 16]} className="pms-look-charts">
+                            <Col xs={24} lg={12}>
+                                <Card
+                                    title="Rating spread"
+                                    className="viz-card viz-card-link pms-rating-spread"
+                                    onClick={() => open(reportPath("ratings"))}
+                                >
+                                    <SpreadRing
+                                        slices={bands}
+                                        caption="rated"
+                                        onOpen={open}
+                                    />
+                                </Card>
+                            </Col>
+                            <Col xs={24} lg={12}>
+                                <Card
+                                    className="viz-card viz-card-link"
+                                    title="Rating trend"
+                                    extra={<Typography.Text type="secondary">Average of every rated form</Typography.Text>}
+                                    onClick={() => open(reportPath("ratings"))}
+                                >
+                                    <FillingTrend
+                                        points={trend}
+                                        height={chartHeight.trend}
+                                        min={0}
+                                        max={5}
+                                        format={(value) => Number(value).toFixed(2)}
+                                        emptyText="No period has been rated yet."
+                                        onSelect={(datum) => open(datum?.href || reportPath("ratings"))}
+                                    />
+                                </Card>
+                            </Col>
+                        </Row>
+                    </div>
+                )}
 
-                    {scene === "flow" && (
-                        <>
-                            {flowTiles}
-                            <Row gutter={[16, 16]}>
-                                <Col xs={24} lg={12}>
-                                    <Card
-                                        title="Where the forms are"
-                                        className="viz-card viz-card-link pms-forms-where"
-                                        onClick={() => open(reportPath("forms"))}
-                                    >
-                                        <SpreadRing slices={pipeline} caption="forms" onOpen={open} />
-                                    </Card>
-                                </Col>
-                                <Col xs={24} lg={12}>{waitingCard}</Col>
-                            </Row>
-                        </>
-                    )}
+                {seen.flow && (
+                    <div className={scene === "flow" ? "pms-scene" : "pms-scene is-idle"}>
+                        {flowTiles}
+                        <Row gutter={[16, 16]}>
+                            <Col xs={24} lg={12}>
+                                <Card
+                                    title="Where the forms are"
+                                    className="viz-card viz-card-link pms-forms-where"
+                                    onClick={() => open(reportPath("forms"))}
+                                >
+                                    <SpreadRing slices={pipeline} caption="forms" onOpen={open} />
+                                </Card>
+                            </Col>
+                            <Col xs={24} lg={12}>{waitingCard}</Col>
+                        </Row>
+                    </div>
+                )}
 
-                    {scene === "people" && (
-                        <>
-                            <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
-                                <Col span={24}>
-                                    <Card
-                                        title="How each unit is tracking"
-                                        className="viz-card viz-card-link"
-                                        onClick={() => open(reportPath("units"))}
-                                    >
-                                        <StackedColumns
-                                            rows={unitRows}
-                                            series={stages}
-                                            height={chartHeight.columns}
-                                            emptyText="No unit has opened a form yet."
-                                            onSelect={(datum) => {
-                                                if (!datum?.unit && !datum?.label) {
-                                                    open(reportPath("units"));
-                                                    return;
-                                                }
+                {seen.people && (
+                    <div className={scene === "people" ? "pms-scene" : "pms-scene is-idle"}>
+                        <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
+                            <Col span={24}>
+                                <Card
+                                    title="How each unit is tracking"
+                                    className="viz-card viz-card-link"
+                                    onClick={() => open(reportPath("units"))}
+                                >
+                                    <StackedColumns
+                                        rows={unitRows}
+                                        series={stages}
+                                        height={chartHeight.columns}
+                                        emptyText="No unit has opened a form yet."
+                                        onSelect={(datum) => {
+                                            if (!datum?.unit && !datum?.label) {
+                                                open(reportPath("units"));
+                                                return;
+                                            }
 
-                                                const unit = datum.unit ?? datum.label;
-                                                const row = unitRows.find((item) => item.label === unit);
+                                            const unit = datum.unit ?? datum.label;
+                                            const row = unitRows.find((item) => item.label === unit);
 
-                                                open(row?.href ? row : reportPath("units"));
-                                            }}
-                                        />
-                                    </Card>
-                                </Col>
-                            </Row>
-                            <Row gutter={[16, 16]}>
-                                <Col xs={24} lg={8}>
-                    <Card
-                        className="viz-card viz-card-link"
-                        onClick={() => open(reportPath("people"))}
-                        title={
-                            <Space size={6}>
-                                <RiseOutlined /> Furthest along
-                            </Space>
-                        }
-                        extra={<Typography.Text type="secondary">by individual</Typography.Text>}
-                    >
-                        <BarRows
-                            data={movers}
-                            max={100}
-                            format={(value) => `${value}%`}
-                            emptyText="Nobody has recorded progress yet."
-                            onSelect={open}
-                        />
-                    </Card>
-                </Col>
-                <Col xs={24} lg={8}>
-                    <Card
-                        className="viz-card viz-card-link"
-                        onClick={() => open(latePath())}
-                        title={
-                            <Space size={6}>
-                                <WarningOutlined /> Running late
-                            </Space>
-                        }
-                        extra={<Typography.Text type="secondary">overdue lines</Typography.Text>}
-                    >
-                        <BarRows
-                            data={laggards}
-                            color={viz.critical}
-                            emptyText="Nobody is past a target date."
-                            onSelect={open}
-                        />
-                    </Card>
-                </Col>
-                <Col xs={24} lg={8}>
-                    <Card
-                        className="viz-card viz-card-link"
-                        onClick={() => open(reportPath("ratings"))}
-                        title={
-                            <Space size={6}>
-                                <TrophyOutlined /> Best rated
-                            </Space>
-                        }
-                        extra={<Typography.Text type="secondary">final average</Typography.Text>}
-                    >
-                        <BarRows
-                            data={topRated}
-                            max={5}
-                            format={(value) => Number(value).toFixed(2)}
-                            emptyText="Nothing has been rated yet."
-                            onSelect={open}
-                        />
-                    </Card>
-                                </Col>
-                            </Row>
-                        </>
-                    )}
-                </div>
+                                            open(row?.href ? row : reportPath("units"));
+                                        }}
+                                    />
+                                </Card>
+                            </Col>
+                        </Row>
+                        <Row gutter={[16, 16]}>
+                            <Col xs={24} lg={8}>
+                                <Card
+                                    className="viz-card viz-card-link"
+                                    onClick={() => open(reportPath("people"))}
+                                    title={
+                                        <Space size={6}>
+                                            <RiseOutlined /> Furthest along
+                                        </Space>
+                                    }
+                                    extra={<Typography.Text type="secondary">by individual</Typography.Text>}
+                                >
+                                    <BarRows
+                                        data={movers}
+                                        max={100}
+                                        format={(value) => `${value}%`}
+                                        emptyText="Nobody has recorded progress yet."
+                                        onSelect={open}
+                                    />
+                                </Card>
+                            </Col>
+                            <Col xs={24} lg={8}>
+                                <Card
+                                    className="viz-card viz-card-link"
+                                    onClick={() => open(latePath())}
+                                    title={
+                                        <Space size={6}>
+                                            <WarningOutlined /> Running late
+                                        </Space>
+                                    }
+                                    extra={<Typography.Text type="secondary">overdue lines</Typography.Text>}
+                                >
+                                    <BarRows
+                                        data={laggards}
+                                        color={viz.critical}
+                                        emptyText="Nobody is past a target date."
+                                        onSelect={open}
+                                    />
+                                </Card>
+                            </Col>
+                            <Col xs={24} lg={8}>
+                                <Card
+                                    className="viz-card viz-card-link"
+                                    onClick={() => open(reportPath("ratings"))}
+                                    title={
+                                        <Space size={6}>
+                                            <TrophyOutlined /> Best rated
+                                        </Space>
+                                    }
+                                    extra={<Typography.Text type="secondary">final average</Typography.Text>}
+                                >
+                                    <BarRows
+                                        data={topRated}
+                                        max={5}
+                                        format={(value) => Number(value).toFixed(2)}
+                                        emptyText="Nothing has been rated yet."
+                                        onSelect={open}
+                                    />
+                                </Card>
+                            </Col>
+                        </Row>
+                    </div>
+                )}
             </div>
         </>
     );

@@ -120,6 +120,33 @@ class PcrForm extends Model
         return in_array($this->status, self::EDITABLE_STATUSES, true);
     }
 
+    /**
+     * Where a reviewer should open this form from a notification — the queue
+     * desk for the stage it is in, not the sheet itself.
+     */
+    public function queueLink(): string
+    {
+        if (
+            $this->status === 'commitment_review'
+            || $this->status === 'appeal'
+            || ($this->type === 'opcr' && $this->status === 'qa_approval')
+        ) {
+            return "/review-queue?form={$this->id}";
+        }
+
+        if (in_array($this->status, [
+            'head_review',
+            'dean_review',
+            'director_review',
+            'vp_review',
+            'qa_rating',
+        ], true)) {
+            return "/review-queue?tab=rating&form={$this->id}";
+        }
+
+        return "/forms/{$this->id}";
+    }
+
     public function headReviewer()
     {
         return $this->belongsTo(User::class, 'head_reviewer_id');

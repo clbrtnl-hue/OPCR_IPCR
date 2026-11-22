@@ -145,8 +145,10 @@ export default function AttendancePage() {
     const [monthId, setMonthId] = useState(null);
     const [officeId, setOfficeId] = useState(null);
     const [setting, setSetting] = useState(false);
+    const [editingMeeting, setEditingMeeting] = useState(null);
     const [active, setActive] = useState(null);
     const sheetRef = useRef(null);
+    const drawerOpen = setting || Boolean(editingMeeting);
 
     const { data: years = [] } = useQuery({
         queryKey: ["school-years"],
@@ -161,7 +163,7 @@ export default function AttendancePage() {
         periods.find((period) => period.is_active)?.id ??
         periods[0]?.id;
 
-    const { data, isLoading } = useQuery({
+    const { data, isLoading, isPlaceholderData } = useQuery({
         queryKey: ["attendance", year?.id, chosenPeriodId, monthId, officeId],
         queryFn: () =>
             api
@@ -175,6 +177,7 @@ export default function AttendancePage() {
                 })
                 .then((r) => r.data),
         enabled: Boolean(year?.id),
+        placeholderData: (previous) => previous,
     });
 
     const units = data?.units ?? [];
@@ -190,7 +193,8 @@ export default function AttendancePage() {
     const locked = Boolean(data?.period?.locked);
     const frozen = locked || readonly;
     const today = dayjs().format("YYYY-MM-DD");
-    const month = months.includes(monthId) ? monthId : data?.month;
+    const requestedMonth = months.includes(monthId) ? monthId : data?.month;
+    const month = isPlaceholderData && data?.month ? data.month : requestedMonth;
     const monthIndex = Math.max(0, months.indexOf(month));
     const monthMeetings = meetings.filter((meeting) => String(meeting.held_on).slice(0, 7) === month);
     const categories = usedCategories(data?.categories, meetings);
@@ -246,15 +250,46 @@ export default function AttendancePage() {
         onError: (error) => message.error(errorText(error, "Could not save that mark.")),
     });
 
+    const markMeetingAll = useMutation({
+        mutationFn: ({ meetingId, status = "present" }) =>
+            api.put(`attendance/meetings/${meetingId}/marks/all`, { status }).then((r) => r.data),
+        onSuccess: (result) => {
+            message.success(
+                result?.marked
+                    ? `Marked ${result.marked} present. Adjust anyone who was absent or excused.`
+                    : "No one to mark in this activity."
+            );
+            refresh();
+        },
+        onError: (error) => message.error(errorText(error, "Could not mark everyone present.")),
+    });
+
+    const closeActivityDrawer = () => {
+        setSetting(false);
+        setEditingMeeting(null);
+    };
+
     const createMeeting = useMutation({
         mutationFn: (payload) => api.post("attendance/meetings", payload).then((r) => r.data),
         onSuccess: (_result, variables) => {
             message.success("Activity column added.");
-            setSetting(false);
+            closeActivityDrawer();
             if (variables.held_on) setMonthId(String(variables.held_on).slice(0, 7));
             refresh();
         },
         onError: (error) => message.error(errorText(error, "Could not set that activity.")),
+    });
+
+    const updateMeeting = useMutation({
+        mutationFn: ({ meetingId, ...payload }) =>
+            api.patch(`attendance/meetings/${meetingId}`, payload).then((r) => r.data),
+        onSuccess: (_result, variables) => {
+            message.success("Activity updated.");
+            closeActivityDrawer();
+            if (variables.held_on) setMonthId(String(variables.held_on).slice(0, 7));
+            refresh();
+        },
+        onError: (error) => message.error(errorText(error, "Could not update that activity.")),
     });
 
     const removeMeeting = useMutation({
@@ -391,6 +426,7 @@ export default function AttendancePage() {
                     <div className="gs-period">
                         {watching && units.length > 1 && (
                             <Select
+                                className="pms-filter-select is-wide"
                                 value={selectedOfficeId}
                                 onChange={(id) => {
                                     setOfficeId(id);
@@ -401,23 +437,25 @@ export default function AttendancePage() {
                                 popupMatchSelectWidth={false}
                             />
                         )}
+                        {years.length > 1 && (
+                            <Select
+                                className="pms-filter-select"
+                                value={year?.id}
+                                onChange={chooseYear}
+                                options={years.map((item) => ({
+                                    value: item.id,
+                                    label: item.is_active ? `${item.label} ★` : item.label,
+                                }))}
+                            />
+                        )}
                         {periods.length > 0 && (
                             <Select
+                                className="pms-filter-select"
                                 value={chosenPeriodId}
                                 onChange={choosePeriod}
                                 options={periods.map((period) => ({
                                     value: period.id,
                                     label: period.is_active ? `${period.label} ★` : period.label,
-                                }))}
-                            />
-                        )}
-                        {years.length > 1 && (
-                            <Select
-                                value={year?.id}
-                                onChange={chooseYear}
-                                options={years.map((item) => ({
-                                    value: item.id,
-                                    label: item.is_active ? `${item.label} (active)` : item.label,
                                 }))}
                             />
                         )}
@@ -431,7 +469,7 @@ export default function AttendancePage() {
                 <Alert
                     type="info"
                     showIcon
-                    message={watching ? "No offices to show yet." : "Attendance opens for the head, dean, director, or VP of an office."}
+                    message={watching ? "No offices to show yet." : "Attendance opens for the head, dean, or director of an office."}
                 />
             ) : (
                 <div className="gs" ref={sheetRef} tabIndex={0} onKeyDown={onGridKey}>
@@ -455,7 +493,16 @@ export default function AttendancePage() {
                             <span><i className="is-leave">E</i> Excused</span>
                         </div>
                         <span className="gs-toolbar-gap" />
-                        <button type="button" className="gs-add" disabled={frozen || !data?.period} hidden={readonly} onClick={() => setSetting(true)}>
+                        <button
+                            type="button"
+                            className="gs-add"
+                            disabled={frozen || !data?.period}
+                            hidden={readonly}
+                            onClick={() => {
+                                setEditingMeeting(null);
+                                setSetting(true);
+                            }}
+                        >
                             + Activity
                         </button>
                         <button
@@ -486,9 +533,29 @@ export default function AttendancePage() {
                             Print
                         </button>
                         {activeColumn?.kind === "meeting" && !frozen && (
-                            <button type="button" className="gs-remove" onClick={() => removeMeeting.mutate(activeColumn.meeting.id)}>
-                                Remove
-                            </button>
+                            <>
+                                <button
+                                    type="button"
+                                    className="gs-add"
+                                    disabled={markMeetingAll.isPending}
+                                    onClick={() => markMeetingAll.mutate({ meetingId: activeColumn.meeting.id })}
+                                >
+                                    Mark all present
+                                </button>
+                                <button
+                                    type="button"
+                                    className="gs-add"
+                                    onClick={() => {
+                                        setSetting(false);
+                                        setEditingMeeting(activeColumn.meeting);
+                                    }}
+                                >
+                                    Edit
+                                </button>
+                                <button type="button" className="gs-remove" onClick={() => removeMeeting.mutate(activeColumn.meeting.id)}>
+                                    Remove
+                                </button>
+                            </>
                         )}
                     </div>
                     <div className="gs-status">{formula()}</div>
@@ -536,9 +603,8 @@ export default function AttendancePage() {
                                     return (
                                         <tr key={member.id}>
                                             <td className="gs-rownum">{row + 1}</td>
-                                            <th className="gs-name" title={member.position_title || member.name}>
+                                            <th className="gs-name">
                                                 <span className="gs-person">{member.name}</span>
-                                                {member.position_title && <span className="gs-role">{member.position_title}</span>}
                                             </th>
                                             {columns.map((column, col) => {
                                                 const selected = active?.row === row && active?.col === col;
@@ -590,34 +656,54 @@ export default function AttendancePage() {
             )}
 
             <SetMeeting
-                open={setting}
+                open={drawerOpen}
+                meeting={editingMeeting}
                 units={recordUnits}
                 preferredOffice={selectedOfficeId}
                 categories={data?.categories ?? []}
                 period={data?.period}
-                saving={createMeeting.isPending}
-                onCancel={() => setSetting(false)}
-                onSubmit={(values) =>
+                saving={createMeeting.isPending || updateMeeting.isPending}
+                onCancel={closeActivityDrawer}
+                onSubmit={(values) => {
+                    const heldOn = values.held_on?.format("YYYY-MM-DD");
+                    if (editingMeeting) {
+                        updateMeeting.mutate({
+                            meetingId: editingMeeting.id,
+                            title: values.title,
+                            category: values.category,
+                            held_on: heldOn,
+                        });
+                        return;
+                    }
                     createMeeting.mutate({
                         ...values,
-                        held_on: values.held_on?.format("YYYY-MM-DD"),
+                        held_on: heldOn,
                         rating_period_id: data.period.id,
-                    })
-                }
+                    });
+                }}
             />
         </>
     );
 }
 
-function SetMeeting({ open, units, preferredOffice, categories, period, saving, onCancel, onSubmit }) {
+function SetMeeting({ open, meeting, units, preferredOffice, categories, period, saving, onCancel, onSubmit }) {
     const [form] = Form.useForm();
+    const editing = Boolean(meeting);
 
     useEffect(() => {
         if (!open) return;
-        const preferred = units.some((unit) => unit.id === preferredOffice) ? preferredOffice : undefined;
         form.resetFields();
+        if (meeting) {
+            form.setFieldsValue({
+                title: meeting.title,
+                category: meeting.category,
+                held_on: meeting.held_on ? dayjs(meeting.held_on) : undefined,
+            });
+            return;
+        }
+        const preferred = units.some((unit) => unit.id === preferredOffice) ? preferredOffice : undefined;
         form.setFieldsValue({ org_unit_id: preferred ?? (units.length === 1 ? units[0].id : undefined) });
-    }, [open, units, preferredOffice, form]);
+    }, [open, meeting, units, preferredOffice, form]);
 
     const submit = async () => {
         try {
@@ -629,7 +715,7 @@ function SetMeeting({ open, units, preferredOffice, categories, period, saving, 
 
     return (
         <Drawer
-            title="Add an activity"
+            title={editing ? "Edit activity" : "Add an activity"}
             open={open}
             onClose={onCancel}
             width={420}
@@ -637,17 +723,19 @@ function SetMeeting({ open, units, preferredOffice, categories, period, saving, 
             footer={
                 <div className="gs-drawer-actions">
                     <Button onClick={onCancel}>Cancel</Button>
-                    <Button type="primary" loading={saving} onClick={submit}>Add column</Button>
+                    <Button type="primary" loading={saving} onClick={submit}>
+                        {editing ? "Save changes" : "Add column"}
+                    </Button>
                 </div>
             }
         >
             <Form form={form} layout="vertical" requiredMark={false}>
-                {units.length > 1 && (
+                {!editing && units.length > 1 && (
                     <Form.Item name="org_unit_id" label="Office" rules={[{ required: true, message: "Choose the office." }]}>
                         <Select options={units.map((unit) => ({ value: unit.id, label: unit.name }))} />
                     </Form.Item>
                 )}
-                {units.length === 1 && <Form.Item name="org_unit_id" hidden><Input /></Form.Item>}
+                {!editing && units.length === 1 && <Form.Item name="org_unit_id" hidden><Input /></Form.Item>}
                 <Form.Item name="title" label="Activity" rules={[{ required: true, message: "Name the activity." }]}>
                     <Input placeholder="Monday convocation" maxLength={200} />
                 </Form.Item>

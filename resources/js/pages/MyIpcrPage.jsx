@@ -1,5 +1,5 @@
 import React from "react";
-import { Alert, Card, Empty, Segmented, Select, Space, Spin } from "antd";
+import { Alert, Card, Empty, Select, Space, Spin } from "antd";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import api from "~/utils/api";
 import PageHeader from "~/components/PageHeader";
@@ -40,6 +40,7 @@ export default function MyIpcrPage() {
     const queryClient = useQueryClient();
     const [yearId, setYearId] = React.useState(null);
     const [periodId, setPeriodId] = React.useState(null);
+    const [openErrors, setOpenErrors] = React.useState({});
     const requested = React.useRef({});
 
     const { data: years = [] } = useQuery({
@@ -71,14 +72,28 @@ export default function MyIpcrPage() {
                 org_unit_id: user.org_unit_id,
                 rating_period_id: targetPeriodId,
             }),
-        onSuccess: () => {
+        onSuccess: (_data, targetPeriodId) => {
+            setOpenErrors((prev) => {
+                if (!prev[targetPeriodId]) {
+                    return prev;
+                }
+                const next = { ...prev };
+                delete next[targetPeriodId];
+                return next;
+            });
             queryClient.invalidateQueries({ queryKey: ["my-ipcrs"] });
             queryClient.invalidateQueries({ queryKey: ["pcr-forms"] });
         },
-        onError: (error) => {
+        onError: (error, targetPeriodId) => {
             if (error?.response?.status === 409 && error.response.data?.form_id) {
                 queryClient.invalidateQueries({ queryKey: ["my-ipcrs"] });
+                return;
             }
+            setOpenErrors((prev) => ({
+                ...prev,
+                [targetPeriodId]:
+                    error?.response?.data?.message || "This review period could not be opened.",
+            }));
         },
     });
 
@@ -133,15 +148,14 @@ export default function MyIpcrPage() {
 
     const yearOptions = years.map((y) => ({
         value: y.id,
-        label: y.is_active ? `${y.label} (active)` : y.label,
+        label: y.is_active ? `${y.label} ★` : y.label,
     }));
 
     const yearControl = (compact) =>
         years.length > 1 ? (
             <Select
-                className="pms-ipcr-year"
+                className="pms-ipcr-year pms-filter-select"
                 size={compact ? "small" : "middle"}
-                style={compact ? undefined : { width: 160 }}
                 value={year.id}
                 onChange={(value) => {
                     setYearId(value);
@@ -153,30 +167,37 @@ export default function MyIpcrPage() {
 
     const switcher = (placement) => (
         <Space wrap className={`pms-ipcr-switch is-${placement}`} style={{ marginBottom: 12 }}>
-            <Segmented
-                className="pms-ipcr-wide"
-                value={chosenPeriodId}
-                onChange={setPeriodId}
-                options={periodOptions(false)}
-            />
-            <Segmented
-                className="pms-ipcr-periods"
-                block
-                value={chosenPeriodId}
-                onChange={setPeriodId}
-                options={periodOptions(true)}
-            />
             {placement === "top" && yearControl(false)}
+            {periods.length > 0 && (
+                <Select
+                    className="pms-ipcr-periods pms-filter-select"
+                    value={chosenPeriodId}
+                    onChange={setPeriodId}
+                    options={periodOptions(false)}
+                />
+            )}
         </Space>
     );
 
     return (
         <>
-            <div className="pms-desktop-only">{switcher("top")}</div>
             {form ? (
                 <FormEditorPage
                     key={form.id}
                     formId={form.id}
+                    filters={
+                        <Space className="pms-desktop-only pms-ipcr-filters" size={8}>
+                            {yearControl(false)}
+                            {periods.length > 0 && (
+                                <Select
+                                    className="pms-filter-select"
+                                    value={chosenPeriodId}
+                                    onChange={setPeriodId}
+                                    options={periodOptions(false)}
+                                />
+                            )}
+                        </Space>
+                    }
                     periodBar={<div className="pms-mobile-only">{switcher("below")}</div>}
                     yearSelect={
                         years.length > 1 ? (
@@ -184,13 +205,33 @@ export default function MyIpcrPage() {
                         ) : null
                     }
                 />
-            ) : open.isError ? (
-                <Alert
-                    type="error"
-                    showIcon
-                    message="Your IPCR could not be opened."
-                    description={open.error?.response?.data?.message}
-                />
+            ) : openErrors[chosenPeriodId] ? (
+                <>
+                    <PageHeader
+                        title="My IPCR"
+                        subtitle="Your Individual Performance Commitment and Review — one for each review period."
+                        extra={
+                            <Space className="pms-desktop-only pms-ipcr-filters" size={8}>
+                                {yearControl(false)}
+                                {periods.length > 0 && (
+                                    <Select
+                                        className="pms-filter-select"
+                                        value={chosenPeriodId}
+                                        onChange={setPeriodId}
+                                        options={periodOptions(false)}
+                                    />
+                                )}
+                            </Space>
+                        }
+                    />
+                    <div className="pms-mobile-only">{switcher("top")}</div>
+                    <Alert
+                        type="error"
+                        showIcon
+                        message="Your IPCR could not be opened."
+                        description={openErrors[chosenPeriodId]}
+                    />
+                </>
             ) : (
                 <div style={{ display: "grid", placeItems: "center", padding: 60 }}>
                     <Spin size="large" />

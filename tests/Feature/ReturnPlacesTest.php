@@ -175,4 +175,56 @@ class ReturnPlacesTest extends PmsTestCase
 
         $this->assertSame(['actual_accomplishment', 'evidence'], array_column($marks, 'field'));
     }
+
+    public function test_return_marks_stay_until_the_next_approval(): void
+    {
+        $this->makeOrganization();
+        $year = $this->makeSchoolYear();
+        $period = $this->makePeriod($year);
+        $approver = User::factory()->create(['role' => 'program_head', 'name' => 'Head Reyes']);
+        $unit = $this->makeUnit(['head_user_id' => $approver->id]);
+        $approver->update(['org_unit_id' => $unit->id]);
+        $owner = User::factory()->create(['role' => 'employee', 'org_unit_id' => $unit->id]);
+
+        $form = $this->makeForm([
+            'org_unit_id'            => $unit->id,
+            'school_year_id'         => $year->id,
+            'rating_period_id'       => $period->id,
+            'user_id'                => $owner->id,
+            'status'                 => 'commitment_review',
+            'commitment_approver_id' => $approver->id,
+        ]);
+        $line = $this->makeIndicator($form, 'core', ['rating_period_id' => $period->id]);
+
+        $this->actingAsUser($approver);
+        $this->postJson("/api/pcr-forms/{$form->id}/status", [
+            'status' => 'returned',
+            'fixes'  => [[
+                'indicator_id' => $line->id,
+                'field'        => 'description',
+                'note'         => 'Tighten the target.',
+            ]],
+        ])->assertOk();
+
+        $this->actingAsUser($owner);
+        $this->postJson("/api/pcr-forms/{$form->id}/status", [
+            'status' => 'commitment_review',
+        ])->assertOk();
+
+        $marks = $this->getJson("/api/pcr-forms/{$form->id}")->assertOk()->json('return_marks');
+        $this->assertSame(['description'], array_column($marks, 'field'));
+        // API keeps the original note; the UI prefixes it once the form is no longer returned.
+        $this->assertSame(['Tighten the target.'], array_column($marks, 'note'));
+
+        $this->actingAsUser($approver);
+        $marks = $this->getJson("/api/pcr-forms/{$form->id}")->assertOk()->json('return_marks');
+        $this->assertSame(['description'], array_column($marks, 'field'));
+        $this->assertSame(['Tighten the target.'], array_column($marks, 'note'));
+
+        $this->postJson("/api/pcr-forms/{$form->id}/status", [
+            'status' => 'commitments_approved',
+        ])->assertOk();
+
+        $this->assertSame([], $this->getJson("/api/pcr-forms/{$form->id}")->assertOk()->json('return_marks'));
+    }
 }

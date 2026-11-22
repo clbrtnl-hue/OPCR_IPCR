@@ -28,7 +28,7 @@ Route::get('organization', [OrganizationController::class, 'show']);
 Route::middleware('auth:api')->group(function () {
     $PMS_ADMIN     = 'role:admin';
     $PMS_QA        = 'role:qa';
-    $PMS_REPORTS   = 'role:president,qa,hr';
+    $PMS_REPORTS   = 'role:president,qa,hr,program_head,vp';
 
     /* ---------------------------------------------------------------- Auth */
     Route::get('me', [AuthController::class, 'me']);
@@ -79,6 +79,7 @@ Route::middleware('auth:api')->group(function () {
     Route::patch('attendance/meetings/{id}', [AttendanceController::class, 'updateMeeting']);
     Route::delete('attendance/meetings/{id}', [AttendanceController::class, 'destroyMeeting']);
     Route::put('attendance/meetings/{id}/marks', [AttendanceController::class, 'markMeeting']);
+    Route::put('attendance/meetings/{id}/marks/all', [AttendanceController::class, 'markMeetingAll']);
     Route::get('people/{id}', [UserProfileController::class, 'show']);
     Route::get('people/{id}/pdf', [UserProfileController::class, 'pdf']);
     Route::post('my-profile', [UserProfileController::class, 'updateProfile']);
@@ -96,6 +97,7 @@ Route::middleware('auth:api')->group(function () {
     Route::get('form-templates', [PcrFormController::class, 'templates']);
     Route::post('pcr-forms/{id}/apply-template', [PcrFormController::class, 'applyTemplate']);
     Route::post('pcr-forms/{id}/status', [PcrFormController::class, 'setStatus']);
+    Route::post('pcr-forms/{id}/nudge', [PcrFormController::class, 'nudge']);
     Route::delete('pcr-forms/{id}', [PcrFormController::class, 'destroy']);
 
     Route::post('pcr-outputs', [PcrOutputController::class, 'store']);
@@ -120,6 +122,7 @@ Route::middleware('auth:api')->group(function () {
     Route::get('notifications', [NotificationController::class, 'index']);
     Route::post('notifications/{id}/read', [NotificationController::class, 'markRead']);
     Route::post('notifications/read-all', [NotificationController::class, 'markAllRead']);
+    Route::post('notifications/trash-all', [NotificationController::class, 'trashAll']);
     Route::post('notifications/{id}/trash', [NotificationController::class, 'trash']);
     Route::post('notifications/{id}/restore', [NotificationController::class, 'restore']);
 

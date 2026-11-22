@@ -3,7 +3,14 @@ import { Button, Tag } from "antd";
 import dayjs from "dayjs";
 import { statusMeta } from "~/utils/constants";
 
-export default function FormCards({ forms, onOpen, actionLabel, showSubmitted = false, sideAction = false }) {
+export default function FormCards({
+    forms,
+    onOpen,
+    actionLabel,
+    showSubmitted = false,
+    sideAction = false,
+    renderActions,
+}) {
     return (
         <div className="pms-form-cards">
             {forms.map((form) => {
@@ -28,17 +35,21 @@ export default function FormCards({ forms, onOpen, actionLabel, showSubmitted = 
                     </>
                 );
 
+                const openBtn = (
+                    <Button
+                        type={sideAction ? "text" : "primary"}
+                        block={!sideAction && !renderActions}
+                        className={sideAction ? "pms-form-card-open" : undefined}
+                        onClick={() => onOpen(form)}
+                    >
+                        {label}
+                    </Button>
+                );
+
                 return (
                     <article key={form.id} className={sideAction ? "pms-form-card is-side" : "pms-form-card"}>
                         {sideAction ? <div className="pms-form-card-main">{details}</div> : details}
-                        <Button
-                            type={sideAction ? "text" : "primary"}
-                            block={!sideAction}
-                            className={sideAction ? "pms-form-card-open" : undefined}
-                            onClick={() => onOpen(form)}
-                        >
-                            {label}
-                        </Button>
+                        {renderActions ? renderActions(form, openBtn) : openBtn}
                     </article>
                 );
             })}

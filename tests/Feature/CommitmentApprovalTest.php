@@ -72,10 +72,27 @@ class CommitmentApprovalTest extends PmsTestCase
         ])->assertStatus(409)
             ->assertJsonPath('message', 'Commitments have to be approved before tasks can be recorded.');
 
+        // Accountable people can be named while drafting, like an OPCR.
         $this->postJson("/api/pcr-indicators/{$line->id}/assign", ['user_ids' => [$dean->id]])
-            ->assertStatus(409)
-            ->assertJsonPath('message', 'Commitments have to be approved before work can be handed on.');
+            ->assertStatus(201);
 
+        $deanForm = PcrForm::where('type', 'ipcr')->where('user_id', $dean->id)->firstOrFail();
+        $this->makeIndicator($deanForm, 'core', ['rating_period_id' => $period->id]);
+
+        // The assignee may write, but cannot send until this form is approved.
+        $this->actingAsUser($dean);
+        $this->assertSame(
+            "Waiting for VP Reyes's commitments to be approved before these can be sent.",
+            $this->getJson("/api/pcr-forms/{$deanForm->id}")->assertOk()->json('commitment_wait')
+        );
+        $this->postJson("/api/pcr-forms/{$deanForm->id}/status", ['status' => 'commitment_review'])
+            ->assertStatus(422)
+            ->assertJsonPath(
+                'message',
+                "Waiting for VP Reyes's commitments to be approved before these can be sent."
+            );
+
+        $this->actingAsUser($vp);
         $this->postJson("/api/pcr-forms/{$form->id}/status", ['status' => 'head_review'])->assertOk();
 
         $form->refresh();
@@ -88,8 +105,12 @@ class CommitmentApprovalTest extends PmsTestCase
             'form_id' => $form->id,
             'type'    => 'approval',
             'title'   => 'IPCR commitments from VP Reyes need your approval',
-            'link'    => "/forms/{$form->id}",
+            'link'    => "/review-queue?form={$form->id}",
         ]);
+
+        // While commitments sit with the approver, naming people is paused.
+        $this->postJson("/api/pcr-indicators/{$line->id}/assign", ['user_ids' => [$dean->id]])
+            ->assertStatus(409);
 
         $this->actingAsUser($dean);
         $this->postJson("/api/pcr-forms/{$form->id}/status", ['status' => 'commitments_approved'])
@@ -114,7 +135,7 @@ class CommitmentApprovalTest extends PmsTestCase
             'type'    => 'returned',
             'title'   => 'Your commitments were returned for correction',
             'body'    => 'Add a measure to the first commitment.',
-            'link'    => "/forms/{$form->id}?line={$line->id}",
+            'link'    => "/forms/{$form->id}?line={$line->id}&fix=1",
         ]);
         $this->assertDatabaseMissing('notifications', [
             'user_id' => $dean->id,
@@ -123,9 +144,6 @@ class CommitmentApprovalTest extends PmsTestCase
         ]);
 
         $this->actingAsUser($vp);
-        $this->postJson("/api/pcr-indicators/{$line->id}/assign", ['user_ids' => [$dean->id]])
-            ->assertStatus(409);
-
         $this->postJson("/api/pcr-forms/{$form->id}/status", ['status' => 'commitment_review'])->assertOk();
         $this->assertSame('commitment_review', $form->fresh()->status);
 

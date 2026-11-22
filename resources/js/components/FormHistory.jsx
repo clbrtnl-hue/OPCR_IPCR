@@ -23,7 +23,7 @@ const STAGE_COLORS = {
 
 const KIND_META = {
     movement: { label: "Movement", icon: <SwapOutlined />, color: VIZ.series[0] },
-    remark: { label: "Remarks", icon: <MessageOutlined />, color: VIZ.series[2] },
+    remark: { label: "Feedback", icon: <MessageOutlined />, color: VIZ.series[2] },
     evidence: { label: "Evidence", icon: <PaperClipOutlined />, color: VIZ.ordinal[3] },
     delegation: { label: "Delegation", icon: <UserAddOutlined />, color: VIZ.series[1] },
     progress: { label: "Progress", icon: <CheckCircleOutlined />, color: VIZ.good },

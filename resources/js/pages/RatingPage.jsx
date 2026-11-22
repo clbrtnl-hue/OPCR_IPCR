@@ -12,6 +12,7 @@ import {
     Space,
     Table,
     Tag,
+    Tooltip,
     Typography,
     message,
 } from "antd";
@@ -72,16 +73,39 @@ function AttendanceEvidence({ category, attendance, periodId }) {
     }
 
     const label = category === "daily" ? "Days present" : "Attendance";
+    const excused = rate.leave ?? rate.excused ?? 0;
+    const excusedWord = category === "daily" ? "leave" : "excused";
+    const tip = (
+        <div className="pms-attendance-tip">
+            <div>{rate.present ?? 0} present</div>
+            <div>{rate.absent ?? 0} absent</div>
+            <div>{excused} {excusedWord}</div>
+            {rate.counted > 0 ? (
+                <div>
+                    {rate.pct}% → Suggested {rate.suggested ?? "—"}
+                </div>
+            ) : (
+                <div>{excusedWord} stays out of the percentage.</div>
+            )}
+            <div>You can still change the score.</div>
+        </div>
+    );
 
     if (!rate.counted) {
-        return <div className="pms-attendance-evidence">{label} —</div>;
+        return (
+            <Tooltip title={tip}>
+                <div className="pms-attendance-evidence">{label} —</div>
+            </Tooltip>
+        );
     }
 
     return (
-        <div className="pms-attendance-evidence" title="Recorded attendance. The suggested score can be changed.">
-            {label} {rate.pct}%<span>{rate.present}/{rate.counted}</span>
-            {rate.suggested != null && <span className="pms-attendance-suggested">Suggested {rate.suggested}</span>}
-        </div>
+        <Tooltip title={tip}>
+            <div className="pms-attendance-evidence">
+                {label} {rate.pct}%<span>{rate.present}/{rate.counted}</span>
+                {rate.suggested != null && <span className="pms-attendance-suggested">Suggested {rate.suggested}</span>}
+            </div>
+        </Tooltip>
     );
 }
 
@@ -105,7 +129,7 @@ export function scoreable(form, user) {
     return false;
 }
 
-export default function RatingPage({ embedded = false, periodFilter = null }) {
+export default function RatingPage({ embedded = false, periodFilter = null, ahead = null, focusFormId = null }) {
     const { user } = useAuth();
     const viewOnly = user?.role === "admin";
     const queryClient = useQueryClient();
@@ -119,6 +143,7 @@ export default function RatingPage({ embedded = false, periodFilter = null }) {
     const dirtyScores = useRef(new Set());
     const leavingId = useRef(null);
     const followsArrival = !viewOnly;
+    const wantedId = focusFormId ? Number(focusFormId) : null;
 
     const { data: queue = [], isLoading } = useQuery({
         queryKey: ["qa-queue", viewOnly ? "oversight" : "mine"],
@@ -161,6 +186,16 @@ export default function RatingPage({ embedded = false, periodFilter = null }) {
     };
 
     useEffect(() => {
+        if (isLoading) return;
+
+        if (wantedId && toRate.some((item) => item.id === wantedId)) {
+            if (selectedId !== wantedId) {
+                openWaiting(wantedId);
+            }
+
+            return;
+        }
+
         if (!followsArrival) {
             if (selectedId || toRate.length !== 1) return;
 
@@ -168,8 +203,6 @@ export default function RatingPage({ embedded = false, periodFilter = null }) {
 
             return;
         }
-
-        if (isLoading) return;
 
         if (leavingId.current && !toRate.some((item) => item.id === leavingId.current)) {
             leavingId.current = null;
@@ -189,7 +222,7 @@ export default function RatingPage({ embedded = false, periodFilter = null }) {
         setPeriodId(null);
         setOpenLineId(null);
         setRateLineId(null);
-    }, [followsArrival, isLoading, selectedId, toRate]);
+    }, [followsArrival, isLoading, selectedId, toRate, wantedId]);
 
     const { data: form } = useQuery({
         queryKey: ["pcr-form", String(selectedId)],
@@ -350,8 +383,6 @@ export default function RatingPage({ embedded = false, periodFilter = null }) {
             title: "Output",
             dataIndex: ["output", "title"],
             width: 160,
-            // Keep the row's identity in view while the scores scroll.
-            fixed: "left",
             render: (title, record) => (
                 <div>
                     <Tag>{SECTION_LABELS[record.output.section]}</Tag>
@@ -367,14 +398,29 @@ export default function RatingPage({ embedded = false, periodFilter = null }) {
         {
             title: "Success indicator",
             dataIndex: "description",
-            width: 260,
-            fixed: "left",
+            width: 220,
             render: (v) => <RichTextView html={v} />,
+        },
+        {
+            title: "Target date",
+            dataIndex: "target_date",
+            width: 120,
+            render: (value) => {
+                if (!value) return "—";
+
+                const stamp = dayjs(value);
+
+                return (
+                    <span className="pms-review-date">
+                        {stamp.isValid() ? stamp.format("MMM D, YYYY") : String(value)}
+                    </span>
+                );
+            },
         },
         {
             title: "Actual accomplishment",
             key: "accomplishment",
-            width: 260,
+            width: 240,
             render: (_, record) => {
                 const accomplishment = record.accomplishments?.find(
                     (a) => a.rating_period_id === activePeriodId
@@ -417,9 +463,9 @@ export default function RatingPage({ embedded = false, periodFilter = null }) {
             },
         },
         {
-            title: "Remarks",
+            title: "Score note",
             key: "remarks",
-            width: 200,
+            width: 220,
             render: (_, record) =>
                 canRate ? (
                     <RichText
@@ -465,6 +511,40 @@ export default function RatingPage({ embedded = false, periodFilter = null }) {
         </Space>
     );
 
+    const modeSwitch = !viewOnly ? (
+        <Segmented
+            value={mode}
+            onChange={setMode}
+            style={{ marginBottom: 16 }}
+            options={[
+                { label: "By form", value: "form" },
+                { label: "By target", value: "target" },
+            ]}
+        />
+    ) : null;
+
+    if (mode === "target" && !viewOnly) {
+        return (
+            <>
+                {!embedded && (
+                    <PageHeader
+                        title="Rating"
+                        subtitle={`Score each success indicator on ${dimensionPhrase(user)}. A is their average; the final rating is the mean of the section averages.`}
+                    />
+                )}
+                <TargetRating
+                    periodFilter={periodFilter}
+                    ahead={
+                        <>
+                            {ahead}
+                            {modeSwitch}
+                        </>
+                    }
+                />
+            </>
+        );
+    }
+
     return (
         <>
             {!embedded && (
@@ -478,56 +558,45 @@ export default function RatingPage({ embedded = false, periodFilter = null }) {
                 />
             )}
 
-            {!viewOnly && (
-                <Segmented
-                    value={mode}
-                    onChange={setMode}
-                    style={{ marginBottom: 16 }}
-                    options={[
-                        { label: "By form", value: "form" },
-                        { label: "By target", value: "target" },
-                    ]}
-                />
-            )}
-
-            {mode === "target" && !viewOnly ? (
-                <TargetRating periodFilter={periodFilter} />
-            ) : (
-            <>
-            <Card style={{ marginBottom: 16 }}>
-                <Space wrap className="pms-rate-pick">
-                    <span>{viewOnly ? "Form:" : "Form waiting for a rating:"}</span>
-                    <Select
-                        className="pms-rate-form"
-                        classNames={{ popup: { root: "pms-rate-form-popup" } }}
-                        popupMatchSelectWidth
-                        loading={isLoading}
-                        placeholder="Select a form"
-                        value={selectedId}
-                        onChange={(value) => {
-                            leavingId.current = null;
-                            openWaiting(value);
-                        }}
-                        options={toRate.map((f) => ({
-                            value: f.id,
-                            label: `${f.type.toUpperCase()} — ${f.owner?.name ?? f.org_unit?.name} (${f.school_year?.label})`,
-                        }))}
-                    />
-                    {formPeriodId ? (
-                        <Tag color="blue">
-                            {periods.find((p) => p.id === formPeriodId)?.label}
-                        </Tag>
-                    ) : (
-                        periods.length > 0 && (
-                            <Segmented
-                                value={activePeriodId}
-                                onChange={setPeriodId}
-                                options={periods.map((p) => ({ value: p.id, label: p.label }))}
-                            />
-                        )
-                    )}
-                </Space>
-            </Card>
+            <div className="pms-rate-stick">
+                {ahead}
+                {modeSwitch}
+                <Card className="pms-rate-picker" size="small" style={{ marginBottom: 16 }}>
+                    <Space wrap className="pms-rate-pick">
+                        <span>{viewOnly ? "Form:" : "Form waiting for a rating:"}</span>
+                        <Select
+                            className="pms-rate-form"
+                            classNames={{ popup: { root: "pms-rate-form-popup" } }}
+                            popupMatchSelectWidth
+                            loading={isLoading}
+                            placeholder="Select a form"
+                            value={selectedId}
+                            onChange={(value) => {
+                                leavingId.current = null;
+                                openWaiting(value);
+                            }}
+                            options={toRate.map((f) => ({
+                                value: f.id,
+                                label: `${f.type.toUpperCase()} — ${f.owner?.name ?? f.org_unit?.name} (${f.school_year?.label})`,
+                            }))}
+                        />
+                        {formPeriodId ? (
+                            <Tag color="blue">
+                                {periods.find((p) => p.id === formPeriodId)?.label}
+                            </Tag>
+                        ) : (
+                            periods.length > 0 && (
+                                <Select
+                                    style={{ minWidth: 180 }}
+                                    value={activePeriodId}
+                                    onChange={setPeriodId}
+                                    options={periods.map((p) => ({ value: p.id, label: p.label }))}
+                                />
+                            )
+                        )}
+                    </Space>
+                </Card>
+            </div>
 
             {!selectedId ? (
                 <Card>
@@ -613,7 +682,7 @@ export default function RatingPage({ embedded = false, periodFilter = null }) {
                                     columns={columns}
                                     pagination={false}
                                     size="small"
-                                    scroll={{ x: 1340 }}
+                                    scroll={{ x: 1280 }}
                                 />
                             </div>
 
@@ -623,7 +692,14 @@ export default function RatingPage({ embedded = false, periodFilter = null }) {
                             </div>
                         </Card>
 
-                        <Card title="Remarks to the ratee">
+                        <Card
+                            className="pms-rate-feedback"
+                            title="Message to ratee"
+                        >
+                            <Typography.Paragraph type="secondary" style={{ marginTop: 0 }}>
+                                Conversation feedback — the ratee sees this under Feedback &amp; history on their form.
+                                Score notes above stay on the rating sheet.
+                            </Typography.Paragraph>
                             <CommentThread formId={form.id} />
                         </Card>
 
@@ -674,6 +750,16 @@ export default function RatingPage({ embedded = false, periodFilter = null }) {
                                         <div>{toPlainText(rateLine.description) || "Untitled line"}</div>
                                     </div>
                                     <div className="pms-rate-field">
+                                        <span>Target date</span>
+                                        <div>
+                                            <span className="pms-review-date">
+                                                {rateLine.target_date && dayjs(rateLine.target_date).isValid()
+                                                    ? dayjs(rateLine.target_date).format("MMM D, YYYY")
+                                                    : "—"}
+                                            </span>
+                                        </div>
+                                    </div>
+                                    <div className="pms-rate-field">
                                         <span>Actual accomplishment</span>
                                         <div>
                                             <AccomplishmentView
@@ -719,7 +805,7 @@ export default function RatingPage({ embedded = false, periodFilter = null }) {
                                         </div>
                                     ))}
                                     <div className="pms-rate-field">
-                                        <span>Remarks</span>
+                                        <span>Score note</span>
                                         <div>
                                             {canRate ? (
                                                 <RichText
@@ -730,7 +816,7 @@ export default function RatingPage({ embedded = false, periodFilter = null }) {
                                             ) : scores[rateLine.id]?.remarks ? (
                                                 <RichTextView html={scores[rateLine.id].remarks} />
                                             ) : (
-                                                <Typography.Text type="secondary">No remarks yet</Typography.Text>
+                                                <Typography.Text type="secondary">No score note yet</Typography.Text>
                                             )}
                                         </div>
                                     </div>
@@ -749,8 +835,6 @@ export default function RatingPage({ embedded = false, periodFilter = null }) {
                         />
                     </>
                 )
-            )}
-            </>
             )}
         </>
     );

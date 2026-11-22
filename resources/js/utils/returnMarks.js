@@ -71,7 +71,27 @@ export function returnPlaces(form, kind = "approval") {
     return places;
 }
 
-/** The note left on this cell by the latest return, if it is still open. */
+/**
+ * After the writer resubmits, marks stay open for the next reviewer — but the
+ * note should read as a prior ask, not as an open correction on a returned form.
+ */
+export function formatReturnNote(note, { resubmitted = false } = {}) {
+    if (!note) return null;
+
+    return resubmitted ? `Resubmitted — previously: ${note}` : note;
+}
+
+/** Open marks with display wording for the form's current status. */
+export function displayReturnMarks(marks, status) {
+    const resubmitted = Boolean(status && status !== "returned");
+
+    return (marks ?? []).map((mark) => ({
+        ...mark,
+        note: formatReturnNote(mark.note, { resubmitted }),
+    }));
+}
+
+/** The note left on this cell by the latest return, while marks are still open. */
 export function returnMark(marks, { outputId, indicatorId, field }) {
     const found = (marks ?? []).find((mark) => {
         if (mark.field !== field) return false;

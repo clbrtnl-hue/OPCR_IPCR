@@ -42,6 +42,33 @@ class OpcrAccomplishmentTest extends PmsTestCase
         ]);
     }
 
+    public function test_an_opcr_draft_refuses_accomplishments_until_published(): void
+    {
+        $this->makeOrganization();
+        $unit = $this->makeUnit();
+        $year = $this->makeSchoolYear();
+        $period = $this->makePeriod($year, 1);
+
+        $president = User::factory()->create(['role' => 'president', 'org_unit_id' => $unit->id]);
+        $opcr = $this->makeForm([
+            'type' => 'opcr', 'org_unit_id' => $unit->id, 'school_year_id' => $year->id, 'status' => 'draft',
+        ]);
+        $indicator = $this->makeIndicator($opcr, 'core');
+
+        $this->actingAsUser($president);
+
+        $this->postJson('/api/pcr-accomplishments', [
+            'indicator_id'          => $indicator->id,
+            'rating_period_id'      => $period->id,
+            'actual_accomplishment' => 'Too early.',
+        ])
+            ->assertStatus(409)
+            ->assertJsonPath(
+                'message',
+                'Publish the OPCR targets before recording office accomplishments.'
+            );
+    }
+
     public function test_an_opcr_accomplishment_is_not_copied_onto_an_assignees_ipcr(): void
     {
         $this->makeOrganization();

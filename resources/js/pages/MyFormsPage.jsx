@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { Button, Card, Empty, Modal, Form, Select, Space, Table, Tabs, Tag, message } from "antd";
+import { Button, Card, Drawer, Empty, Form, Select, Space, Table, Tabs, Tag, message } from "antd";
 import { PlusOutlined /* , TeamOutlined */ } from "@ant-design/icons";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
@@ -8,8 +8,18 @@ import { statusMeta } from "~/utils/constants";
 import PageHeader from "~/components/PageHeader";
 import FormCards from "~/components/FormCards";
 import FormListFilters, { matchesListKind } from "~/components/FormListFilters";
+import ListPager, { tablePager, usePaged } from "~/components/ListPager";
 import { useAuth } from "~/hooks/useAuth";
 // import BulkIpcrModal from "~/components/BulkIpcrModal";
+
+function byYear(a, b) {
+    const year = String(b.school_year?.label ?? "").localeCompare(String(a.school_year?.label ?? ""), undefined, {
+        numeric: true,
+        sensitivity: "base",
+    });
+
+    return year || (a.rating_period?.seq ?? 0) - (b.rating_period?.seq ?? 0) || a.id - b.id;
+}
 
 export default function MyFormsPage() {
     const { user, can } = useAuth();
@@ -22,7 +32,6 @@ export default function MyFormsPage() {
     const [form] = Form.useForm();
     const [open, setOpen] = useState(false);
     const [formKind, setFormKind] = useState("all");
-    const [statusKind, setStatusKind] = useState("all");
     // const [bulkOpen, setBulkOpen] = useState(false);
 
     const { data: forms = [], isLoading } = useQuery({
@@ -52,8 +61,9 @@ export default function MyFormsPage() {
     });
 
     const activeFormKind = formKind === "all" || forms.some((row) => row.type === formKind) ? formKind : "all";
-    const activeStatusKind = statusKind === "all" || forms.some((row) => row.status === statusKind) ? statusKind : "all";
-    const visibleForms = forms.filter((row) => matchesListKind(row, activeFormKind, activeStatusKind));
+    const visibleForms = forms.filter((row) => matchesListKind(row, activeFormKind));
+    const shownForms = [...visibleForms].sort(byYear);
+    const formPage = usePaged(shownForms, 10);
     const activeYear = years.find((y) => y.is_active);
     const chosenType = Form.useWatch("type", form);
     const chosenYearId = Form.useWatch("school_year_id", form);
@@ -162,7 +172,6 @@ export default function MyFormsPage() {
                     onChange={(key) => {
                         setList(key);
                         setFormKind("all");
-                        setStatusKind("all");
                     }}
                     style={{ marginBottom: 16 }}
                     items={[
@@ -172,17 +181,15 @@ export default function MyFormsPage() {
                 />
             )}
 
-            <Card className="pms-list-panel">
+            <Card className="pms-list-panel pms-list-fill">
                 {forms.length > 0 && (
                     <FormListFilters
                         rows={forms}
                         formKind={activeFormKind}
-                        statusKind={activeStatusKind}
                         onFormKind={setFormKind}
-                        onStatusKind={setStatusKind}
                     />
                 )}
-                {visibleForms.length === 0 && !isLoading ? (
+                {shownForms.length === 0 && !isLoading ? (
                     <Empty
                         description={
                             forms.length > 0
@@ -194,21 +201,27 @@ export default function MyFormsPage() {
                     />
                 ) : (
                     <>
-                        <div className="pms-mobile-only">
+                        <div className="pms-mobile-only pms-paged">
                             <FormCards
-                                forms={visibleForms}
+                                forms={formPage.rows}
                                 sideAction
                                 actionLabel={viewOnly ? () => "View" : undefined}
                                 onOpen={(record) => navigate(`/forms/${record.id}`, { state: { from: "/my-forms" } })}
+                            />
+                            <ListPager
+                                page={formPage.page}
+                                pageSize={formPage.pageSize}
+                                total={formPage.total}
+                                onChange={formPage.setPage}
                             />
                         </div>
                         <div className="pms-desktop-only">
                             <Table
                                 rowKey="id"
                                 loading={isLoading}
-                                dataSource={visibleForms}
+                                dataSource={shownForms}
                                 columns={columns}
-                                pagination={{ pageSize: 10 }}
+                                pagination={tablePager(10)}
                                 scroll={{ x: 900 }}
                             />
                         </div>
@@ -218,13 +231,16 @@ export default function MyFormsPage() {
 
             {/* <BulkIpcrModal open={bulkOpen} onClose={() => setBulkOpen(false)} /> */}
 
-            <Modal
+            <Drawer
                 title="New performance commitment"
                 open={open}
-                onCancel={() => setOpen(false)}
-                onOk={() => form.submit()}
-                confirmLoading={create.isPending}
-                okText="Create"
+                onClose={() => setOpen(false)}
+                width={440}
+                extra={
+                    <Button type="primary" loading={create.isPending} onClick={() => form.submit()}>
+                        Create
+                    </Button>
+                }
             >
                 <Form form={form} layout="vertical" requiredMark={false} onFinish={(v) => create.mutate(v)}>
                     <Form.Item name="type" label="Form type" rules={[{ required: true }]}>
@@ -251,7 +267,7 @@ export default function MyFormsPage() {
                             }}
                             options={years.map((y) => ({
                                 value: y.id,
-                                label: y.is_active ? `${y.label} (active)` : y.label,
+                                label: y.is_active ? `${y.label} ★` : y.label,
                             }))}
                         />
                     </Form.Item>
@@ -265,7 +281,7 @@ export default function MyFormsPage() {
                             <Select
                                 options={periodOptions.map((p) => ({
                                     value: p.id,
-                                    label: p.is_active ? `${p.label} (active)` : p.label,
+                                    label: p.is_active ? `${p.label} ★` : p.label,
                                 }))}
                             />
                         </Form.Item>
@@ -284,7 +300,7 @@ export default function MyFormsPage() {
                         />
                     </Form.Item>
                 </Form>
-            </Modal>
+            </Drawer>
         </>
     );
 }

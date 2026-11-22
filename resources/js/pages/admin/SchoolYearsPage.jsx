@@ -32,6 +32,14 @@ const PERIOD_STATUS = [
     { value: "closed", label: "Closed" },
 ];
 
+const phoneRange = window.matchMedia("(max-width: 991px)").matches;
+
+const rangePickerProps = {
+    style: { width: "100%" },
+    inputReadOnly: phoneRange,
+    classNames: { popup: { root: "pms-range-popup" } },
+};
+
 export default function SchoolYearsPage() {
     const queryClient = useQueryClient();
     const [form] = Form.useForm();
@@ -367,7 +375,7 @@ export default function SchoolYearsPage() {
                         <Input placeholder="SY 2026-2027" />
                     </Form.Item>
                     <Form.Item name="range" label="Covers" rules={[{ required: true, message: "Pick the date range." }]}>
-                        <DatePicker.RangePicker style={{ width: "100%" }} />
+                        <DatePicker.RangePicker {...rangePickerProps} />
                     </Form.Item>
 
                     {[0, 1].map((index) => (
@@ -385,7 +393,7 @@ export default function SchoolYearsPage() {
                                 <Input />
                             </Form.Item>
                             <Form.Item name={["periods", index, "window"]} label="Submission window">
-                                <DatePicker.RangePicker style={{ width: "100%" }} />
+                                <DatePicker.RangePicker {...rangePickerProps} />
                             </Form.Item>
                         </Card>
                     ))}

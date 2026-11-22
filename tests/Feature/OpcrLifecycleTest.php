@@ -110,6 +110,7 @@ class OpcrLifecycleTest extends PmsTestCase
             'user_id' => $qa->id,
             'type'    => 'published',
             'form_id' => $opcr->id,
+            'link'    => '/college-opcr',
         ]);
         $this->assertDatabaseMissing('notifications', [
             'user_id' => $other->id,
@@ -183,7 +184,7 @@ class OpcrLifecycleTest extends PmsTestCase
         $this->getJson("/api/pcr-forms/{$ipcr->id}/opcr-targets")->assertStatus(200)->assertJsonCount(1);
     }
 
-    public function test_the_president_can_unpublish_back_to_draft(): void
+    public function test_a_published_opcr_cannot_go_back_to_draft(): void
     {
         [$unit, $year] = $this->setUpOffice();
 
@@ -194,8 +195,10 @@ class OpcrLifecycleTest extends PmsTestCase
 
         $this->actingAsRole('president', ['org_unit_id' => $unit->id]);
 
-        $this->postJson("/api/pcr-forms/{$opcr->id}/status", ['status' => 'draft'])->assertStatus(200);
-        $this->assertSame('draft', $opcr->fresh()->status);
+        $this->postJson("/api/pcr-forms/{$opcr->id}/status", ['status' => 'draft'])
+            ->assertStatus(409)
+            ->assertJsonPath('message', 'A form that is published cannot move to draft.');
+        $this->assertSame('published', $opcr->fresh()->status);
     }
 
     public function test_a_published_opcr_is_still_rated_later(): void

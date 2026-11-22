@@ -8,7 +8,6 @@ use App\Models\PcrForm;
 use App\Models\PcrIndicator;
 use App\Models\PcrPeriodSummary;
 use App\Models\PcrRating;
-use App\Models\PcrTargetAssignment;
 use App\Models\PcrStatusLog;
 use App\Models\RatingPeriod;
 use App\Models\User;
@@ -58,7 +57,7 @@ class PcrRatingController extends Controller
         if ($remarksOnly) {
             if (! $this->mayLeaveRemarks($user, $form)) {
                 return response()->json([
-                    'message' => 'You cannot leave remarks on this form.',
+                    'message' => 'You cannot leave line notes on this form.',
                 ], 403);
             }
         } elseif (! PcrWorkflow::mayScore($user, $form)) {
@@ -236,9 +235,11 @@ class PcrRatingController extends Controller
 
     /**
      * Commitments linked to a target. QA, and the other roles that read every
-     * form, see the whole link. A head or VP sees only their own IPCR, the
-     * lines hanging off it, and the targets they cascaded that they can already
-     * read. Scoring stays with whoever's turn it is.
+     * form, see each link under its parent. A head or VP picks their own
+     * cascaded commitment. The list under it is everyone linked down that
+     * chain, including a commitment below them that was cascaded further.
+     * Their own line stays in the menu, not in the list. Scoring stays with
+     * whoever's turn it is.
      */
     public function targets(Request $request)
     {
@@ -248,28 +249,10 @@ class PcrRatingController extends Controller
         $seesAll = in_array($user->role, ['admin', 'qa', 'hr', 'president'], true)
             || PcrWorkflow::isRater($user);
         $limited = in_array($user->role, ['program_head', 'vp'], true) && ! $seesAll;
-        $ownLineIds = [];
-        $cascadedTargetIds = [];
-
-        if ($limited) {
-            $ownLineIds = PcrIndicator::query()
-                ->whereHas('output.form', fn ($query) => $query
-                    ->where('type', 'ipcr')
-                    ->where('user_id', $user->id))
-                ->pluck('id')
-                ->mapWithKeys(fn ($id) => [(int) $id => true])
-                ->all();
-
-            $cascadedTargetIds = PcrTargetAssignment::query()
-                ->where('assigned_by', $user->id)
-                ->get(['indicator_id', 'user_id'])
-                ->mapWithKeys(fn ($row) => [(int) $row->indicator_id . ':' . (int) $row->user_id => true])
-                ->all();
-        }
 
         $forms = PcrForm::query()
             ->with([
-                'owner:id,name,org_unit_id',
+                'owner:id,name,role,org_unit_id',
                 'orgUnit:id,name',
                 'schoolYear:id,label',
                 'schoolYear.periods:id,school_year_id,label,seq,is_active',
@@ -286,7 +269,10 @@ class PcrRatingController extends Controller
             ->whereHas('outputs.indicators', fn ($query) => $query->whereNotNull('parent_indicator_id'))
             ->get();
 
-        $groups = [];
+        $groups   = [];
+        $chain    = [];
+        $children = [];
+        $headers  = [];
 
         foreach ($forms as $form) {
             if ($form->status === 'final') {
@@ -308,16 +294,16 @@ class PcrRatingController extends Controller
                         continue;
                     }
 
-                    $visible = ! $limited || $this->visibleToHeadOrVp(
-                        $user,
-                        $form,
-                        (int) $parent->id,
-                        $canView,
-                        $ownLineIds,
-                        $cascadedTargetIds
-                    );
+                    if ($limited) {
+                        $chain[$line->id] = [
+                            'parent_id' => (int) $parent->id,
+                            'own'       => $form->type === 'ipcr' && (int) $form->user_id === (int) $user->id,
+                            'line'      => $this->targetLine($form, $output, $line, $canScore),
+                            'header'    => $this->targetHeader($line, $output, $form),
+                        ];
+                        $children[(int) $parent->id][] = (int) $line->id;
+                        $headers[(int) $parent->id] ??= $this->targetHeader($parent, $parent->output, $parent->output?->form);
 
-                    if (! $visible) {
                         continue;
                     }
 
@@ -332,16 +318,19 @@ class PcrRatingController extends Controller
                         'lines'       => [],
                     ];
 
-                    // A head or VP already passed the narrower check. Everyone
-                    // else still opens a target by scoring it, or by being
-                    // allowed to read a form they do not own.
-                    if ($limited || $seesAll || $canScore || ($canView && ! PcrWorkflow::owns($user, $form))) {
+                    // Scoring one line, or being allowed to read a form they do
+                    // not own, opens the whole target.
+                    if ($seesAll || $canScore || ($canView && ! PcrWorkflow::owns($user, $form))) {
                         $groups[$parent->id]['open'] = true;
                     }
 
                     $groups[$parent->id]['lines'][] = $this->targetLine($form, $output, $line, $canScore);
                 }
             }
+        }
+
+        if ($limited) {
+            $groups = $this->cascadeGroups($chain, $children, $headers);
         }
 
         $groups = array_filter($groups, fn ($group) => $group['open']);
@@ -370,30 +359,96 @@ class PcrRatingController extends Controller
     }
 
     /**
-     * @param  array<int, true>  $ownLineIds
-     * @param  array<string, true>  $cascadedTargetIds
+     * Dropdown entries are the viewer's own cascaded commitments, plus any
+     * commitment further down that chain which was itself cascaded. The rows
+     * are everyone linked underneath, never the commitment named in the menu.
+     *
+     * @param  array<int, array{parent_id: int, own: bool, line: array, header: array}>  $chain
+     * @param  array<int, array<int, int>>  $children
+     * @param  array<int, array>  $headers
      */
-    private function visibleToHeadOrVp(
-        User $user,
-        PcrForm $form,
-        int $parentId,
-        bool $canView,
-        array $ownLineIds,
-        array $cascadedTargetIds
-    ): bool {
-        if ($form->type === 'ipcr' && (int) $form->user_id === (int) $user->id) {
-            return true;
+    private function cascadeGroups(array $chain, array $children, array $headers): array
+    {
+        $show = [];
+
+        foreach ($chain as $id => $node) {
+            if (! $node['own'] || $this->descendantIds((int) $id, $children) === []) {
+                continue;
+            }
+
+            $show[(int) $id] = true;
+
+            foreach ($this->descendantIds((int) $id, $children) as $childId) {
+                if ($this->descendantIds($childId, $children) !== []) {
+                    $show[$childId] = true;
+                }
+            }
         }
 
-        if (isset($ownLineIds[$parentId])) {
-            return true;
+        $groups = [];
+
+        foreach (array_keys($show) as $id) {
+            $header = $chain[$id]['header'] ?? $headers[$id] ?? null;
+
+            if (! $header) {
+                continue;
+            }
+
+            $lines = [];
+
+            foreach ($this->descendantIds($id, $children) as $childId) {
+                if (isset($chain[$childId])) {
+                    $lines[] = $chain[$childId]['line'];
+                }
+            }
+
+            if ($lines === []) {
+                continue;
+            }
+
+            $groups[$id] = $header + ['open' => true, 'lines' => $lines];
         }
 
-        $ownerId = (int) $form->user_id;
+        return $groups;
+    }
 
-        return $ownerId > 0
-            && isset($cascadedTargetIds[$parentId . ':' . $ownerId])
-            && $canView;
+    /** @param  array<int, array<int, int>>  $children */
+    private function descendantIds(int $id, array $children): array
+    {
+        $found = [];
+        $seen  = [];
+        $stack = $children[$id] ?? [];
+
+        while ($stack !== []) {
+            $current = array_pop($stack);
+
+            if (isset($seen[$current])) {
+                continue;
+            }
+
+            $seen[$current] = true;
+            $found[]        = $current;
+
+            foreach ($children[$current] ?? [] as $next) {
+                $stack[] = $next;
+            }
+        }
+
+        return $found;
+    }
+
+    private function targetHeader($indicator, $output, $form): array
+    {
+        return [
+            'id'          => (int) $indicator->id,
+            'description' => $indicator->description,
+            'section'     => $output?->section,
+            'output'      => $output?->title,
+            'office'      => $form?->orgUnit?->name,
+            'kind'        => $form && $form->type !== 'opcr'
+                ? ($form->owner?->role ?: 'employee')
+                : 'opcr',
+        ];
     }
 
     /** OPCR, or the role of the person whose IPCR line is the target. */
@@ -413,6 +468,7 @@ class PcrRatingController extends Controller
         return [
             'id'          => $line->id,
             'description' => $line->description,
+            'target_date' => $line->target_date,
             'section'     => $output->section,
             'output'      => $output->title,
             'can_score'   => $canScore,

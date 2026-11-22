@@ -8,11 +8,13 @@ export default function StackedColumns({
     rows = [],
     series = [],
     height = 260,
+    maxWidth = 28,
     emptyText = "Nothing to show yet.",
     onSelect,
 }) {
     const { viz } = useTheme();
     const selectRef = useRef(onSelect);
+    const picked = useRef(false);
     selectRef.current = onSelect;
     const flat = rows.flatMap((row) =>
         series.map((item) => ({
@@ -23,6 +25,7 @@ export default function StackedColumns({
         }))
     );
     const signature = flat.map((row) => `${row.unit}:${row.stage}:${row.value}`).join("|");
+    const seriesKey = series.map((item) => `${item.key}:${item.label}:${item.color}`).join("|");
 
     const config = useMemo(
         () => ({
@@ -52,7 +55,7 @@ export default function StackedColumns({
             style: {
                 radiusTopLeft: 3,
                 radiusTopRight: 3,
-                maxWidth: 28,
+                maxWidth,
                 cursor: onSelect ? "pointer" : "default",
             },
             tooltip: {
@@ -60,14 +63,12 @@ export default function StackedColumns({
                 items: [(datum) => ({ name: datum.stage, value: datum.value })],
             },
         }),
-        [signature, height, Boolean(onSelect), viz]
+        [signature, seriesKey, height, maxWidth, Boolean(onSelect), viz]
     );
 
     if (!rows.length) {
         return <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={emptyText} />;
     }
-
-    const picked = useRef(false);
 
     const onEvent = (chart, event) => {
         if (event?.type !== "element:click" || !selectRef.current) return;

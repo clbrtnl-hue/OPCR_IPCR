@@ -2,9 +2,7 @@
 
 namespace Tests\Feature;
 
-use App\Models\OrgUnitReviewer;
 use App\Models\PcrFormReviewer;
-use App\Models\PcrTargetAssignment;
 use App\Models\User;
 use Tests\PmsTestCase;
 
@@ -98,23 +96,16 @@ class RatingTargetsTest extends PmsTestCase
         $this->assertSame([], $this->getJson('/api/pcr-ratings/targets')->assertOk()->json());
     }
 
-    public function test_a_head_or_vp_sees_their_own_ipcr_and_the_targets_they_cascaded(): void
+    public function test_a_head_sees_the_cascade_under_his_commitment_including_the_next_link(): void
     {
-        $year   = $this->makeSchoolYear();
-        $period = $this->makePeriod($year);
-        $unit   = $this->makeUnit();
-        $other  = $this->makeUnit(['name' => 'Other office', 'code' => 'OTH']);
-        $head   = User::factory()->create(['role' => 'program_head', 'org_unit_id' => $unit->id]);
-        $vp     = User::factory()->create(['role' => 'vp', 'org_unit_id' => $unit->id]);
-        $maria  = User::factory()->create(['role' => 'employee', 'org_unit_id' => $unit->id]);
-        $ruben  = User::factory()->create(['role' => 'employee', 'org_unit_id' => $unit->id]);
-        $far    = User::factory()->create(['role' => 'employee', 'org_unit_id' => $other->id]);
-
-        OrgUnitReviewer::create([
-            'org_unit_id' => $unit->id,
-            'slot'        => 'head_user_id',
-            'user_id'     => $head->id,
-        ]);
+        $year     = $this->makeSchoolYear();
+        $period   = $this->makePeriod($year);
+        $unit     = $this->makeUnit();
+        $vp       = User::factory()->create(['role' => 'vp', 'org_unit_id' => $unit->id]);
+        $ruben    = User::factory()->create(['role' => 'program_head', 'org_unit_id' => $unit->id]);
+        $juan     = User::factory()->create(['role' => 'program_head', 'org_unit_id' => $unit->id]);
+        $employee = User::factory()->create(['role' => 'employee', 'org_unit_id' => $unit->id]);
+        $other    = User::factory()->create(['role' => 'employee', 'org_unit_id' => $unit->id]);
 
         $opcr = $this->makeForm([
             'type'           => 'opcr',
@@ -122,132 +113,106 @@ class RatingTargetsTest extends PmsTestCase
             'school_year_id' => $year->id,
             'org_unit_id'    => $unit->id,
         ]);
-        $target = $this->makeIndicator($opcr, 'core', ['description' => 'Publish 25 articles.']);
-        $handed = $this->makeIndicator($opcr, 'core', ['description' => 'Host four seminars.']);
+        $college = $this->makeIndicator($opcr, 'core', ['description' => 'Publish 25 articles.']);
 
-        $headForm = $this->makeForm([
-            'status'           => 'vp_review',
+        $vpForm = $this->makeForm([
+            'status'           => 'qa_rating',
             'school_year_id'   => $year->id,
             'org_unit_id'      => $unit->id,
-            'user_id'          => $head->id,
+            'user_id'          => $vp->id,
             'rating_period_id' => $period->id,
         ]);
-        $headLine = $this->makeIndicator($headForm, 'core', [
-            'parent_indicator_id' => $target->id,
-            'description'         => 'The head commits eight articles.',
+        $vpLine = $this->makeIndicator($vpForm, 'core', [
+            'parent_indicator_id' => $college->id,
+            'description'         => 'The VP commits the articles.',
         ]);
 
-        $underHead = $this->makeForm([
-            'status'           => 'head_review',
-            'school_year_id'   => $year->id,
-            'org_unit_id'      => $other->id,
-            'user_id'          => $far->id,
-            'rating_period_id' => $period->id,
-        ]);
-        $underHeadLine = $this->makeIndicator($underHead, 'core', [
-            'parent_indicator_id' => $headLine->id,
-            'description'         => 'Far writes against the head line.',
-        ]);
-
-        PcrTargetAssignment::create([
-            'indicator_id'     => $handed->id,
-            'user_id'          => $maria->id,
-            'assigned_by'      => $head->id,
-            'assigned_by_name' => $head->name,
-            'rating_period_id' => $period->id,
-        ]);
-        $mariaForm = $this->makeForm([
-            'status'           => 'head_review',
-            'school_year_id'   => $year->id,
-            'org_unit_id'      => $unit->id,
-            'user_id'          => $maria->id,
-            'rating_period_id' => $period->id,
-        ]);
-        $mariaLine = $this->makeIndicator($mariaForm, 'core', [
-            'parent_indicator_id' => $handed->id,
-            'description'         => 'Maria hosts two seminars.',
-        ]);
-        PcrFormReviewer::sync($mariaForm, ['head_review' => $head->id]);
-
-        PcrTargetAssignment::create([
-            'indicator_id'     => $target->id,
-            'user_id'          => $ruben->id,
-            'assigned_by'      => $vp->id,
-            'assigned_by_name' => $vp->name,
-            'rating_period_id' => $period->id,
-        ]);
         $rubenForm = $this->makeForm([
-            'status'           => 'head_review',
+            'status'           => 'vp_review',
             'school_year_id'   => $year->id,
             'org_unit_id'      => $unit->id,
             'user_id'          => $ruben->id,
             'rating_period_id' => $period->id,
         ]);
         $rubenLine = $this->makeIndicator($rubenForm, 'core', [
-            'parent_indicator_id' => $target->id,
-            'description'         => 'Ruben writes against the same college target.',
+            'parent_indicator_id' => $vpLine->id,
+            'description'         => 'Ruben commits eight articles.',
         ]);
-        PcrFormReviewer::sync($rubenForm, ['head_review' => $head->id]);
 
-        $outsider = User::factory()->create(['role' => 'employee', 'org_unit_id' => $other->id]);
-        $outside  = $this->makeIndicator($opcr, 'core', ['description' => 'A target handed outside this office.']);
-        PcrTargetAssignment::create([
-            'indicator_id'     => $outside->id,
-            'user_id'          => $outsider->id,
-            'assigned_by'      => $head->id,
-            'assigned_by_name' => $head->name,
+        $juanForm = $this->makeForm([
+            'status'           => 'head_review',
+            'school_year_id'   => $year->id,
+            'org_unit_id'      => $unit->id,
+            'user_id'          => $juan->id,
             'rating_period_id' => $period->id,
         ]);
-        $hidden = $this->makeForm([
+        $juanLine = $this->makeIndicator($juanForm, 'core', [
+            'parent_indicator_id' => $rubenLine->id,
+            'description'         => 'Juan commits four articles.',
+        ]);
+        PcrFormReviewer::sync($juanForm, ['head_review' => $ruben->id]);
+
+        $employeeForm = $this->makeForm([
             'status'           => 'draft',
             'school_year_id'   => $year->id,
-            'org_unit_id'      => $other->id,
-            'user_id'          => $outsider->id,
+            'org_unit_id'      => $unit->id,
+            'user_id'          => $employee->id,
             'rating_period_id' => $period->id,
         ]);
-        $hiddenLine = $this->makeIndicator($hidden, 'core', [
-            'parent_indicator_id' => $outside->id,
-            'description'         => 'Outside the offices this head can read.',
+        $employeeLine = $this->makeIndicator($employeeForm, 'core', [
+            'parent_indicator_id' => $juanLine->id,
+            'description'         => 'The employee writes two articles.',
         ]);
 
-        $this->actingAsUser($head);
+        $strangerForm = $this->makeForm([
+            'status'           => 'head_review',
+            'school_year_id'   => $year->id,
+            'org_unit_id'      => $unit->id,
+            'user_id'          => $other->id,
+            'rating_period_id' => $period->id,
+        ]);
+        $strangerLine = $this->makeIndicator($strangerForm, 'core', [
+            'parent_indicator_id' => $college->id,
+            'description'         => 'Linked only to the college target.',
+        ]);
+
+        $this->actingAsUser($ruben);
 
         $groups = collect($this->getJson('/api/pcr-ratings/targets')->assertOk()->json())->keyBy('id');
+        $shown  = $groups->flatMap(fn ($group) => collect($group['lines'])->pluck('id'));
 
-        $this->assertSame('opcr', $groups[$target->id]['kind']);
-        $this->assertSame('program_head', $groups[$headLine->id]['kind']);
+        $this->assertEqualsCanonicalizing([$rubenLine->id, $juanLine->id], $groups->keys()->all());
+        $this->assertSame('program_head', $groups[$rubenLine->id]['kind']);
         $this->assertEqualsCanonicalizing(
-            [$headLine->id],
-            collect($groups[$target->id]['lines'])->pluck('id')->all()
+            [$juanLine->id, $employeeLine->id],
+            collect($groups[$rubenLine->id]['lines'])->pluck('id')->all()
         );
-        $this->assertFalse(collect($groups[$target->id]['lines'])->firstWhere('id', $headLine->id)['can_score']);
+        $this->assertTrue(collect($groups[$rubenLine->id]['lines'])->firstWhere('id', $juanLine->id)['can_score']);
+        $this->assertFalse(collect($groups[$rubenLine->id]['lines'])->firstWhere('id', $employeeLine->id)['can_score']);
         $this->assertEqualsCanonicalizing(
-            [$underHeadLine->id],
-            collect($groups[$headLine->id]['lines'])->pluck('id')->all()
+            [$employeeLine->id],
+            collect($groups[$juanLine->id]['lines'])->pluck('id')->all()
         );
-        $this->assertEqualsCanonicalizing(
-            [$mariaLine->id],
-            collect($groups[$handed->id]['lines'])->pluck('id')->all()
-        );
-        $this->assertTrue($groups[$handed->id]['lines'][0]['can_score']);
-        $this->assertNotContains($rubenLine->id, $groups->flatMap(fn ($group) => collect($group['lines'])->pluck('id'))->all());
-        $this->assertNotContains($hiddenLine->id, $groups->flatMap(fn ($group) => collect($group['lines'])->pluck('id'))->all());
-
-        OrgUnitReviewer::create([
-            'org_unit_id' => $unit->id,
-            'slot'        => 'vp_user_id',
-            'user_id'     => $vp->id,
-        ]);
+        $this->assertNotContains($rubenLine->id, $shown->all());
+        $this->assertNotContains($strangerLine->id, $shown->all());
+        $this->assertArrayNotHasKey($college->id, $groups->all());
+        $this->assertArrayNotHasKey($vpLine->id, $groups->all());
 
         $this->actingAsUser($vp);
 
         $forVp = collect($this->getJson('/api/pcr-ratings/targets')->assertOk()->json())->keyBy('id');
 
         $this->assertEqualsCanonicalizing(
-            [$rubenLine->id],
-            collect($forVp[$target->id]['lines'])->pluck('id')->all()
+            [$rubenLine->id, $juanLine->id, $employeeLine->id],
+            collect($forVp[$vpLine->id]['lines'])->pluck('id')->all()
         );
-        $this->assertArrayNotHasKey($handed->id, $forVp->all());
-        $this->assertArrayNotHasKey($headLine->id, $forVp->all());
+        $this->assertEqualsCanonicalizing(
+            [$juanLine->id, $employeeLine->id],
+            collect($forVp[$rubenLine->id]['lines'])->pluck('id')->all()
+        );
+        $this->assertNotContains(
+            $vpLine->id,
+            $forVp->flatMap(fn ($group) => collect($group['lines'])->pluck('id'))->all()
+        );
     }
 }

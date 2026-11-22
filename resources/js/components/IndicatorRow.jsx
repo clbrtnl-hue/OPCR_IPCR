@@ -41,6 +41,7 @@ export default function IndicatorRow({
     canEditCommitment,
     canRecordProgress,
     canAssign,
+    showAccomplishments = true,
     isOpcr,
     remarksOpen = false,
 }) {
@@ -261,75 +262,79 @@ export default function IndicatorRow({
                 />
             </div>
 
-            <Typography.Text strong style={{ display: "block", marginBottom: 4 }}>
-                Actual accomplishment
-            </Typography.Text>
-
-            {canRecordProgress ? (
+            {showAccomplishments && (
                 <>
-                    <RichText
-                        rows={3}
-                        value={text}
-                        onChange={setText}
-                        maxLength={NARRATIVE_MAX}
-                        placeholder="What was actually delivered against this target?"
-                    />
-                    <Space style={{ marginTop: 8 }} wrap>
-                        <Button
-                            size="small"
-                            type="primary"
-                            icon={<SaveOutlined />}
-                            loading={saveAccomplishment.isPending}
-                            onClick={() => saveAccomplishment.mutate()}
-                        >
-                            Save
-                        </Button>
-                        <Upload
-                            multiple
-                            accept={UPLOAD_ACCEPT}
-                            showUploadList={false}
-                            beforeUpload={upload}
-                        >
-                            <Button size="small" icon={<UploadOutlined />}>
-                                Attach evidence
-                            </Button>
-                        </Upload>
-                        <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                            Images and documents up to {UPLOAD_MAX_MB} MB each
-                        </Typography.Text>
-                    </Space>
-                </>
-            ) : (
-                <AccomplishmentView
-                    html={text}
-                    attachments={accomplishment?.attachments}
-                    empty="Nothing recorded yet."
-                />
-            )}
+                    <Typography.Text strong style={{ display: "block", marginBottom: 4 }}>
+                        Actual accomplishment
+                    </Typography.Text>
 
-            {Object.entries(uploading).length > 0 && (
-                <Space direction="vertical" size={6} style={{ marginTop: 12, width: "100%" }}>
-                    {Object.entries(uploading).map(([key, item]) => (
-                        <div key={key}>
-                            <Typography.Text style={{ fontSize: 12 }}>
-                                {item.failed ? `${item.name} — upload failed` : item.name}
-                            </Typography.Text>
-                            <Progress
-                                percent={item.percent}
-                                size="small"
-                                status={item.failed ? "exception" : "active"}
+                    {canRecordProgress ? (
+                        <>
+                            <RichText
+                                rows={3}
+                                value={text}
+                                onChange={setText}
+                                maxLength={NARRATIVE_MAX}
+                                placeholder="What was actually delivered against this target?"
                             />
-                        </div>
-                    ))}
-                </Space>
-            )}
+                            <Space style={{ marginTop: 8 }} wrap>
+                                <Button
+                                    size="small"
+                                    type="primary"
+                                    icon={<SaveOutlined />}
+                                    loading={saveAccomplishment.isPending}
+                                    onClick={() => saveAccomplishment.mutate()}
+                                >
+                                    Save
+                                </Button>
+                                <Upload
+                                    multiple
+                                    accept={UPLOAD_ACCEPT}
+                                    showUploadList={false}
+                                    beforeUpload={upload}
+                                >
+                                    <Button size="small" icon={<UploadOutlined />}>
+                                        Attach evidence
+                                    </Button>
+                                </Upload>
+                                <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                                    Images and documents up to {UPLOAD_MAX_MB} MB each
+                                </Typography.Text>
+                            </Space>
+                        </>
+                    ) : (
+                        <AccomplishmentView
+                            html={text}
+                            attachments={accomplishment?.attachments}
+                            empty="Nothing recorded yet."
+                        />
+                    )}
 
-            {canRecordProgress && (
-                <AttachmentGallery
-                    files={accomplishment?.attachments}
-                    canRemove
-                    onRemove={(id) => removeAttachment.mutate(id)}
-                />
+                    {Object.entries(uploading).length > 0 && (
+                        <Space direction="vertical" size={6} style={{ marginTop: 12, width: "100%" }}>
+                            {Object.entries(uploading).map(([key, item]) => (
+                                <div key={key}>
+                                    <Typography.Text style={{ fontSize: 12 }}>
+                                        {item.failed ? `${item.name} — upload failed` : item.name}
+                                    </Typography.Text>
+                                    <Progress
+                                        percent={item.percent}
+                                        size="small"
+                                        status={item.failed ? "exception" : "active"}
+                                    />
+                                </div>
+                            ))}
+                        </Space>
+                    )}
+
+                    {canRecordProgress && (
+                        <AttachmentGallery
+                            files={accomplishment?.attachments}
+                            canRemove
+                            onRemove={(id) => removeAttachment.mutate(id)}
+                        />
+                    )}
+                </>
             )}
 
             <Modal
@@ -373,7 +378,7 @@ export default function IndicatorRow({
 
             <div style={{ marginTop: 12 }}>
                 <Button size="small" type="link" onClick={() => setShowRemarks((v) => !v)}>
-                    {showRemarks ? "Hide remarks" : "Remarks on this line"}
+                    {showRemarks ? "Hide messages" : "Messages on this line"}
                 </Button>
                 {showRemarks && (
                     <div style={{ marginTop: 8 }}>

@@ -40,7 +40,7 @@ class PcrWorkflow
             'returned'    => ['qa_approval', 'qa_rating'],
             'qa_approval' => ['approved', 'returned'],
             'approved'    => ['published', 'draft'],
-            'published'   => ['qa_rating', 'draft'],
+            'published'   => ['qa_rating'],
             'qa_rating'   => ['rated', 'returned'],
             'rated'       => ['final', 'qa_rating'],
             'final'       => [],
@@ -62,7 +62,7 @@ class PcrWorkflow
             'qa_approval' => ['president'],
             'approved'    => ['qa'],
             'published'   => ['president'],
-            'draft'       => ['president'],   // unpublish
+            'draft'       => ['president'],   // pull an approved OPCR back before it is published
             'qa_rating'   => ['qa'],
             'rated'       => ['qa'],
             'final'       => ['hr'],
@@ -506,7 +506,7 @@ class PcrWorkflow
         return $id ? (int) $id : null;
     }
 
-    /** Null when the write may proceed. A locked period is finished. */
+    /** Null when the write may proceed. A locked period is view-only. */
     public static function lockMessage(User $user, ?int $periodId): ?string
     {
         if (! $periodId) {
@@ -722,9 +722,20 @@ class PcrWorkflow
         return null;
     }
 
-    /** Tasks stay closed until commitments are approved. A form already in rating is not sent back to that gate. */
+    /**
+     * Tasks stay closed until the plan is official. IPCR waits on commitment
+     * approval; OPCR waits until targets are published (or returned from rating).
+     */
     public static function mayRecordWork(PcrForm $form): bool
     {
+        if ($form->type === 'opcr') {
+            if (in_array($form->status, ['published', 'qa_rating'], true)) {
+                return true;
+            }
+
+            return $form->status === 'returned' && self::returnedFromRating($form);
+        }
+
         if ($form->type !== 'ipcr') {
             return true;
         }
@@ -736,10 +747,18 @@ class PcrWorkflow
         return ! in_array($form->status, ['draft', 'returned', 'commitment_review'], true);
     }
 
-    /** Cascade opens after approval and closes again once the form is in rating. */
+    /**
+     * Name accountable people while writing commitments (like OPCR), and keep
+     * handing work out after approval until rating starts. Closed while the
+     * form sits with an approver or is already in the rating chain.
+     */
     public static function mayHandOut(PcrForm $form): bool
     {
         if ($form->type !== 'ipcr') {
+            return true;
+        }
+
+        if (in_array($form->status, ['draft', 'returned'], true) && ! $form->commitment_approved_at) {
             return true;
         }
 
@@ -830,11 +849,55 @@ class PcrWorkflow
     {
         $owner = self::ownerWithRole($form);
 
-        if (! $owner || $owner->role === 'qa' || self::accountableOnPublishedOpcr($form, $owner) || ! self::namedOnOpcr($form, $owner)) {
+        if (! $owner) {
             return null;
         }
 
-        return 'The college OPCR is not published yet, so these commitments cannot be sent.';
+        if ($owner->role !== 'qa' && ! self::accountableOnPublishedOpcr($form, $owner) && self::namedOnOpcr($form, $owner)) {
+            return 'The college OPCR is not published yet, so these commitments cannot be sent.';
+        }
+
+        // People named on an IPCR line may write right away, but they wait to
+        // send until that assigner's commitments are approved.
+        if ($assigner = self::unapprovedIpcrAssigner($form, $owner)) {
+            $name = $assigner->owner?->name ?? 'your assigner';
+
+            return "Waiting for {$name}'s commitments to be approved before these can be sent.";
+        }
+
+        return null;
+    }
+
+    /**
+     * The IPCR whose line was handed to this owner, when that form still has
+     * unapproved commitments. OPCR handouts use the publish gate above instead.
+     */
+    private static function unapprovedIpcrAssigner(PcrForm $form, User $owner): ?PcrForm
+    {
+        $assignment = PcrTargetAssignment::query()
+            ->where('user_id', $owner->id)
+            ->where('assigned_by', '!=', $owner->id)
+            ->when($form->rating_period_id, function ($query) use ($form) {
+                $query->where(function ($inner) use ($form) {
+                    $inner->where('rating_period_id', $form->rating_period_id)
+                        ->orWhereNull('rating_period_id');
+                });
+            })
+            ->whereHas('indicator.output.form', function ($query) use ($form) {
+                $query->where('type', 'ipcr')
+                    ->where('school_year_id', $form->school_year_id);
+            })
+            ->with(['indicator.output.form.owner:id,name'])
+            ->latest('id')
+            ->first();
+
+        $assignerForm = $assignment?->indicator?->output?->form;
+
+        if (! $assignerForm || $assignerForm->commitment_approved_at) {
+            return null;
+        }
+
+        return $assignerForm;
     }
 
     /** A short phrase for the send button: "the President" or the person's name. */

@@ -50,13 +50,17 @@ export default function IpcrSheet({
     canAssign,
     canAssignHeadings,
     showScores = false,
+    showAccomplishments = true,
     opcrTargets = [],
     summary,
     focusLineId = null,
     focusOutputId = null,
+    openFocusedLine = true,
     returnMarks = [],
     assignedOnly = false,
     arriveLineId = null,
+    arriveOutputId = null,
+    arriveOpenOutput = false,
     arriveTick = null,
     onExpand,
 }) {
@@ -246,7 +250,10 @@ export default function IpcrSheet({
         if (!exists) return;
 
         focusedLine.current = focusLineId;
-        setOpenLineId(focusLineId);
+
+        if (openFocusedLine) {
+            setOpenLineId(focusLineId);
+        }
 
         const row = document.querySelector(`[data-row="indicator-${focusLineId}"]`);
 
@@ -257,7 +264,7 @@ export default function IpcrSheet({
         const timer = setTimeout(() => row.classList.remove("is-new"), 2200);
 
         return () => clearTimeout(timer);
-    }, [focusLineId, form.outputs]);
+    }, [focusLineId, form.outputs, openFocusedLine]);
 
     useEffect(() => {
         if (!focusOutputId || focusedOutput.current === focusOutputId) return;
@@ -302,16 +309,31 @@ export default function IpcrSheet({
 
         if (!row || row.getClientRects().length === 0) return;
 
+        const outputNodes = arriveOutputId
+            ? [...document.querySelectorAll(`[data-output-id="${arriveOutputId}"]`)]
+            : [];
+        const outputCell =
+            outputNodes.find((node) => node.offsetParent !== null) ?? outputNodes[0] ?? null;
+        const outputRow = outputCell?.closest("tr") ?? outputCell;
+
         row.scrollIntoView({ behavior: "smooth", block: "center" });
         row.classList.add("is-new");
-        const click = setTimeout(() => row.querySelector(".pms-cell")?.click(), 400);
-        const clear = setTimeout(() => row.classList.remove("is-new"), 2200);
+        outputRow?.classList.add("is-new");
+
+        const editCell = arriveOpenOutput
+            ? outputCell?.querySelector(".pms-cell") ?? row.querySelector(".pms-cell")
+            : row.querySelector(".pms-cell");
+        const click = setTimeout(() => editCell?.click(), 400);
+        const clear = setTimeout(() => {
+            row.classList.remove("is-new");
+            outputRow?.classList.remove("is-new");
+        }, 2200);
 
         return () => {
             clearTimeout(click);
             clearTimeout(clear);
         };
-    }, [arriveLineId, arriveTick, form.outputs]);
+    }, [arriveLineId, arriveOutputId, arriveOpenOutput, arriveTick, form.outputs]);
 
     const bySection = useMemo(() => {
         const map = {};
@@ -364,7 +386,10 @@ export default function IpcrSheet({
         (o.indicators ?? []).some((i) => accountableFor(i).length > 0)
     );
     const showAccountable = canAssign || anyDelegated;
-    const columnCount = (showAccountable ? 6 : 5) + (showScores ? scale.dimensions.length + 1 : 0);
+    const columnCount =
+        (showAccountable ? 5 : 4) +
+        (showAccomplishments ? 1 : 0) +
+        (showScores ? scale.dimensions.length + 1 : 0);
 
     const rows = [];
 
@@ -738,27 +763,29 @@ export default function IpcrSheet({
                             </td>
                         )}
 
-                        <td className="pms-sheet-muted">
-                            <AccomplishmentCell
-                                html={accomplishment?.actual_accomplishment}
-                                evidenceCount={evidenceCount}
-                                mark={returnMark(returnMarks, {
-                                    indicatorId: line.id,
-                                    field: "actual_accomplishment",
-                                })}
-                                evidenceMark={returnMark(returnMarks, {
-                                    indicatorId: line.id,
-                                    field: "evidence",
-                                })}
-                                empty={
-                                    canRecordProgress
-                                        ? "Open the row to record it"
-                                        : "Recorded at period end"
-                                }
-                                label={canRecordProgress ? "Record" : "Open"}
-                                onOpen={() => setOpenLineId(line.id)}
-                            />
-                        </td>
+                        {showAccomplishments && (
+                            <td className="pms-sheet-muted">
+                                <AccomplishmentCell
+                                    html={accomplishment?.actual_accomplishment}
+                                    evidenceCount={evidenceCount}
+                                    mark={returnMark(returnMarks, {
+                                        indicatorId: line.id,
+                                        field: "actual_accomplishment",
+                                    })}
+                                    evidenceMark={returnMark(returnMarks, {
+                                        indicatorId: line.id,
+                                        field: "evidence",
+                                    })}
+                                    empty={
+                                        canRecordProgress
+                                            ? "Open the row to record it"
+                                            : "Recorded at period end"
+                                    }
+                                    label={canRecordProgress ? "Record" : "Open"}
+                                    onOpen={() => setOpenLineId(line.id)}
+                                />
+                            </td>
+                        )}
 
                         {showScores &&
                             scale.dimensions.map((dimension) => (
@@ -822,6 +849,7 @@ export default function IpcrSheet({
                 form={form}
                 periodId={periodId}
                 showScores={showScores}
+                showAccomplishments={showAccomplishments}
                 onOpen={setOpenLineId}
                 onEnter={canEdit && onExpand ? () => onExpand() : undefined}
                 addSections={canEdit ? ["core", "support"] : []}
@@ -843,7 +871,9 @@ export default function IpcrSheet({
                             <th style={{ width: 110 }}>Target Date</th>
                             <th style={{ width: 140 }}>Progress</th>
                             {showAccountable && <th style={{ width: 180 }}>Accountable</th>}
-                            <th style={{ width: 240 }}>Actual Accomplishments</th>
+                            {showAccomplishments && (
+                                <th style={{ width: 240 }}>Actual Accomplishments</th>
+                            )}
                             {showScores && (
                                 <>
                                     {scale.dimensions.map((dimension) => (
@@ -887,6 +917,7 @@ export default function IpcrSheet({
                         canEditCommitment={canEdit}
                         canRecordProgress={canRecordProgress}
                         canAssign={canAssign}
+                        showAccomplishments={showAccomplishments}
                         isOpcr={false}
                         remarksOpen={openLine.id === focusLineId}
                     />

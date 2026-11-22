@@ -7,6 +7,7 @@ import { useNavigate } from "react-router-dom";
 import dayjs from "dayjs";
 import relativeTime from "dayjs/plugin/relativeTime";
 import api from "~/utils/api";
+import { useAuth } from "~/hooks/useAuth";
 import { notificationHref, notificationMeta, notificationNavState } from "~/utils/notifications";
 
 dayjs.extend(relativeTime);
@@ -15,9 +16,11 @@ export default function NotificationBell() {
     const [open, setOpen] = useState(false);
     const navigate = useNavigate();
     const queryClient = useQueryClient();
+    const { user } = useAuth();
 
     const { data } = useQuery({
-        queryKey: ["notifications", "bell"],
+        queryKey: ["notifications", "bell", user?.id],
+        enabled: Boolean(user),
         queryFn: () => api.get("notifications?limit=6").then((r) => r.data),
         refetchInterval: 4000,
         refetchIntervalInBackground: true,
@@ -46,6 +49,14 @@ export default function NotificationBell() {
         },
     });
 
+    const trashAll = useMutation({
+        mutationFn: () => api.post("notifications/trash-all"),
+        onSuccess: () => {
+            message.success("All notifications moved to Trash. You can restore them for 30 days.");
+            invalidate();
+        },
+    });
+
     const openItem = (item) => {
         if (!item.read_at) {
             markRead.mutate(item.id);
@@ -64,11 +75,24 @@ export default function NotificationBell() {
         <div className="pms-bell-panel">
             <div className="pms-bell-head">
                 <Typography.Text strong>Notifications</Typography.Text>
-                {unread > 0 && (
-                    <Button type="link" size="small" loading={markAll.isPending} onClick={() => markAll.mutate()}>
-                        Mark all read
-                    </Button>
-                )}
+                <span className="pms-bell-actions">
+                    {unread > 0 && (
+                        <Button type="link" size="small" loading={markAll.isPending} onClick={() => markAll.mutate()}>
+                            Mark all read
+                        </Button>
+                    )}
+                    {items.length > 0 && (
+                        <Button
+                            type="link"
+                            size="small"
+                            danger
+                            loading={trashAll.isPending}
+                            onClick={() => trashAll.mutate()}
+                        >
+                            Delete all
+                        </Button>
+                    )}
+                </span>
             </div>
 
             {items.length === 0 ? (

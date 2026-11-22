@@ -28,6 +28,7 @@ export default function OpcrLineDrawer({
     periodId,
     canAssign = false,
     canRecordProgress = false,
+    showAccomplishments = true,
 }) {
     const queryClient = useQueryClient();
     const rating = (line.ratings ?? []).find((r) => r.rating_period_id === periodId);
@@ -143,60 +144,64 @@ export default function OpcrLineDrawer({
                 </Space>
             )}
 
-            <Divider orientation="left" orientationMargin={0}>
-                Actual accomplishment
-            </Divider>
-
-            <Typography.Paragraph type="secondary" style={{ marginTop: 0 }}>
-                Office-level summary for this target. QA rates this text. It is not copied onto
-                anyone&apos;s IPCR.
-            </Typography.Paragraph>
-
-            {canRecordProgress ? (
+            {showAccomplishments && (
                 <>
-                    <RichText
-                        rows={4}
-                        value={text}
-                        onChange={setText}
-                        maxLength={NARRATIVE_MAX}
-                        placeholder="What did the college deliver against this target?"
-                    />
-                    <Space style={{ marginTop: 8 }} wrap>
-                        <Button
-                            size="small"
-                            type="primary"
-                            icon={<SaveOutlined />}
-                            loading={saveAccomplishment.isPending}
-                            onClick={() => saveAccomplishment.mutate()}
-                        >
-                            Save
-                        </Button>
-                        <Upload
-                            multiple
-                            accept={UPLOAD_ACCEPT}
-                            showUploadList={false}
-                            beforeUpload={upload}
-                        >
-                            <Button size="small" icon={<UploadOutlined />}>
-                                Attach evidence
-                            </Button>
-                        </Upload>
-                        <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                            Images and documents up to {UPLOAD_MAX_MB} MB each
-                        </Typography.Text>
-                    </Space>
-                    <AttachmentGallery
-                        files={accomplishment?.attachments}
-                        canRemove
-                        onRemove={(id) => removeAttachment.mutate(id)}
-                    />
+                    <Divider orientation="left" orientationMargin={0}>
+                        Actual accomplishment
+                    </Divider>
+
+                    <Typography.Paragraph type="secondary" style={{ marginTop: 0 }}>
+                        Office-level summary for this target. QA rates this text. It is not copied onto
+                        anyone&apos;s IPCR.
+                    </Typography.Paragraph>
+
+                    {canRecordProgress ? (
+                        <>
+                            <RichText
+                                rows={4}
+                                value={text}
+                                onChange={setText}
+                                maxLength={NARRATIVE_MAX}
+                                placeholder="What did the college deliver against this target?"
+                            />
+                            <Space style={{ marginTop: 8 }} wrap>
+                                <Button
+                                    size="small"
+                                    type="primary"
+                                    icon={<SaveOutlined />}
+                                    loading={saveAccomplishment.isPending}
+                                    onClick={() => saveAccomplishment.mutate()}
+                                >
+                                    Save
+                                </Button>
+                                <Upload
+                                    multiple
+                                    accept={UPLOAD_ACCEPT}
+                                    showUploadList={false}
+                                    beforeUpload={upload}
+                                >
+                                    <Button size="small" icon={<UploadOutlined />}>
+                                        Attach evidence
+                                    </Button>
+                                </Upload>
+                                <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                                    Images and documents up to {UPLOAD_MAX_MB} MB each
+                                </Typography.Text>
+                            </Space>
+                            <AttachmentGallery
+                                files={accomplishment?.attachments}
+                                canRemove
+                                onRemove={(id) => removeAttachment.mutate(id)}
+                            />
+                        </>
+                    ) : (
+                        <AccomplishmentView
+                            html={accomplishment?.actual_accomplishment}
+                            attachments={accomplishment?.attachments}
+                            empty="Nothing recorded yet."
+                        />
+                    )}
                 </>
-            ) : (
-                <AccomplishmentView
-                    html={accomplishment?.actual_accomplishment}
-                    attachments={accomplishment?.attachments}
-                    empty="Nothing recorded yet."
-                />
             )}
 
             <Divider orientation="left" orientationMargin={0}>
@@ -212,7 +217,7 @@ export default function OpcrLineDrawer({
             />
 
             <Divider orientation="left" orientationMargin={0}>
-                Remarks on this office target
+                Messages on this office target
             </Divider>
 
             <CommentThread formId={form.id} indicatorId={line.id} compact />

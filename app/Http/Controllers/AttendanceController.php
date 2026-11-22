@@ -19,6 +19,8 @@ class AttendanceController extends Controller
 {
     public function index(Request $request)
     {
+        $this->forThisAccount($request->user());
+
         $data = $request->validate([
             'school_year_id'   => 'nullable|integer|exists:school_years,id',
             'rating_period_id' => 'nullable|integer|exists:rating_periods,id',
@@ -191,6 +193,8 @@ class AttendanceController extends Controller
 
     public function markDay(Request $request)
     {
+        $this->forThisAccount($request->user());
+
         $data = $request->validate([
             'rating_period_id' => 'required|integer|exists:rating_periods,id',
             'user_id'          => 'required|integer|exists:users,id',
@@ -218,6 +222,8 @@ class AttendanceController extends Controller
 
     public function storeMeeting(Request $request)
     {
+        $this->forThisAccount($request->user());
+
         $data    = $this->validateMeeting($request, true);
         $user    = $request->user();
         $period  = $this->openPeriod($user, (int) $data['rating_period_id']);
@@ -241,6 +247,8 @@ class AttendanceController extends Controller
 
     public function updateMeeting(Request $request, $id)
     {
+        $this->forThisAccount($request->user());
+
         $data    = $this->validateMeeting($request, false);
         $meeting = $this->ownMeeting($request, $id);
         $period  = $this->openPeriod($request->user(), (int) $meeting->rating_period_id);
@@ -260,6 +268,8 @@ class AttendanceController extends Controller
 
     public function destroyMeeting(Request $request, $id)
     {
+        $this->forThisAccount($request->user());
+
         $meeting = $this->ownMeeting($request, $id);
         $this->openPeriod($request->user(), (int) $meeting->rating_period_id);
         $title    = $meeting->title;
@@ -280,6 +290,8 @@ class AttendanceController extends Controller
 
     public function markMeeting(Request $request, $id)
     {
+        $this->forThisAccount($request->user());
+
         $data = $request->validate([
             'user_id' => 'required|integer|exists:users,id',
             'status'  => 'nullable|in:' . implode(',', AttendanceMeetingMark::STATUSES),
@@ -318,12 +330,67 @@ class AttendanceController extends Controller
     }
 
     /**
+     * Mark everyone in the activity's office present (or another status) in one
+     * pass. The head can then tweak the few who were absent or excused.
+     */
+    public function markMeetingAll(Request $request, $id)
+    {
+        $this->forThisAccount($request->user());
+
+        $data = $request->validate([
+            'status' => 'nullable|in:' . implode(',', AttendanceMeetingMark::STATUSES),
+        ]);
+
+        $status  = $data['status'] ?? 'present';
+        $user    = $request->user();
+        $meeting = $this->ownMeeting($request, $id);
+        $this->openPeriod($user, (int) $meeting->rating_period_id);
+
+        $people = $this->peopleIn(OrgUnit::subtreeIds([(int) $meeting->org_unit_id]), $user);
+        $day    = $meeting->held_on->toDateString();
+        $periodId = (int) $meeting->rating_period_id;
+
+        foreach ($people as $person) {
+            AttendanceMeetingMark::updateOrCreate(
+                [
+                    'meeting_id' => $meeting->id,
+                    'user_id'    => $person->id,
+                ],
+                ['status' => $status],
+            );
+
+            $this->syncDayFromActivities((int) $user->id, (int) $person->id, $periodId, $day);
+            AttendanceRate::remember((int) $person->id, $periodId);
+        }
+
+        $meeting->refreshSavedRate();
+
+        return response()->json([
+            'data'   => 'saved',
+            'marked' => $people->count(),
+            'rate'   => $meeting->fresh()->savedRate(),
+        ]);
+    }
+
+    /**
      * An activity mark sets that calendar day. Present wins, then absent, then
      * excused, which is stored as leave so it stays on the sheet and out of the
      * daily percentage.
+     *
+     * A day already marked leave on the daily sheet is left alone. Meeting marks
+     * still count toward activity rates; changing leave is a manual daily edit.
      */
     private function syncDayFromActivities(int $actorId, int $personId, int $periodId, string $day): void
     {
+        $existing = AttendanceDay::query()
+            ->where('user_id', $personId)
+            ->whereDate('day', $day)
+            ->first();
+
+        if ($existing && $existing->status === 'leave') {
+            return;
+        }
+
         $statuses = AttendanceMeetingMark::query()
             ->where('user_id', $personId)
             ->whereHas('meeting', fn ($query) => $query
@@ -437,6 +504,16 @@ class AttendanceController extends Controller
         }
 
         return $months[0] ?? null;
+    }
+
+    /** A VP or the President has no attendance page on their account. */
+    private function forThisAccount(User $user): void
+    {
+        if (in_array($user->role, ['vp', 'president'], true)) {
+            abort(response()->json([
+                'message' => 'Attendance is not on this account.',
+            ], 403));
+        }
     }
 
     private function ledUnits(User $user): Collection

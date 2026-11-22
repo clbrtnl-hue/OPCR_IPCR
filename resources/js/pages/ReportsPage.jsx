@@ -5,11 +5,10 @@ import {
     Dropdown,
     Empty,
     Input,
+    Popover,
     Progress,
-    Segmented,
     Select,
     Space,
-    Switch,
     Table,
     Tabs,
     Tag,
@@ -17,16 +16,31 @@ import {
     Typography,
     message,
 } from "antd";
-import { DownOutlined, FileExcelOutlined, FilePdfOutlined, PrinterOutlined } from "@ant-design/icons";
+import {
+    DownOutlined,
+    FileExcelOutlined,
+    FilePdfOutlined,
+    FilterOutlined,
+    PrinterOutlined,
+} from "@ant-design/icons";
 import { useQuery } from "@tanstack/react-query";
+import ListPager, { tablePager, usePaged } from "~/components/ListPager";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import dayjs from "dayjs";
 import api from "~/utils/api";
 import { downloadFile, openPdf } from "~/utils/download";
-import { ADJECTIVAL_COLORS, RATING_LEGEND, SECTION_LABELS, STATUS_META, VIZ } from "~/utils/constants";
+import {
+    ADJECTIVAL_COLORS,
+    PROGRESS_META,
+    RATING_LEGEND,
+    SECTION_LABELS,
+    STATUS_META,
+    VIZ,
+} from "~/utils/constants";
+import { useAuth } from "~/hooks/useAuth";
 import PageHeader from "~/components/PageHeader";
 
-const TABS = [
+const COLLEGE_TABS = [
     { value: "units", label: "By unit" },
     { value: "heads", label: "By head" },
     { value: "vps", label: "By VP" },
@@ -35,6 +49,32 @@ const TABS = [
     { value: "commitments", label: "Commitments" },
     { value: "ratings", label: "Ratings" },
 ];
+
+/** Heads and VPs get a team desk — not the college hierarchy views. */
+const TEAM_TABS = [
+    { value: "commitments", label: "Commitments" },
+    { value: "people", label: "By individual" },
+    { value: "forms", label: "Forms" },
+    { value: "ratings", label: "Ratings" },
+    { value: "units", label: "By unit" },
+];
+
+const TEAM_ROLES = new Set(["program_head", "vp"]);
+
+function tabsFor(role) {
+    return TEAM_ROLES.has(role) ? TEAM_TABS : COLLEGE_TABS;
+}
+
+function defaultTab(role, params) {
+    if (params.has("late")) return "commitments";
+
+    const next = params.get("tab");
+    const allowed = tabsFor(role);
+
+    if (next && allowed.some((item) => item.value === next)) return next;
+
+    return TEAM_ROLES.has(role) ? "commitments" : "units";
+}
 
 const score = (value) => (value == null ? "—" : Number(value).toFixed(2));
 const emptyKind = {};
@@ -45,6 +85,72 @@ const TYPE_ORDER = ["IPCR", "OPCR"];
 const RATING_ORDER = RATING_LEGEND.map((band) => band.label);
 const STATUS_ORDER = Object.keys(STATUS_META);
 const SECTION_ORDER = Object.keys(SECTION_LABELS);
+const LINK_ORDER = ["linked", "unlinked"];
+const LINK_LABELS = { linked: "Linked", unlinked: "Unlinked" };
+const PROGRESS_ORDER = Object.keys(PROGRESS_META);
+const STANDING_ORDER = ["late", "due_soon", "on_track"];
+const STANDING_LABELS = { late: "Late", due_soon: "Due soon", on_track: "On track" };
+
+function standingOf(row) {
+    if (row.is_overdue) return "late";
+    if (row.due_soon) return "due_soon";
+
+    return "on_track";
+}
+
+function overdueStandingOf(row) {
+    return Number(row.overdue) > 0 ? "late" : "on_track";
+}
+
+function linkOf(row) {
+    return row.linked ? "linked" : "unlinked";
+}
+
+function unitOptions(rows) {
+    return [...new Set(rows.map((row) => row.unit).filter(Boolean))].sort(compareText).map((value) => ({
+        value,
+        label: value,
+    }));
+}
+
+function ratingField(rows, { includeUnrated = false } = {}) {
+    const order = includeUnrated ? [...RATING_ORDER, "unrated"] : RATING_ORDER;
+    const pick = (row) => (includeUnrated ? row.adjectival || "unrated" : row.adjectival);
+
+    return {
+        key: "adjectival",
+        label: "Rating",
+        all: "All ratings",
+        pick,
+        options: orderedChoices(rows, order, pick, (value) =>
+            value === "unrated" ? "Not yet rated" : value
+        ),
+    };
+}
+
+function unitField(rows) {
+    return {
+        key: "unit",
+        label: "Unit",
+        all: "All units",
+        pick: (row) => row.unit,
+        options: unitOptions(rows),
+    };
+}
+
+function overdueStandingField() {
+    return {
+        key: "standing",
+        label: "Standing",
+        all: "All standing",
+        always: true,
+        pick: overdueStandingOf,
+        options: [
+            { value: "late", label: "Late" },
+            { value: "on_track", label: "On track" },
+        ],
+    };
+}
 
 function compareText(a, b) {
     return String(a ?? "").localeCompare(String(b ?? ""), undefined, {
@@ -100,32 +206,69 @@ function orderedChoices(rows, order, pick, labelOf) {
     return [...known, ...extra].map((value) => ({ value, label: labelOf(value) }));
 }
 
-function KindSelect({ value, onChange, options, allLabel, width = 160 }) {
-    if (options.length < 2) return null;
+function visibleKindFields(fields) {
+    return fields.filter((field) => field.always || field.options.length >= 2);
+}
 
-    const current = options.some((item) => item.value === value) ? value : "all";
+function activeKindCount(fields, kind) {
+    return visibleKindFields(fields).filter((field) => {
+        const selected = kind[field.key] ?? "all";
 
-    return (
-        <Select
-            value={current}
-            onChange={onChange}
-            style={{ minWidth: width }}
-            options={[{ value: "all", label: allLabel }, ...options]}
-        />
-    );
+        return selected !== "all" && field.options.some((item) => item.value === selected);
+    }).length;
 }
 
 function ReportKinds({ fields, kind, onChange }) {
-    return fields.map((field) => (
-        <KindSelect
-            key={field.key}
-            value={kind[field.key] ?? "all"}
-            onChange={(value) => onChange(field.key, value)}
-            options={field.options}
-            allLabel={field.all}
-            width={field.width}
-        />
-    ));
+    const visible = visibleKindFields(fields);
+
+    if (visible.length === 0) return null;
+
+    const active = activeKindCount(fields, kind);
+
+    return (
+        <Popover
+            trigger="click"
+            placement="bottomRight"
+            content={
+                <div className="pms-report-kind-panel">
+                    {visible.map((field) => {
+                        const selected = kind[field.key] ?? "all";
+                        const current = field.options.some((item) => item.value === selected)
+                            ? selected
+                            : "all";
+
+                        return (
+                            <label key={field.key} className="pms-report-kind-row">
+                                <span>{field.label}</span>
+                                <Select
+                                    value={current}
+                                    onChange={(value) => onChange(field.key, value)}
+                                    options={[{ value: "all", label: field.all }, ...field.options]}
+                                    popupMatchSelectWidth={false}
+                                />
+                            </label>
+                        );
+                    })}
+                    {active > 0 && (
+                        <Button
+                            type="link"
+                            size="small"
+                            className="pms-report-kind-clear"
+                            onClick={() => visible.forEach((field) => onChange(field.key, "all"))}
+                        >
+                            Clear filters
+                        </Button>
+                    )}
+                </div>
+            }
+        >
+            <Button icon={<FilterOutlined />}>
+                Filters
+                {active > 0 ? <em className="pms-report-kind-count">{active}</em> : null}
+                <DownOutlined />
+            </Button>
+        </Popover>
+    );
 }
 
 function progressBar(value, done = false) {
@@ -164,9 +307,9 @@ function ReportSort({ value, onChange }) {
     return (
         <Select
             aria-label="Sort"
+            className="pms-filter-select"
             value={value}
             onChange={onChange}
-            style={{ width: 120 }}
             options={[
                 { value: "az", label: "A–Z" },
                 { value: "value", label: "Value" },
@@ -175,7 +318,7 @@ function ReportSort({ value, onChange }) {
     );
 }
 
-function ReportFilters({ search, onSearch, sort, onSort, tab, lateOnly, onLateOnly, children }) {
+function ReportFilters({ search, onSearch, sort, onSort, children }) {
     return (
         <>
             <Input.Search
@@ -186,24 +329,21 @@ function ReportFilters({ search, onSearch, sort, onSort, tab, lateOnly, onLateOn
             />
             <ReportSort value={sort} onChange={onSort} />
             {children}
-            {tab === "commitments" && (
-                <label className="pms-late-only">
-                    <Switch size="small" checked={lateOnly} onChange={onLateOnly} />
-                    Late only
-                </label>
-            )}
         </>
     );
 }
 
 function ReportCards({ tab, rows, onOpen }) {
+    const cardPage = usePaged(rows, 20);
+
     if (rows.length === 0) {
         return <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="Nothing matches." />;
     }
 
     return (
+        <div className="pms-paged">
         <div className="pms-report-cards">
-            {rows.map((row) => {
+            {cardPage.rows.map((row) => {
                 const openable = tab === "forms" || tab === "ratings";
                 const title =
                     tab === "units"
@@ -243,6 +383,11 @@ function ReportCards({ tab, rows, onOpen }) {
                                 <Tag color={STATUS_META[row.status].color}>{STATUS_META[row.status].label}</Tag>
                             )}
                             {row.is_overdue && <Tag color="error">Late</Tag>}
+                            {tab === "commitments" && (
+                                <Tag color={row.linked ? "blue" : undefined}>
+                                    {row.linked ? "Linked" : "Unlinked"}
+                                </Tag>
+                            )}
                         </span>
                         <strong>{title}</strong>
                         {meta && <span>{meta}</span>}
@@ -262,26 +407,26 @@ function ReportCards({ tab, rows, onOpen }) {
                 );
             })}
         </div>
+        <ListPager page={cardPage.page} pageSize={cardPage.pageSize} total={cardPage.total} onChange={cardPage.setPage} />
+        </div>
     );
 }
 
 export default function ReportsPage() {
+    const { user } = useAuth();
     const navigate = useNavigate();
     const [searchParams] = useSearchParams();
     const query = searchParams.toString();
+    const teamReport = TEAM_ROLES.has(user?.role);
+    const tabs = useMemo(() => tabsFor(user?.role), [user?.role]);
     const [yearId, setYearId] = useState(null);
     const [periodId, setPeriodId] = useState(null);
-    const [tab, setTab] = useState(() => {
-        if (searchParams.has("late")) return "commitments";
-
-        const next = searchParams.get("tab");
-
-        return TABS.some((item) => item.value === next) ? next : "units";
-    });
+    const [tab, setTab] = useState(() => defaultTab(user?.role, searchParams));
     const [search, setSearch] = useState(() => searchParams.get("q") ?? "");
     const [sort, setSort] = useState("az");
-    const [lateOnly, setLateOnly] = useState(() => searchParams.has("late"));
-    const [kindByTab, setKindByTab] = useState({});
+    const [kindByTab, setKindByTab] = useState(() =>
+        searchParams.has("late") ? { commitments: { standing: "late" } } : {}
+    );
     const [busy, setBusy] = useState(false);
 
     useEffect(() => {
@@ -289,16 +434,22 @@ export default function ReportsPage() {
 
         if (params.has("late")) {
             setTab("commitments");
-            setLateOnly(true);
+            setKindByTab((prev) => ({
+                ...prev,
+                commitments: { ...prev.commitments, standing: "late" },
+            }));
         } else {
-            const next = params.get("tab");
-
-            setTab(TABS.some((item) => item.value === next) ? next : "units");
-            setLateOnly(false);
+            setTab(defaultTab(user?.role, params));
         }
 
         setSearch(params.get("q") ?? "");
-    }, [query]);
+    }, [query, user?.role]);
+
+    useEffect(() => {
+        if (!tabs.some((item) => item.value === tab)) {
+            setTab(teamReport ? "commitments" : "units");
+        }
+    }, [tabs, tab, teamReport]);
 
     const { data: years = [] } = useQuery({
         queryKey: ["school-years"],
@@ -346,27 +497,37 @@ export default function ReportsPage() {
             return [
                 {
                     key: "level",
+                    label: "Level",
                     all: "All levels",
-                    width: 150,
                     pick: (row) => row.type,
                     options: orderedChoices(tabRows, LEVEL_ORDER, (row) => row.type, (value) => LEVEL_LABELS[value] ?? value),
                 },
+                ratingField(tabRows, { includeUnrated: true }),
+                overdueStandingField(),
             ];
+        }
+
+        if (tab === "heads" || tab === "vps") {
+            return [unitField(tabRows), ratingField(tabRows, { includeUnrated: true }), overdueStandingField()];
+        }
+
+        if (tab === "people") {
+            return [unitField(tabRows), ratingField(tabRows, { includeUnrated: true }), overdueStandingField()];
         }
 
         if (tab === "forms") {
             return [
                 {
                     key: "type",
+                    label: "Type",
                     all: "All forms",
-                    width: 150,
                     pick: (row) => row.type,
                     options: orderedChoices(tabRows, TYPE_ORDER, (row) => row.type, (value) => value),
                 },
                 {
                     key: "status",
+                    label: "Status",
                     all: "All statuses",
-                    width: 220,
                     pick: (row) => row.status,
                     options: orderedChoices(
                         tabRows,
@@ -375,6 +536,7 @@ export default function ReportsPage() {
                         (value) => STATUS_META[value]?.label ?? value
                     ),
                 },
+                unitField(tabRows),
             ];
         }
 
@@ -382,18 +544,13 @@ export default function ReportsPage() {
             return [
                 {
                     key: "type",
+                    label: "Type",
                     all: "All forms",
-                    width: 150,
                     pick: (row) => row.type,
                     options: orderedChoices(tabRows, TYPE_ORDER, (row) => row.type, (value) => value),
                 },
-                {
-                    key: "adjectival",
-                    all: "All ratings",
-                    width: 200,
-                    pick: (row) => row.adjectival,
-                    options: orderedChoices(tabRows, RATING_ORDER, (row) => row.adjectival, (value) => value),
-                },
+                ratingField(tabRows),
+                unitField(tabRows),
             ];
         }
 
@@ -401,8 +558,8 @@ export default function ReportsPage() {
             return [
                 {
                     key: "section",
+                    label: "Section",
                     all: "All sections",
-                    width: 200,
                     pick: (row) => row.section,
                     options: orderedChoices(
                         tabRows,
@@ -411,23 +568,38 @@ export default function ReportsPage() {
                         (value) => SECTION_LABELS[value] ?? value
                     ),
                 },
+                {
+                    key: "link",
+                    label: "Link",
+                    all: "All links",
+                    always: true,
+                    pick: linkOf,
+                    options: LINK_ORDER.map((value) => ({ value, label: LINK_LABELS[value] })),
+                },
+                {
+                    key: "progress",
+                    label: "Progress",
+                    all: "All progress",
+                    always: true,
+                    pick: (row) => row.progress_status || "not_started",
+                    options: PROGRESS_ORDER.map((value) => ({
+                        value,
+                        label: PROGRESS_META[value]?.label ?? value,
+                    })),
+                },
+                unitField(tabRows),
+                {
+                    key: "standing",
+                    label: "Standing",
+                    all: "All standing",
+                    always: true,
+                    pick: standingOf,
+                    options: STANDING_ORDER.map((value) => ({ value, label: STANDING_LABELS[value] })),
+                },
             ];
         }
 
-        return [
-            {
-                key: "adjectival",
-                all: "All ratings",
-                width: 200,
-                pick: (row) => row.adjectival || "unrated",
-                options: orderedChoices(
-                    tabRows,
-                    [...RATING_ORDER, "unrated"],
-                    (row) => row.adjectival || "unrated",
-                    (value) => (value === "unrated" ? "Not yet rated" : value)
-                ),
-            },
-        ];
+        return [];
     }, [tab, tabRows]);
 
     const kind = kindByTab[tab] ?? emptyKind;
@@ -468,12 +640,10 @@ export default function ReportsPage() {
                 : searched(picked, ["owner", "unit", "type", "adjectival"]);
         }
 
-        const late = lateOnly ? picked.filter((row) => row.is_overdue) : picked;
-
         return exactSection
-            ? late.filter((row) => String(row.section ?? "").toLowerCase() === term)
-            : searched(late, ["description", "owner", "unit", "section"]);
-    }, [tabRows, tab, search, lateOnly, kind, kindFields]);
+            ? picked.filter((row) => String(row.section ?? "").toLowerCase() === term)
+            : searched(picked, ["description", "owner", "unit", "section"]);
+    }, [tabRows, tab, search, kind, kindFields]);
 
     const sortedRows = useMemo(() => sortRows(rows, tab, sort), [rows, tab, sort]);
 
@@ -492,7 +662,7 @@ export default function ReportsPage() {
                 params.set("table", tab);
                 params.set("format", kind);
 
-                const name = `OCC PMS ${TABS.find((t) => t.value === tab).label} ${stamp}`.trim();
+                const name = `OCC PMS ${tabs.find((t) => t.value === tab)?.label ?? "Report"} ${stamp}`.trim();
 
                 await downloadFile(
                     `reports/summary/export?${params}`,
@@ -745,6 +915,12 @@ export default function ReportsPage() {
             render: (value) => SECTION_LABELS[value] ?? value,
         },
         {
+            title: "Link",
+            dataIndex: "linked",
+            width: 100,
+            render: (value) => (value ? <Tag color="blue">Linked</Tag> : <Tag>Unlinked</Tag>),
+        },
+        {
             title: "Target date",
             dataIndex: "target_date",
             render: (value) => (value ? dayjs(value).format("MMM D, YYYY") : "—"),
@@ -777,14 +953,18 @@ export default function ReportsPage() {
         people: { columns: peopleColumns, rowKey: "id", scroll: 1200 },
         forms: { columns: formColumns, rowKey: "id", scroll: 1300 },
         ratings: { columns: ratingColumns, rowKey: "id", scroll: 1000 },
-        commitments: { columns: commitmentColumns, rowKey: "id", scroll: 1500 },
+        commitments: { columns: commitmentColumns, rowKey: "id", scroll: 1600 },
     }[tab];
 
     return (
         <>
             <PageHeader
-                title="Reports"
-                subtitle="Every form, unit and commitment in the cycle — filter it, then take it away as Excel or PDF."
+                title={teamReport ? "Team report" : "Reports"}
+                subtitle={
+                    teamReport
+                        ? "Forms, people and commitments in the offices you lead — filter it, then take it away as Excel or PDF."
+                        : "Every form, unit and commitment in the cycle — filter it, then take it away as Excel or PDF."
+                }
                 extra={
                     <Space wrap className="pms-page-extra">
                         <Select
@@ -796,16 +976,20 @@ export default function ReportsPage() {
                             }}
                             options={years.map((y) => ({
                                 value: y.id,
-                                label: y.is_active ? `${y.label} (active)` : y.label,
+                                label: y.is_active ? `${y.label} ★` : y.label,
                             }))}
                         />
                         {year?.periods?.length > 0 && (
-                            <Segmented
+                            <Select
+                                className="pms-year-select"
                                 value={periodId ?? "all"}
-                                onChange={(v) => setPeriodId(v === "all" ? null : v)}
+                                onChange={(value) => setPeriodId(value === "all" ? null : value)}
                                 options={[
                                     { value: "all", label: "Whole year" },
-                                    ...year.periods.map((p) => ({ value: p.id, label: p.label })),
+                                    ...year.periods.map((p) => ({
+                                        value: p.id,
+                                        label: p.is_active ? `${p.label} ★` : p.label,
+                                    })),
                                 ]}
                             />
                         )}
@@ -820,7 +1004,7 @@ export default function ReportsPage() {
             ) : (
                 <>
                     <div className="pms-desktop-only">
-                    <Card>
+                    <Card className="pms-list-panel pms-list-fill">
                         <div className="pms-report-bar">
                             <Tabs
                                 className="pms-line-tabs"
@@ -829,7 +1013,7 @@ export default function ReportsPage() {
                                     setTab(value);
                                     setSearch("");
                                 }}
-                                items={TABS.map((item) => ({ key: item.value, label: item.label }))}
+                                items={tabs.map((item) => ({ key: item.value, label: item.label }))}
                             />
                             <Space wrap>
                                 <Input.Search
@@ -841,12 +1025,6 @@ export default function ReportsPage() {
                                 />
                                 <ReportSort value={sort} onChange={setSort} />
                                 <ReportKinds fields={kindFields} kind={kind} onChange={setKindValue} />
-                                {tab === "commitments" && (
-                                    <Space size={6}>
-                                        <Switch size="small" checked={lateOnly} onChange={setLateOnly} />
-                                        <Typography.Text type="secondary">Late only</Typography.Text>
-                                    </Space>
-                                )}
                                 <ReportExport busy={busy} onDownload={download} />
                             </Space>
                         </div>
@@ -869,7 +1047,7 @@ export default function ReportsPage() {
                             columns={table.columns}
                             loading={isLoading || isPlaceholderData}
                             size="small"
-                            pagination={{ pageSize: 20, showSizeChanger: true, showTotal: (t) => `${t} rows` }}
+                            pagination={tablePager(20, { showSizeChanger: true, showTotal: (t) => `${t} rows` })}
                             scroll={{ x: table.scroll }}
                             onRow={(row) =>
                                 tab === "forms" || tab === "ratings"
@@ -896,7 +1074,7 @@ export default function ReportsPage() {
                                     setTab(value);
                                     setSearch("");
                                 }}
-                                items={TABS.map((item) => ({ key: item.value, label: item.label }))}
+                                items={tabs.map((item) => ({ key: item.value, label: item.label }))}
                             />
                         </div>
 
@@ -906,9 +1084,6 @@ export default function ReportsPage() {
                                 onSearch={setSearch}
                                 sort={sort}
                                 onSort={setSort}
-                                tab={tab}
-                                lateOnly={lateOnly}
-                                onLateOnly={setLateOnly}
                             >
                                 <ReportKinds fields={kindFields} kind={kind} onChange={setKindValue} />
                             </ReportFilters>

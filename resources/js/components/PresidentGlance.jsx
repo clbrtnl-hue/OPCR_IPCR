@@ -1,9 +1,19 @@
 import React from "react";
-import { Empty } from "antd";
+import { Empty, Popconfirm, message } from "antd";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import dayjs from "dayjs";
-import { RATING_LEGEND, SECTION_LABELS, VIZ } from "~/utils/constants";
+import { RATING_LEGEND, VIZ } from "~/utils/constants";
 import StatusRing from "~/components/charts/StatusRing";
+import api from "~/utils/api";
+import { useAuth } from "~/hooks/useAuth";
+
+const STAGE_SHORT = {
+    approval: "Approver",
+    head: "Head",
+    dean: "Dean",
+    vp: "VP",
+};
 
 const TYPE_LABELS = { office: "Office", program: "Program" };
 
@@ -14,84 +24,6 @@ const BAND_COLOR = {
     Unsatisfactory: VIZ.warning,
     Poor: VIZ.critical,
 };
-
-const FLOW_STATUS = [
-    { key: "Completed", color: "#7BC96A", href: () => reportPath("commitments") },
-    { key: "Ongoing", color: "#D4920A", href: () => reportPath("commitments") },
-    { key: "Not started", color: "#C4B6F2", href: () => reportPath("commitments") },
-    { key: "Overdue", color: "#E7A0C4", href: () => "/reports?late=1" },
-];
-
-const FLOW_COLOR = {
-    strategic: "#7A6AF0",
-    core: "#3DDC97",
-    support: "#F0A05A",
-};
-
-const FLOW_SHORT = {
-    strategic: "Strategic",
-    core: "Core",
-    support: "Support",
-};
-
-function hexRgb(hex) {
-    const value = Number.parseInt(hex.slice(1), 16);
-
-    return [(value >> 16) & 255, (value >> 8) & 255, value & 255];
-}
-
-function rgbHsl(r, g, b) {
-    const red = r / 255;
-    const green = g / 255;
-    const blue = b / 255;
-    const max = Math.max(red, green, blue);
-    const min = Math.min(red, green, blue);
-    const light = (max + min) / 2;
-
-    if (max === min) return [0, 0, light];
-
-    const delta = max - min;
-    const sat = light > 0.5 ? delta / (2 - max - min) : delta / (max + min);
-    let hue = 0;
-
-    if (max === red) hue = (green - blue) / delta + (green < blue ? 6 : 0);
-    else if (max === green) hue = (blue - red) / delta + 2;
-    else hue = (red - green) / delta + 4;
-
-    return [hue / 6, sat, light];
-}
-
-function hslHex(hue, sat, light) {
-    const channel = (p, q, t) => {
-        let turn = t;
-
-        if (turn < 0) turn += 1;
-        if (turn > 1) turn -= 1;
-        if (turn < 1 / 6) return p + (q - p) * 6 * turn;
-        if (turn < 1 / 2) return q;
-        if (turn < 2 / 3) return p + (q - p) * (2 / 3 - turn) * 6;
-
-        return p;
-    };
-
-    const q = light < 0.5 ? light * (1 + sat) : light + sat - light * sat;
-    const p = 2 * light - q;
-    const toHex = (part) => Math.round(part * 255).toString(16).padStart(2, "0");
-
-    return `#${toHex(channel(p, q, hue + 1 / 3))}${toHex(channel(p, q, hue))}${toHex(channel(p, q, hue - 1 / 3))}`;
-}
-
-/** Keeps the middle of a ribbon vivid, the way the reference blends purple into gold and green into rose. */
-function mixRibbon(from, to) {
-    const [h1, s1, l1] = rgbHsl(...hexRgb(from));
-    const [h2, , l2] = rgbHsl(...hexRgb(to));
-    let turn = h2 - h1;
-
-    if (turn > 0.5) turn -= 1;
-    if (turn < -0.5) turn += 1;
-
-    return hslHex((h1 + turn * 0.5 + 1) % 1, Math.max(s1, 0.42), (l1 + l2) / 2);
-}
 
 function paceColor(pct) {
     if (pct == null) return VIZ.muted;
@@ -164,246 +96,6 @@ function hasWorkingDescendant(id, childrenOf, stats) {
     return false;
 }
 
-function FlowMark({ name }) {
-    if (name === "Completed") {
-        return (
-            <svg viewBox="0 0 16 16" width="15" height="15">
-                <path d="M3.2 8.4 6.2 11.4 12.8 4.6" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
-        );
-    }
-
-    if (name === "Ongoing") {
-        return (
-            <svg viewBox="0 0 16 16" width="15" height="15">
-                <path d="M4 8h8M9 5l3 3-3 3" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
-        );
-    }
-
-    if (name === "Overdue") {
-        return (
-            <svg viewBox="0 0 16 16" width="15" height="15">
-                <path d="M8 4.2v4.4M8 11.6h.01" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
-            </svg>
-        );
-    }
-
-    return (
-        <svg viewBox="0 0 16 16" width="15" height="15">
-            <circle cx="8" cy="8" r="3.2" fill="none" stroke="currentColor" strokeWidth="1.8" />
-        </svg>
-    );
-}
-
-function WorkFlow({ lines, sections, onOpen }) {
-    const model = React.useMemo(() => {
-        const matrix = new Map();
-
-        for (const line of lines) {
-            const source = line.section && FLOW_SHORT[line.section] ? line.section : "other";
-            const target = statusOf(line);
-            const key = `${source}|${target}`;
-            matrix.set(key, (matrix.get(key) ?? 0) + 1);
-        }
-
-        const total = lines.length || 1;
-        const sources = [
-            ...sections.map((section) => ({
-                key: section.section,
-                label: FLOW_SHORT[section.section] ?? section.label,
-                full: section.label,
-                color: section.color,
-                href: section.href,
-            })),
-            {
-                key: "other",
-                label: "Other",
-                full: "Other",
-                color: "#9aa0ab",
-                href: reportPath("commitments"),
-            },
-        ]
-            .map((source) => ({
-                ...source,
-                value: FLOW_STATUS.reduce((sum, status) => sum + (matrix.get(`${source.key}|${status.key}`) ?? 0), 0),
-            }))
-            .filter((source) => source.value > 0)
-            .map((source) => ({ ...source, pct: percent(source.value, total) ?? 0 }));
-
-        const targets = FLOW_STATUS.map((status) => ({
-            ...status,
-            href: status.href(),
-            value: sources.reduce((sum, source) => sum + (matrix.get(`${source.key}|${status.key}`) ?? 0), 0),
-        })).filter((status) => status.value > 0);
-
-        const gap = 10;
-        const band = 168;
-
-        const stack = (nodes) => {
-            const sum = nodes.reduce((count, node) => count + node.value, 0) || 1;
-            const room = band - gap * Math.max(nodes.length - 1, 0);
-            let y = 0;
-
-            return nodes.map((node, index) => {
-                const h = Math.max((node.value / sum) * room, 36);
-                const placed = { ...node, y, h };
-                y += h + (index < nodes.length - 1 ? gap : 0);
-
-                return placed;
-            });
-        };
-
-        const left = stack(sources);
-        const right = stack(targets);
-        const leftAt = new Map(left.map((node) => [node.key, node.y]));
-        const rightAt = new Map(right.map((node) => [node.key, node.y]));
-        const ribbons = [];
-
-        for (const source of left) {
-            for (const target of right) {
-                const value = matrix.get(`${source.key}|${target.key}`) ?? 0;
-
-                if (!value) continue;
-
-                const h1 = (value / source.value) * source.h;
-                const h2 = (value / target.value) * target.h;
-                const y1 = leftAt.get(source.key);
-                const y2 = rightAt.get(target.key);
-                leftAt.set(source.key, y1 + h1);
-                rightAt.set(target.key, y2 + h2);
-                ribbons.push({
-                    key: `${source.key}-${target.key}`,
-                    gid: `flow-${source.key}-${target.key}`.replace(/[^a-z0-9-]+/gi, ""),
-                    source,
-                    target,
-                    value,
-                    y1,
-                    h1,
-                    y2,
-                    h2,
-                });
-            }
-        }
-
-        const bottom = (nodes) => (nodes.length ? nodes[nodes.length - 1].y + nodes[nodes.length - 1].h : 0);
-
-        return { left, right, ribbons, height: Math.max(bottom(left), bottom(right), 48) };
-    }, [lines, sections]);
-
-    const frame = React.useRef(null);
-    const [span, setSpan] = React.useState(220);
-
-    React.useLayoutEffect(() => {
-        const node = frame.current;
-
-        if (!node) return undefined;
-
-        const measure = () => {
-            const next = Math.round(node.getBoundingClientRect().width);
-
-            if (next > 0) setSpan(next);
-        };
-
-        measure();
-        const observer = new ResizeObserver(measure);
-        observer.observe(node);
-
-        return () => observer.disconnect();
-    }, [model.ribbons.length]);
-
-    if (!model.ribbons.length) {
-        return <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="No commitments to trace yet." />;
-    }
-
-    const width = span;
-
-    const pathFor = (ribbon) => {
-        const r1 = Math.min(ribbon.h1 / 2, 16);
-        const r2 = Math.min(ribbon.h2 / 2, 16);
-        const x1 = 0;
-        const x2 = width;
-        const bend = (x2 - x1) * 0.5;
-        const y1 = ribbon.y1;
-        const y1b = ribbon.y1 + ribbon.h1;
-        const y2 = ribbon.y2;
-        const y2b = ribbon.y2 + ribbon.h2;
-
-        return [
-            `M ${x1} ${y1 + r1}`,
-            `A ${r1} ${r1} 0 0 1 ${x1 + r1} ${y1}`,
-            `C ${x1 + bend} ${y1}, ${x2 - bend} ${y2}, ${x2 - r2} ${y2}`,
-            `A ${r2} ${r2} 0 0 1 ${x2} ${y2 + r2}`,
-            `L ${x2} ${y2b - r2}`,
-            `A ${r2} ${r2} 0 0 1 ${x2 - r2} ${y2b}`,
-            `C ${x2 - bend} ${y2b}, ${x1 + bend} ${y1b}, ${x1 + r1} ${y1b}`,
-            `A ${r1} ${r1} 0 0 1 ${x1} ${y1b - r1}`,
-            "Z",
-        ].join(" ");
-    };
-
-    return (
-        <div className="pms-flow">
-            <div className="pms-flow-side is-left" style={{ height: model.height }}>
-                {model.left.map((node) => (
-                    <button
-                        key={node.key}
-                        type="button"
-                        style={{ height: node.h }}
-                        title={node.full}
-                        onClick={() => onOpen(node.href)}
-                    >
-                        <strong>{node.pct}%</strong>
-                        <span>{node.label}</span>
-                    </button>
-                ))}
-            </div>
-            <svg ref={frame} className="pms-flow-svg" viewBox={`0 0 ${width} ${model.height}`} style={{ height: model.height }} role="img" aria-label="Where commitments move">
-                <defs>
-                    {model.ribbons.map((ribbon) => (
-                        <linearGradient key={ribbon.key} id={ribbon.gid} x1="0" y1="0" x2="1" y2="0">
-                            <stop offset="0%" stopColor={ribbon.source.color} />
-                            <stop offset="50%" stopColor={mixRibbon(ribbon.source.color, ribbon.target.color)} />
-                            <stop offset="100%" stopColor={ribbon.target.color} />
-                        </linearGradient>
-                    ))}
-                </defs>
-                {model.ribbons.map((ribbon) => (
-                    <path
-                        key={ribbon.key}
-                        d={pathFor(ribbon)}
-                        fill={`url(#${ribbon.gid})`}
-                        onClick={() => onOpen(ribbon.source.href)}
-                    >
-                        <title>{`${ribbon.source.full} → ${ribbon.target.key} · ${ribbon.value}`}</title>
-                    </path>
-                ))}
-            </svg>
-            <div className="pms-flow-side is-right" style={{ height: model.height }}>
-                {model.right.map((node) => (
-                    <button key={node.key} type="button" style={{ height: node.h }} onClick={() => onOpen(node.href)}>
-                        <span className="pms-flow-copy">
-                            <strong>{node.value}</strong>
-                            <em>{node.key}</em>
-                        </span>
-                        <span className="pms-flow-badge" style={{ color: node.color }} aria-hidden="true">
-                            <FlowMark name={node.key} />
-                        </span>
-                    </button>
-                ))}
-            </div>
-        </div>
-    );
-}
-
-function statusOf(line) {
-    if (line.progress_status === "completed") return "Completed";
-    if (line.is_overdue) return "Overdue";
-    if (line.progress_status === "not_started") return "Not started";
-
-    return "Ongoing";
-}
-
 function BoardCard({ title, note, children, className }) {
     return (
         <section className={["pms-board-card", className].filter(Boolean).join(" ")}>
@@ -416,13 +108,26 @@ function BoardCard({ title, note, children, className }) {
     );
 }
 
-export default function PresidentGlance({ data }) {
+export default function PresidentGlance({ data, periodLocked = false }) {
     const navigate = useNavigate();
+    const queryClient = useQueryClient();
+    const { user } = useAuth();
     const totals = data?.totals ?? {};
     const collegePct = totals.progress_pct ?? null;
     const lines = data?.commitments ?? [];
 
     const open = (href) => navigate(href);
+
+    const nudge = useMutation({
+        mutationFn: (formId) => api.post(`pcr-forms/${formId}/nudge`),
+        onSuccess: ({ data: payload }) => {
+            message.success(payload?.message ?? "Follow-up sent.");
+            queryClient.invalidateQueries({ queryKey: ["report-summary"] });
+        },
+        onError: (error) => {
+            message.error(error?.response?.data?.message ?? "Could not send the follow-up.");
+        },
+    });
 
     const ranked = React.useMemo(() => {
         const units = data?.units ?? [];
@@ -524,7 +229,7 @@ export default function PresidentGlance({ data }) {
             label: "Overdue",
             value: overdue,
             color: VIZ.critical,
-            href: "/reports?late=1",
+            href: "/reports?tab=commitments&late=1",
             hint: `${overdue} commitment${overdue === 1 ? "" : "s"} past the target date`,
         },
     ];
@@ -558,13 +263,6 @@ export default function PresidentGlance({ data }) {
             .sort((a, b) => (b.value ?? -1) - (a.value ?? -1) || a.label.localeCompare(b.label));
     }, [data]);
 
-    const sections = (data?.sections ?? []).map((section) => ({
-        ...section,
-        label: SECTION_LABELS[section.section] ?? section.section,
-        href: reportPath("commitments", section.section),
-        color: FLOW_COLOR[section.section] ?? "#9aa0ab",
-    }));
-
     const ratedTotal = Number(totals.rated ?? 0);
     const bands = RATING_LEGEND.map((band) => ({
         key: band.label,
@@ -583,13 +281,37 @@ export default function PresidentGlance({ data }) {
               ? `${fastestVp.label} is the only VP with commitments recorded.`
               : "No VP has commitments recorded yet.";
 
-    const sized = sections.filter((section) => section.commitments > 0).sort((a, b) => b.commitments - a.commitments);
-    const sectionNote =
-        sized.length > 1
-            ? `${sized[0].label} takes the largest share, ${sized[sized.length - 1].label} the smallest.`
-            : sized.length === 1
-              ? `${sized[0].label} holds the commitments recorded so far.`
-              : "No section has commitments yet.";
+    const waitingStages = (data?.turnaround?.waiting ?? [])
+        .filter((row) => row.forms > 0)
+        .map((row) => {
+            const oldest = row.oldest_days != null ? Number(row.oldest_days) : null;
+            let tone = "ok";
+
+            if (oldest != null && oldest >= 7) tone = "late";
+            else if (oldest != null && oldest >= 3) tone = "slow";
+
+            return {
+                key: row.status,
+                label: row.label,
+                forms: row.forms,
+                oldest,
+                tone,
+                href: reportPath("forms", row.status),
+            };
+        });
+    const pendingReviewers = [...(data?.turnaround?.reviewers ?? [])]
+        .filter((row) => row.pending > 0 && row.oldest_form_id)
+        .sort((a, b) => (b.oldest_pending_days ?? 0) - (a.oldest_pending_days ?? 0))
+        .slice(0, 4);
+    const waitingTotal = waitingStages.reduce((sum, row) => sum + row.forms, 0);
+    const queueNote =
+        waitingTotal > 0
+            ? `${waitingTotal} form${waitingTotal === 1 ? "" : "s"} waiting on a reviewer${
+                  overdue > 0 ? ` · ${overdue} commitment${overdue === 1 ? "" : "s"} overdue` : ""
+              }.`
+            : overdue > 0
+              ? `No forms are waiting in review · ${overdue} commitment${overdue === 1 ? "" : "s"} overdue.`
+              : "Nothing is waiting on a reviewer right now.";
 
     return (
         <div className="pms-president">
@@ -694,7 +416,7 @@ export default function PresidentGlance({ data }) {
                 <div className="pms-status-piles">
                     <button type="button" onClick={() => open(reportPath("people"))}>
                         <i className="is-ahead" />
-                        <span>Paspas</span>
+                        <span>Ahead</span>
                         <span className="pms-board-faces" aria-hidden="true">
                             {aheadPeople.slice(0, 3).map((person) => (
                                 <span key={person.id} title={person.name}>
@@ -706,7 +428,7 @@ export default function PresidentGlance({ data }) {
                     </button>
                     <button type="button" onClick={() => open(reportPath("people"))}>
                         <i />
-                        <span>Wala pa</span>
+                        <span>Not started</span>
                         <span className="pms-board-faces" aria-hidden="true">
                             {idlePeople.slice(0, 3).map((person) => (
                                 <span key={person.id} title={person.name}>
@@ -717,6 +439,112 @@ export default function PresidentGlance({ data }) {
                         <strong>+{peopleIdle}</strong>
                     </button>
                 </div>
+            </BoardCard>
+
+            <BoardCard title="Where forms wait" note={queueNote} className="pms-board-queue">
+                {waitingStages.length === 0 && pendingReviewers.length === 0 ? (
+                    <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="Nothing is waiting on a reviewer." />
+                ) : (
+                    <div className="pms-board-queue-body">
+                        {waitingStages.length > 0 && (
+                            <div className="pms-board-pipeline">
+                                {waitingStages.map((row, index) => (
+                                    <button
+                                        key={row.key}
+                                        type="button"
+                                        className={`pms-board-pipe is-${row.tone}`}
+                                        title={
+                                            row.oldest != null
+                                                ? `${row.label}: ${row.forms} form${row.forms === 1 ? "" : "s"} — oldest ${Math.round(row.oldest)}d`
+                                                : `${row.label}: ${row.forms} form${row.forms === 1 ? "" : "s"}`
+                                        }
+                                        onClick={() => open(row.href)}
+                                    >
+                                        <span className="pms-board-pipe-step" aria-hidden="true">
+                                            {index + 1}
+                                        </span>
+                                        <span className="pms-board-pipe-copy">
+                                            <strong>{row.label}</strong>
+                                            <em>
+                                                {row.oldest != null
+                                                    ? `oldest ${Math.round(row.oldest)}d`
+                                                    : "in queue"}
+                                            </em>
+                                        </span>
+                                        <span className="pms-board-pipe-count">{row.forms}</span>
+                                    </button>
+                                ))}
+                            </div>
+                        )}
+                        {pendingReviewers.length > 0 && (
+                            <div className="pms-board-queue-people">
+                                {pendingReviewers.map((row) => {
+                                    const oldestDays = Math.round(row.oldest_pending_days ?? 0);
+                                    const owner = row.oldest_owner_name ?? "a staff member";
+                                    const who = row.name ?? "Unassigned";
+                                    const onMyStep = Number(row.id) === Number(user?.id);
+                                    const canNudgeRow =
+                                        Boolean(row.oldest_form_id) &&
+                                        !nudge.isPending &&
+                                        !periodLocked &&
+                                        !onMyStep;
+
+                                    return (
+                                        <div key={`${row.stage}-${row.id}`} className="pms-board-queue-row">
+                                            <button
+                                                type="button"
+                                                className="pms-board-queue-person"
+                                                onClick={() => row.name && open(reportPath("people", row.name))}
+                                                disabled={!row.name}
+                                                title={`${who} · ${row.pending} waiting · oldest ${oldestDays}d`}
+                                            >
+                                                <span className="pms-board-faces" aria-hidden="true">
+                                                    <span>{initials(row.name)}</span>
+                                                </span>
+                                                <span className="pms-board-queue-who">
+                                                    <strong>{who}</strong>
+                                                    <em>{STAGE_SHORT[row.stage] ?? row.stage}</em>
+                                                </span>
+                                                <span className="pms-board-queue-wait">
+                                                    <strong>{row.pending}</strong>
+                                                    <em>oldest {oldestDays}d</em>
+                                                </span>
+                                            </button>
+                                            <Popconfirm
+                                                title="Send a follow-up?"
+                                                description={
+                                                    periodLocked
+                                                        ? "This review period is locked. Unlock it before sending a follow-up."
+                                                        : `Ask ${who} about ${owner}'s form — waiting ${oldestDays} day${oldestDays === 1 ? "" : "s"}.`
+                                                }
+                                                okText="Nudge"
+                                                cancelText="Cancel"
+                                                disabled={!canNudgeRow}
+                                                onConfirm={() => nudge.mutate(row.oldest_form_id)}
+                                            >
+                                                <button
+                                                    type="button"
+                                                    className="pms-board-queue-nudge"
+                                                    disabled={!canNudgeRow}
+                                                    title={
+                                                        onMyStep
+                                                            ? "This form is already waiting on you."
+                                                            : periodLocked
+                                                              ? "Unlock the review period before sending a follow-up."
+                                                              : "Ask this reviewer to check the oldest waiting form"
+                                                    }
+                                                    onClick={(event) => event.stopPropagation()}
+                                                >
+                                                    Nudge
+                                                </button>
+                                            </Popconfirm>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        )}
+                    </div>
+                )}
             </BoardCard>
 
             <BoardCard title="By VP" note={vpNote} className="pms-board-team">
@@ -735,10 +563,6 @@ export default function PresidentGlance({ data }) {
                         ))}
                     </div>
                 )}
-            </BoardCard>
-
-            <BoardCard title="Where the work sits" note={sectionNote} className="pms-board-work">
-                <WorkFlow lines={lines} sections={sections} onOpen={open} />
             </BoardCard>
 
             <BoardCard title="Rating bands" className="pms-board-ratings">

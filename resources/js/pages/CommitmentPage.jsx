@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { Button, Card, Drawer, Empty, Popconfirm, Segmented, Select, Space, Table, Tag, Typography, message } from "antd";
+import { Button, Card, Drawer, Empty, Popconfirm, Select, Space, Table, Tag, Typography, message } from "antd";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import dayjs from "dayjs";
 import api from "~/utils/api";
@@ -8,6 +8,7 @@ import { SECTION_LABELS, statusMeta } from "~/utils/constants";
 import RichText from "~/components/RichText";
 import RichTextView, { toPlainText } from "~/components/RichTextView";
 import ReturnPlacesModal from "~/components/ReturnPlacesModal";
+import { RETURN_FIELD_LABELS, displayReturnMarks } from "~/utils/returnMarks";
 import { scoreable } from "~/pages/RatingPage";
 
 function samePerson(left, right) {
@@ -27,7 +28,27 @@ function lineRemark(line, periodId) {
     return rating?.remarks || "";
 }
 
-export default function CommitmentPage({ periodFilter = null }) {
+function formatTargetDate(value) {
+    if (!value) return null;
+
+    const stamp = dayjs(value);
+
+    return stamp.isValid() ? stamp.format("MMM D, YYYY") : String(value);
+}
+
+function accountableLabel(line) {
+    const names = (line.assignments ?? [])
+        .map((row) => row.user?.name)
+        .filter(Boolean);
+
+    if (names.length) return names.join(", ");
+
+    const plain = toPlainText(line.accountable || "");
+
+    return plain || null;
+}
+
+export default function CommitmentPage({ periodFilter = null, focusFormId = null }) {
     const { user } = useAuth();
     const queryClient = useQueryClient();
     const [selectedId, setSelectedId] = useState(null);
@@ -37,6 +58,7 @@ export default function CommitmentPage({ periodFilter = null }) {
     const [remarks, setRemarks] = useState({});
     const leavingId = useRef(null);
     const dirtyRemarks = useRef(new Set());
+    const wantedId = focusFormId ? Number(focusFormId) : null;
 
     const { data: queue = [], isLoading } = useQuery({
         queryKey: ["review-queue", "mine", user?.id, "approval"],
@@ -91,6 +113,14 @@ export default function CommitmentPage({ periodFilter = null }) {
             ? waiting.filter((item) => item.id !== leavingId.current)
             : waiting;
 
+        if (wantedId && rest.some((item) => item.id === wantedId)) {
+            if (selectedId !== wantedId) {
+                openWaiting(wantedId);
+            }
+
+            return;
+        }
+
         if (selectedId && rest.some((item) => item.id === selectedId)) return;
 
         const nextId = rest[0]?.id ?? null;
@@ -100,7 +130,7 @@ export default function CommitmentPage({ periodFilter = null }) {
         setSelectedId(nextId);
         setLineId(null);
         setChosenPeriodId(null);
-    }, [isLoading, selectedId, waiting]);
+    }, [isLoading, selectedId, waiting, wantedId]);
 
     const { data: form } = useQuery({
         queryKey: ["pcr-form", String(selectedId)],
@@ -133,10 +163,48 @@ export default function CommitmentPage({ periodFilter = null }) {
             })
         );
     }, [form]);
+    const returnMarks = useMemo(
+        () => displayReturnMarks(form?.return_marks, form?.status),
+        [form?.return_marks, form?.status]
+    );
+    const marksForOutput = (outputId) =>
+        returnMarks.filter(
+            (mark) => mark.field === "title" && Number(mark.output_id) === Number(outputId)
+        );
+    const marksForLine = (indicatorId, field = null) =>
+        returnMarks.filter((mark) => {
+            if (mark.field === "title") return false;
+            if (Number(mark.indicator_id) !== Number(indicatorId)) return false;
+
+            return field ? mark.field === field : true;
+        });
     const openLine = useMemo(
         () => indicators.find((row) => row.id === lineId) ?? null,
         [indicators, lineId]
     );
+
+    const renderMarks = (marks) =>
+        marks.map((mark) => (
+            <div key={mark.id} className="pms-cell-mark">
+                <strong>{RETURN_FIELD_LABELS[mark.field] ?? "This part"}.</strong> {mark.note}
+            </div>
+        ));
+
+    const lineNoteField = (indicatorId, rows = 2) =>
+        canApprove ? (
+            <RichText
+                rows={rows}
+                value={remarks[indicatorId] ?? ""}
+                onChange={(html) => {
+                    dirtyRemarks.current.add(indicatorId);
+                    setRemarks((prev) => ({ ...prev, [indicatorId]: html }));
+                }}
+            />
+        ) : remarks[indicatorId] ? (
+            <RichTextView html={remarks[indicatorId]} />
+        ) : (
+            <Typography.Text type="secondary">No line note yet</Typography.Text>
+        );
 
     useEffect(() => {
         dirtyRemarks.current = new Set();
@@ -192,7 +260,7 @@ export default function CommitmentPage({ periodFilter = null }) {
                 })),
             }),
         onSuccess: () => {
-            message.success("Remarks saved.");
+            message.success("Line notes saved.");
             dirtyRemarks.current = new Set();
             queryClient.invalidateQueries({ queryKey: ["pcr-form", String(selectedId)] });
         },
@@ -214,40 +282,71 @@ export default function CommitmentPage({ periodFilter = null }) {
             title: "Output",
             dataIndex: ["output", "title"],
             width: 160,
-            fixed: "left",
             render: (title, record) => (
                 <div>
                     <Tag>{SECTION_LABELS[record.output.section]}</Tag>
                     <div style={{ marginTop: 4 }}>{title}</div>
+                    {renderMarks(marksForOutput(record.output?.id))}
                 </div>
             ),
         },
         {
             title: "Success indicator",
             dataIndex: "description",
-            width: 260,
-            fixed: "left",
-            render: (value) => <RichTextView html={value} />,
+            width: 240,
+            render: (value, record) => (
+                <div>
+                    <RichTextView html={value} />
+                    {renderMarks(marksForLine(record.id, "description"))}
+                </div>
+            ),
         },
         {
-            title: "Remarks",
+            title: "Target date",
+            dataIndex: "target_date",
+            width: 120,
+            render: (value, record) => {
+                const label = formatTargetDate(value);
+
+                return (
+                    <div>
+                        <span className="pms-review-date">{label || "—"}</span>
+                        {renderMarks(marksForLine(record.id, "target_date"))}
+                    </div>
+                );
+            },
+        },
+        ...(isOpcr
+            ? [
+                  {
+                      title: "Budget",
+                      dataIndex: "allotted_budget",
+                      width: 110,
+                      render: (value, record) => (
+                          <div>
+                              {value != null && value !== "" ? Number(value).toLocaleString() : "—"}
+                              {renderMarks(marksForLine(record.id, "allotted_budget"))}
+                          </div>
+                      ),
+                  },
+                  {
+                      title: "Accountable",
+                      key: "accountable",
+                      width: 140,
+                      render: (_, record) => (
+                          <div>
+                              {accountableLabel(record) || "—"}
+                              {renderMarks(marksForLine(record.id, "accountable"))}
+                          </div>
+                      ),
+                  },
+              ]
+            : []),
+        {
+            title: "Line note",
             key: "remarks",
-            width: 200,
-            render: (_, record) =>
-                canApprove ? (
-                    <RichText
-                        rows={2}
-                        value={remarks[record.id] ?? ""}
-                        onChange={(html) => {
-                            dirtyRemarks.current.add(record.id);
-                            setRemarks((prev) => ({ ...prev, [record.id]: html }));
-                        }}
-                    />
-                ) : remarks[record.id] ? (
-                    <RichTextView html={remarks[record.id]} />
-                ) : (
-                    <Typography.Text type="secondary">—</Typography.Text>
-                ),
+            width: 220,
+            render: (_, record) => lineNoteField(record.id),
         },
     ];
 
@@ -258,7 +357,7 @@ export default function CommitmentPage({ periodFilter = null }) {
                 disabled={!activePeriodId || indicators.length === 0}
                 onClick={() => saveRemarks.mutate()}
             >
-                Save remarks
+                Save line notes
             </Button>
             <Button danger onClick={() => setReturnModal(true)}>
                 Return
@@ -282,7 +381,7 @@ export default function CommitmentPage({ periodFilter = null }) {
 
     return (
         <>
-            <Card style={{ marginBottom: 16 }}>
+            <Card className="pms-rate-picker" size="small" style={{ marginBottom: 16 }}>
                 <Space wrap className="pms-rate-pick">
                     <span>Form waiting for approval:</span>
                     <Select
@@ -307,7 +406,8 @@ export default function CommitmentPage({ periodFilter = null }) {
                         </Tag>
                     ) : (
                         periods.length > 0 && (
-                            <Segmented
+                            <Select
+                                style={{ minWidth: 180 }}
                                 value={activePeriodId}
                                 onChange={setChosenPeriodId}
                                 options={periods.map((period) => ({ value: period.id, label: period.label }))}
@@ -318,7 +418,7 @@ export default function CommitmentPage({ periodFilter = null }) {
             </Card>
 
             {!selectedId ? (
-                <Card>
+                <Card className="pms-list-panel">
                     <Empty
                         description={
                             waiting.length === 0
@@ -368,7 +468,7 @@ export default function CommitmentPage({ periodFilter = null }) {
                                 columns={columns}
                                 pagination={false}
                                 size="small"
-                                scroll={{ x: 1340 }}
+                                scroll={{ x: isOpcr ? 1200 : 900 }}
                             />
                         </div>
                     </Card>
@@ -388,29 +488,45 @@ export default function CommitmentPage({ periodFilter = null }) {
                         <div className="pms-rate-field">
                             <span>Output</span>
                             <div>{toPlainText(openLine.output?.title || openLine.output?.description) || "—"}</div>
+                            {renderMarks(marksForOutput(openLine.output?.id))}
                         </div>
                         <div className="pms-rate-field">
                             <span>Success indicator</span>
                             <div>{toPlainText(openLine.description) || "Untitled line"}</div>
+                            {renderMarks(marksForLine(openLine.id, "description"))}
                         </div>
                         <div className="pms-rate-field">
-                            <span>Remarks</span>
+                            <span>Target date</span>
                             <div>
-                                {canApprove ? (
-                                    <RichText
-                                        rows={3}
-                                        value={remarks[openLine.id] ?? ""}
-                                        onChange={(html) => {
-                                            dirtyRemarks.current.add(openLine.id);
-                                            setRemarks((prev) => ({ ...prev, [openLine.id]: html }));
-                                        }}
-                                    />
-                                ) : remarks[openLine.id] ? (
-                                    <RichTextView html={remarks[openLine.id]} />
-                                ) : (
-                                    <Typography.Text type="secondary">No remarks yet</Typography.Text>
-                                )}
+                                <span className="pms-review-date">
+                                    {formatTargetDate(openLine.target_date) || "—"}
+                                </span>
+                                {renderMarks(marksForLine(openLine.id, "target_date"))}
                             </div>
+                        </div>
+                        {isOpcr && (
+                            <>
+                                <div className="pms-rate-field">
+                                    <span>Budget</span>
+                                    <div>
+                                        {openLine.allotted_budget != null && openLine.allotted_budget !== ""
+                                            ? Number(openLine.allotted_budget).toLocaleString()
+                                            : "—"}
+                                        {renderMarks(marksForLine(openLine.id, "allotted_budget"))}
+                                    </div>
+                                </div>
+                                <div className="pms-rate-field">
+                                    <span>Accountable</span>
+                                    <div>
+                                        {accountableLabel(openLine) || "—"}
+                                        {renderMarks(marksForLine(openLine.id, "accountable"))}
+                                    </div>
+                                </div>
+                            </>
+                        )}
+                        <div className="pms-rate-field">
+                            <span>Line note</span>
+                            <div>{lineNoteField(openLine.id, 3)}</div>
                         </div>
                     </>
                 )}

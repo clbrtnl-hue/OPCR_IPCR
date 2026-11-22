@@ -14,7 +14,7 @@ export const STAGE_COLORS = {
     employee: "default",
 };
 
-export default function CommentList({ comments = [], compact = false, emptyText = "No remarks yet." }) {
+export default function CommentList({ comments = [], compact = false, emptyText = "No feedback yet." }) {
     const { openPerson } = usePerson();
 
     if (comments.length === 0) {

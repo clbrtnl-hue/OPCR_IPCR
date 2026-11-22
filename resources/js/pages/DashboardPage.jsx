@@ -1,5 +1,5 @@
 import React from "react";
-import { Alert, Segmented, Select, Space, Tag, Typography } from "antd";
+import { Alert, Select, Space, Tag, Typography } from "antd";
 import {
     CheckSquareOutlined,
     ClockCircleOutlined,
@@ -20,6 +20,38 @@ import PresidentGlance from "~/components/PresidentGlance";
 import TeamPace from "~/components/TeamPace";
 import StatTile from "~/components/charts/StatTile";
 
+function useTypedGreeting(text) {
+    const [count, setCount] = React.useState(0);
+
+    React.useEffect(() => {
+        const desktop = window.matchMedia("(min-width: 992px)").matches;
+        const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+        if (!desktop || reduce || !text) {
+            setCount(text.length);
+            return undefined;
+        }
+
+        setCount(0);
+        let index = 0;
+        const timer = window.setInterval(() => {
+            index += 1;
+            setCount(index);
+
+            if (index >= text.length) {
+                window.clearInterval(timer);
+            }
+        }, 42);
+
+        return () => window.clearInterval(timer);
+    }, [text]);
+
+    return {
+        shown: text.slice(0, count),
+        typing: count < text.length,
+    };
+}
+
 function greeting() {
     const hour = new Date().getHours();
 
@@ -34,47 +66,45 @@ function greeting() {
     return "Good evening";
 }
 
-const SHORT_MONTH = {
-    January: "Jan",
-    February: "Feb",
-    March: "Mar",
-    April: "Apr",
-    May: "May",
-    June: "Jun",
-    July: "Jul",
-    August: "Aug",
-    September: "Sep",
-    October: "Oct",
-    November: "Nov",
-    December: "Dec",
-};
-
-function shortPeriod(label) {
-    return label
-        .replace(
-            /January|February|March|April|May|June|July|August|September|October|November|December/g,
-            (month) => SHORT_MONTH[month]
-        )
-        .replace(/\s+to\s+/g, "–");
-}
-
 export default function DashboardPage() {
     const { user, can } = useAuth();
     const navigate = useNavigate();
     const [yearId, setYearId] = React.useState(null);
     const [periodId, setPeriodId] = React.useState(null);
+    const heroRef = React.useRef(null);
+
+    React.useEffect(() => {
+        const hero = heroRef.current;
+        const scroller = hero?.closest(".pms-content");
+
+        if (!hero || !scroller) return undefined;
+
+        const onScroll = () => {
+            const shrink = Math.min(1, Math.max(0, scroller.scrollTop / 80));
+            hero.style.setProperty("--shrink", shrink.toFixed(3));
+            hero.classList.toggle("is-compact", shrink > 0.65);
+        };
+
+        onScroll();
+        scroller.addEventListener("scroll", onScroll, { passive: true });
+
+        return () => scroller.removeEventListener("scroll", onScroll);
+    }, []);
 
     const { data: years = [], isFetched: yearsFetched } = useQuery({
         queryKey: ["school-years"],
         queryFn: () => api.get("school-years").then((r) => r.data),
     });
 
+    const isAdmin = user?.role === "admin";
+    const isPresident = user?.role === "president";
+    const showsOwnCycle = Boolean(user) && !isAdmin && !isPresident;
+
     const { data: forms = [] } = useQuery({
         queryKey: ["pcr-forms"],
         queryFn: () => api.get("pcr-forms").then((r) => r.data),
+        enabled: showsOwnCycle,
     });
-
-    const isAdmin = user?.role === "admin";
     const ownWorkPath = isAdmin ? "/my-forms" : "/my-ipcr";
 
     const { data: queue = [] } = useQuery({
@@ -83,13 +113,12 @@ export default function DashboardPage() {
             api
                 .get(isAdmin ? "pcr-forms?oversight=review" : "pcr-forms?queue=1")
                 .then((r) => r.data),
-        enabled: isAdmin || can("program_head", "vp", "qa", "hr"),
+        enabled: !isAdmin && can("program_head", "vp", "qa", "hr"),
     });
 
     const activeYear = years.find((y) => y.is_active);
     const activePeriod = activeYear?.periods?.find((p) => p.is_active);
     const shownYear = years.find((y) => y.id === yearId) ?? activeYear;
-    const isPresident = user?.role === "president";
     const leadsTheCollege = ["admin", "president", "qa", "hr"].includes(user?.role);
     const playsOwnGame = ["program_head", "vp", "employee"].includes(user?.role);
     const reviewsOwnQueue = ["program_head", "vp"].includes(user?.role);
@@ -97,6 +126,8 @@ export default function DashboardPage() {
 
     const periods = [...(shownYear?.periods ?? [])].sort((a, b) => a.seq - b.seq);
     const shownPeriodId = periods.some((p) => p.id === periodId) ? periodId : null;
+    const shownPeriod = periods.find((period) => period.id === shownPeriodId);
+    const periodLocked = Boolean(shownPeriod?.is_locked);
 
     const { data: insights } = useQuery({
         queryKey: ["report-summary", shownYear?.id, shownPeriodId],
@@ -123,7 +154,7 @@ export default function DashboardPage() {
                     },
                 })
                 .then((r) => r.data),
-        enabled: Boolean(shownYear?.id) && !isPresident,
+        enabled: showsOwnCycle && Boolean(shownYear?.id),
     });
 
     const { data: ledUnits = [] } = useQuery({
@@ -170,6 +201,14 @@ export default function DashboardPage() {
                       : ""
               }.`
             : `${activeYear.label} is the active cycle. No review period is open right now.`;
+    const cycleLineDesktop =
+        activePeriod && yearsFetched && activeYear
+            ? `${activePeriod.label} is open${
+                  activePeriod.closes_at
+                      ? ` until ${dayjs(activePeriod.closes_at).format("MMMM D, YYYY")}`
+                      : ""
+              }.`
+            : cycleLine;
     const cycleLineMobile =
         activePeriod && yearsFetched && activeYear
             ? `${years.length > 1 ? "" : `${activeYear.label} · `}${activePeriod.label} is open${
@@ -180,26 +219,31 @@ export default function DashboardPage() {
             : cycleLine;
     const showPeriodSwitch = periods.length > 1;
     const showHeroExtra = years.length > 1 || showPeriodSwitch;
+    const hello = `${greeting()}${greetedAs ? `, ${greetedAs}` : ""}`;
+    const typed = useTypedGreeting(hello);
 
     return (
-        <>
+        <div className="pms-dash">
+            <div className="pms-hero-stick" ref={heroRef}>
             <section className="pms-hero">
                 <div>
                     <div className="pms-hero-kicker">Performance commitment</div>
-                    <h1>
-                        {greeting()}
-                        {greetedAs ? `, ${greetedAs}` : ""}
+                    <h1 className={typed.typing ? "is-typing" : undefined}>
+                        <span className="pms-greet-full">{hello}</span>
+                        <span className="pms-greet-type" aria-hidden="true">
+                            {typed.shown}
+                            <span className="pms-caret" />
+                        </span>
                     </h1>
-                    <p className="pms-hero-wide">{cycleLine}</p>
+                    <p className="pms-hero-wide">{cycleLineDesktop}</p>
                     <p className="pms-mobile-only">{cycleLineMobile}</p>
                 </div>
                 {showHeroExtra && (
                     <div className="pms-hero-extra">
-                        {years.length > 1 && (
-                            <Space>
-                                <Typography.Text type="secondary">Cycle</Typography.Text>
+                        <Space wrap className="pms-hero-filters">
+                            {years.length > 1 && (
                                 <Select
-                                    style={{ minWidth: 160 }}
+                                    className="pms-hero-year"
                                     value={shownYear?.id}
                                     onChange={(value) => {
                                         setYearId(value);
@@ -207,15 +251,13 @@ export default function DashboardPage() {
                                     }}
                                     options={years.map((y) => ({
                                         value: y.id,
-                                        label: y.is_active ? `${y.label} (active)` : y.label,
+                                        label: y.is_active ? `${y.label} ★` : y.label,
                                     }))}
                                 />
-                            </Space>
-                        )}
-                        {showPeriodSwitch && (
-                            <>
-                                <Segmented
-                                    className="pms-hero-wide"
+                            )}
+                            {showPeriodSwitch && (
+                                <Select
+                                    className="pms-hero-review"
                                     value={shownPeriodId ?? "all"}
                                     onChange={(value) => setPeriodId(value === "all" ? null : value)}
                                     options={[
@@ -226,24 +268,12 @@ export default function DashboardPage() {
                                         })),
                                     ]}
                                 />
-                                <Segmented
-                                    className="pms-mobile-only pms-hero-periods"
-                                    block
-                                    value={shownPeriodId ?? "all"}
-                                    onChange={(value) => setPeriodId(value === "all" ? null : value)}
-                                    options={[
-                                        { value: "all", label: "Whole year" },
-                                        ...periods.map((p) => ({
-                                            value: p.id,
-                                            label: p.is_active ? `${shortPeriod(p.label)} ★` : shortPeriod(p.label),
-                                        })),
-                                    ]}
-                                />
-                            </>
-                        )}
+                            )}
+                        </Space>
                     </div>
                 )}
             </section>
+            </div>
 
             {yearsFetched && !activeYear && (
                 <Alert
@@ -263,7 +293,7 @@ export default function DashboardPage() {
                         </Typography.Title>
                         <a onClick={() => navigate("/reports")}>Open the report tables</a>
                     </div>
-                    <PresidentGlance data={insights} />
+                    <PresidentGlance data={insights} periodLocked={periodLocked} />
                 </>
             )}
 
@@ -271,15 +301,18 @@ export default function DashboardPage() {
                 <>
                     <div className="pms-board-head">
                         <Typography.Title level={5} style={{ margin: 0 }}>
-                            The college at a glance — {shownYear?.label}
+                            The college at a glance
+                            {shownYear?.label ? (
+                                <span className="pms-glance-year"> — {shownYear.label}</span>
+                            ) : null}
                         </Typography.Title>
                         <a onClick={() => navigate("/reports")}>Open the report tables</a>
                     </div>
-                    <InsightsBoard data={insights} />
+                    <InsightsBoard data={insights} periodLocked={periodLocked} />
                 </>
             )}
 
-            {!isPresident && (
+            {showsOwnCycle && (
             <div className="pms-rise">
             <div className={playsOwnGame && mySummary && teamPace?.rows?.length ? "pms-season-row" : undefined}>
             {playsOwnGame && mySummary && (
@@ -346,7 +379,7 @@ export default function DashboardPage() {
             {seesTeamPace && <TeamPace data={teamPace} onOpen={navigate} />}
             </div>
             <Typography.Title level={5} className="pms-section-title" style={{ margin: "4px 0 12px" }}>
-                My cycle{shownYear ? ` — ${shownYear.label}` : ""}
+                My cycle
             </Typography.Title>
 
             <div className="pms-cycle-grid">
@@ -438,6 +471,6 @@ export default function DashboardPage() {
             </div>
             </div>
             )}
-        </>
+        </div>
     );
 }

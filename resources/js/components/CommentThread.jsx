@@ -75,15 +75,15 @@ export default function CommentThread({ formId, indicatorId = null, compact = fa
                 <CommentList
                     comments={visible}
                     compact={compact}
-                    emptyText={indicatorId ? "No remarks on this line yet." : "No remarks yet."}
+                    emptyText={indicatorId ? "No messages on this line yet." : "No feedback yet."}
                 />
             )}
 
             {!viewOnly && closed && (
                 <Typography.Paragraph type="secondary" style={{ marginTop: 12, marginBottom: 0 }}>
                     {form?.type === "opcr"
-                        ? "This school year is closed. Remarks can no longer be added."
-                        : "This period is closed. Remarks can no longer be added."}
+                        ? "This school year is closed. Feedback can no longer be added."
+                        : "This period is closed. Feedback can no longer be added."}
                 </Typography.Paragraph>
             )}
 
@@ -96,8 +96,8 @@ export default function CommentThread({ formId, indicatorId = null, compact = fa
                     mentions={people}
                     placeholder={
                         indicatorId
-                            ? "Add a remark about this success indicator — type @ to tag someone"
-                            : "Add a remark — type @ to tag someone"
+                            ? "Write a message about this success indicator — type @ to tag someone"
+                            : "Write a message to the ratee — type @ to tag someone"
                     }
                 />
             </div>
@@ -111,7 +111,7 @@ export default function CommentThread({ formId, indicatorId = null, compact = fa
                     loading={post.isPending}
                     onClick={() => post.mutate()}
                 >
-                    Post remark
+                    Post message
                 </Button>
                 {mentionedIds.length > 0 && (
                     <Typography.Text type="secondary" style={{ fontSize: 12 }}>

@@ -90,7 +90,7 @@ class PcrWorkflowTest extends PmsTestCase
             'user_id' => $qa->id,
             'type'    => 'rating',
             'form_id' => $form->id,
-            'link'    => "/forms/{$form->id}",
+            'link'    => "/review-queue?tab=rating&form={$form->id}",
         ]);
     }
 

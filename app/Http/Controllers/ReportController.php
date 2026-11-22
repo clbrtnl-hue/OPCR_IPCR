@@ -41,12 +41,32 @@ class ReportController extends Controller
             'rating_period_id' => 'nullable|integer|exists:rating_periods,id',
         ]);
 
-        return response()->json($this->build((int) $data['school_year_id'], $data['rating_period_id'] ?? null));
+        return response()->json($this->build(
+            $request->user(),
+            (int) $data['school_year_id'],
+            $data['rating_period_id'] ?? null
+        ));
     }
 
-    private function build(int $yearId, ?int $periodId): array
+    /**
+     * College reporters see everything. Heads and VPs only see the offices
+     * they lead or review, plus units under those — same tree as My Team progress.
+     *
+     * @return array<int, int>|null null = unrestricted
+     */
+    private function reportScopeUnitIds(User $user): ?array
+    {
+        if (in_array($user->role, ['president', 'qa', 'hr', 'admin'], true)) {
+            return null;
+        }
+
+        return OrgUnit::overseenIds((int) $user->id);
+    }
+
+    private function build(User $viewer, int $yearId, ?int $periodId): array
     {
         $data = ['school_year_id' => $yearId];
+        $scopeIds = $this->reportScopeUnitIds($viewer);
 
         $forms = PcrForm::with([
             'orgUnit:id,name,code',
@@ -62,6 +82,7 @@ class ReportController extends Controller
                     fn ($w) => $w->whereNull('rating_period_id')->orWhere('rating_period_id', $p)
                 )
             )
+            ->when($scopeIds !== null, fn ($q) => $q->whereIn('org_unit_id', $scopeIds ?: [0]))
             ->get();
 
         $summaries = PcrPeriodSummary::whereIn('form_id', $forms->pluck('id'))
@@ -92,8 +113,15 @@ class ReportController extends Controller
 
         $work = $this->commitmentsFor($forms, $periodId);
 
-        $orgUnits = OrgUnit::with('reviewers')->orderBy('type')->orderBy('name')->get();
-        $unitNames = $orgUnits->pluck('name', 'id');
+        $orgUnits = OrgUnit::with('reviewers')
+            ->orderBy('type')
+            ->orderBy('name')
+            ->when($scopeIds !== null, fn ($q) => $q->whereIn('id', $scopeIds ?: [0]))
+            ->get();
+        // Parent names stay readable even when the parent unit is outside scope.
+        $unitNames = $scopeIds === null
+            ? $orgUnits->pluck('name', 'id')
+            : OrgUnit::query()->pluck('name', 'id');
 
         $units = $orgUnits->map(function ($unit) use ($forms, $summaries, $work, $unitNames) {
             $unitForms = $forms->where('org_unit_id', $unit->id);
@@ -157,7 +185,7 @@ class ReportController extends Controller
                 'overdue'         => $work['overdue'],
                 'due_soon'        => $work['due_soon'],
                 'units_reporting' => $forms->pluck('org_unit_id')->filter()->unique()->count(),
-                'units_total'     => OrgUnit::count(),
+                'units_total'     => $scopeIds !== null ? $orgUnits->count() : OrgUnit::count(),
             ],
             'coverage'    => $this->coverageFor($forms),
             'by_status'   => $byStatus,
@@ -268,7 +296,11 @@ class ReportController extends Controller
             'format'           => ['nullable', Rule::in(['csv', 'xlsx'])],
         ]);
 
-        $payload = $this->build((int) $data['school_year_id'], $data['rating_period_id'] ?? null);
+        $payload = $this->build(
+            $request->user(),
+            (int) $data['school_year_id'],
+            $data['rating_period_id'] ?? null
+        );
         $sheet   = $this->sheetFor($data['table'], $payload);
         $year    = SchoolYear::find($data['school_year_id']);
         $period  = ($data['rating_period_id'] ?? null) ? RatingPeriod::find($data['rating_period_id']) : null;
@@ -365,7 +397,11 @@ class ReportController extends Controller
             'rating_period_id' => 'nullable|integer|exists:rating_periods,id',
         ]);
 
-        $payload = $this->build((int) $data['school_year_id'], $data['rating_period_id'] ?? null);
+        $payload = $this->build(
+            $request->user(),
+            (int) $data['school_year_id'],
+            $data['rating_period_id'] ?? null
+        );
         $year    = SchoolYear::find($data['school_year_id']);
         $period  = ($data['rating_period_id'] ?? null) ? RatingPeriod::find($data['rating_period_id']) : null;
 
@@ -403,9 +439,11 @@ class ReportController extends Controller
         if ($table === 'commitments') {
             return [
                 'title'   => 'Commitments',
-                'headers' => ['Owner', 'Unit', 'Section', 'Success indicator', 'Target date', 'Progress %', 'Status', 'Days late'],
+                'headers' => ['Owner', 'Unit', 'Section', 'Link', 'Success indicator', 'Target date', 'Progress %', 'Status', 'Days late'],
                 'rows'    => collect($payload['commitments'])->map(fn ($line) => [
-                    $line['owner'], $line['unit'], $label($line['section']), $line['description'],
+                    $line['owner'], $line['unit'], $label($line['section']),
+                    ! empty($line['linked']) ? 'Linked' : 'Unlinked',
+                    $line['description'],
                     $line['target_date'], $line['progress_pct'], $label($line['progress_status']),
                     $line['days_late'] ?: '',
                 ])->all(),
@@ -764,6 +802,7 @@ class ReportController extends Controller
                     'description'    => Html::toText($line->description),
                     'owner'          => $form?->owner?->name ?? $form?->orgUnit?->name,
                     'unit'           => $form?->orgUnit?->name,
+                    'linked'         => $line->parent_indicator_id !== null,
                     'target_date'    => $due?->toDateString(),
                     'progress_pct'   => (int) ($line->progress_pct ?? 0),
                     'progress_status'=> $line->progress_status,
@@ -925,6 +964,17 @@ class ReportController extends Controller
         $pending = [];
 
         foreach ($forms as $form) {
+            if ($form->status === 'commitment_review' && $form->commitment_approver_id) {
+                $age = $this->gapDays($form->submitted_at ?? $form->updated_at, now());
+                $pending['approval'][$form->commitment_approver_id][] = [
+                    'age'   => $age ?? 0,
+                    'form_id' => (int) $form->id,
+                    'owner' => $form->owner?->name,
+                ];
+
+                continue;
+            }
+
             $column = match ($form->status) {
                 'head_review' => 'head_reviewer_id',
                 'dean_review' => 'dean_reviewer_id',
@@ -948,7 +998,11 @@ class ReportController extends Controller
             };
             $age = $this->gapDays($this->spanStart($form, $ends), now());
 
-            $pending[$stage][$form->{$column}][] = $age ?? 0;
+            $pending[$stage][$form->{$column}][] = [
+                'age'     => $age ?? 0,
+                'form_id' => (int) $form->id,
+                'owner'   => $form->owner?->name,
+            ];
         }
 
         $snapshots = [];
@@ -967,7 +1021,7 @@ class ReportController extends Controller
             }
         }
 
-        $ids = collect(['head', 'dean', 'vp'])
+        $ids = collect(['approval', 'head', 'dean', 'vp'])
             ->flatMap(fn ($stage) => array_merge(
                 array_keys($reviewers[$stage] ?? []),
                 array_keys($pending[$stage] ?? [])
@@ -977,10 +1031,11 @@ class ReportController extends Controller
         $names = User::whereIn('id', $ids)->pluck('name', 'id');
         $rows  = [];
 
-        foreach (['head', 'dean', 'vp'] as $stage) {
+        foreach (['approval', 'head', 'dean', 'vp'] as $stage) {
             foreach (array_keys(($reviewers[$stage] ?? []) + ($pending[$stage] ?? [])) as $id) {
                 $gaps  = $reviewers[$stage][$id]['gaps'] ?? [];
                 $waits = $pending[$stage][$id] ?? [];
+                $oldest = collect($waits)->sortByDesc('age')->first();
 
                 $rows[] = [
                     'id'                  => (int) $id,
@@ -990,7 +1045,9 @@ class ReportController extends Controller
                     'median_days'         => $this->median($gaps),
                     'mean_days'           => $gaps ? round(array_sum($gaps) / count($gaps), 1) : null,
                     'pending'             => count($waits),
-                    'oldest_pending_days' => $waits ? round(max($waits), 1) : null,
+                    'oldest_pending_days' => $oldest ? round((float) $oldest['age'], 1) : null,
+                    'oldest_form_id'      => $oldest['form_id'] ?? null,
+                    'oldest_owner_name'   => $oldest['owner'] ?? null,
                 ];
             }
         }

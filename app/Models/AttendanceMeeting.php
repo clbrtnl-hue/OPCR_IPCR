@@ -17,12 +17,16 @@ class AttendanceMeeting extends Model
         'training'    => 'Relevant trainings',
     ];
 
-    /** Checked in this order. DTR is the daily record. Convocation wins over LGU, and LGU wins over meeting. */
+    /**
+     * Checked in this order. DTR is the daily record. Convocation wins over LGU,
+     * training wins over meeting when both words appear, and unmatched support
+     * titles stay null (no suggested attendance score).
+     */
     private const TITLE_RULES = [
-        'daily'       => ['dtr'],
-        'convocation' => ['convocation'],
-        'training'    => ['training', 'seminar', 'symposia', 'symposium'],
-        'lgu'         => ['lgu'],
+        'daily'       => ['dtr', 'daily attendance', 'daily time record', 'time record'],
+        'convocation' => ['convocation', 'flag rais', 'flag ceremon', 'flag ceremony'],
+        'training'    => ['training', 'seminar', 'symposia', 'symposium', 'workshop'],
+        'lgu'         => ['lgu', 'outreach'],
         'school'      => ['school activit', 'departmental', 'institutional'],
         'meeting'     => ['meeting', 'mancom'],
     ];

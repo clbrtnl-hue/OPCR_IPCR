@@ -143,6 +143,45 @@ class OpcrSheetTest extends PmsTestCase
             ->assertStatus(409);
     }
 
+    public function test_it_can_copy_selected_commitments_only(): void
+    {
+        ['unit' => $unit, 'president' => $president, 'opcr' => $last] = $this->college('final');
+
+        $keep = PcrOutput::create(['form_id' => $last->id, 'section' => 'core', 'title' => 'Keep me']);
+        $skip = PcrOutput::create(['form_id' => $last->id, 'section' => 'support', 'title' => 'Skip me']);
+        $keepLine = PcrIndicator::create([
+            'output_id' => $keep->id, 'description' => '<p>Kept indicator</p>',
+        ]);
+        PcrIndicator::create([
+            'output_id' => $skip->id, 'description' => '<p>Skipped indicator</p>',
+        ]);
+
+        $nextYear = $this->makeSchoolYear([
+            'label' => '2027', 'start_date' => '2027-01-01', 'end_date' => '2027-12-31',
+        ]);
+        $this->makePeriod($nextYear, 1);
+        $fresh = $this->makeForm([
+            'type' => 'opcr', 'org_unit_id' => $unit->id,
+            'school_year_id' => $nextYear->id, 'status' => 'draft',
+        ]);
+
+        $this->actingAsUser($president);
+
+        $this->postJson("/api/pcr-forms/{$fresh->id}/copy-from", [
+            'source_form_id' => $last->id,
+            'output_ids' => [$keep->id],
+            'indicator_ids' => [$keepLine->id],
+        ])
+            ->assertSuccessful()
+            ->assertJsonPath('lines', 1);
+
+        $copied = $fresh->fresh()->outputs()->with('indicators')->get();
+
+        $this->assertCount(1, $copied);
+        $this->assertSame('Keep me', $copied->first()->title);
+        $this->assertCount(1, $copied->first()->indicators);
+    }
+
     public function test_rows_can_be_reordered(): void
     {
         ['president' => $president, 'opcr' => $opcr] = $this->college();

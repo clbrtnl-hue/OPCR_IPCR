@@ -18,8 +18,9 @@ import {
 export const NOTIFICATION_META = {
     assignment: { label: "Assignment", color: "#2a78d6", icon: <UserAddOutlined /> },
     mention: { label: "Mention", color: "#eb2f96", icon: <MessageOutlined /> },
-    comment: { label: "Remark", color: "#1baf7a", icon: <MessageOutlined /> },
+    comment: { label: "Feedback", color: "#1baf7a", icon: <MessageOutlined /> },
     review: { label: "For review", color: "#2f54eb", icon: <NotificationOutlined /> },
+    nudge: { label: "Follow-up", color: "#d48806", icon: <BellOutlined /> },
     approval: { label: "For approval", color: "#d48806", icon: <SafetyCertificateOutlined /> },
     rating: { label: "For rating", color: "#722ed1", icon: <StarOutlined /> },
     rated: { label: "Rated", color: "#13c2c2", icon: <TrophyOutlined /> },
@@ -47,15 +48,11 @@ export function notificationHref(item) {
     return null;
 }
 
-const QUEUE_MENU_TYPES = new Set(["approval", "rating", "review"]);
-
-/** Keep Review Queue highlighted when a queue notice opens the form. */
+/** Keep Review Queue highlighted when a queue notice opens that desk. */
 export function notificationNavState(item) {
     const href = notificationHref(item);
 
-    if (!href?.startsWith("/forms/") || !QUEUE_MENU_TYPES.has(item?.type)) {
-        return undefined;
-    }
+    if (!href?.startsWith("/review-queue")) return undefined;
 
     return { from: "/review-queue" };
 }

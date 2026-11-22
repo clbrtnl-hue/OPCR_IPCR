@@ -100,6 +100,33 @@ class ReportInsightsTest extends PmsTestCase
         $this->assertSame(2, $totals['commitments']);
     }
 
+    public function test_commitment_rows_mark_whether_they_are_linked(): void
+    {
+        ['president' => $president, 'year' => $year, 'unit' => $unit, 'period' => $period, 'done' => $done] = $this->college();
+
+        $helper = User::factory()->create(['role' => 'employee', 'org_unit_id' => $unit->id]);
+        $child  = $this->makeForm([
+            'type' => 'ipcr', 'org_unit_id' => $unit->id, 'user_id' => $helper->id,
+            'school_year_id' => $year->id, 'rating_period_id' => $period->id, 'status' => 'draft',
+        ]);
+        $childOutput = PcrOutput::create(['form_id' => $child->id, 'section' => 'core', 'title' => 'Instruction']);
+
+        PcrIndicator::create([
+            'output_id' => $childOutput->id, 'parent_indicator_id' => $done->id,
+            'description' => '<p>The delegated half.</p>', 'progress_pct' => 0,
+        ]);
+
+        $this->actingAsUser($president);
+
+        $rows = collect(
+            $this->getJson("/api/reports/summary?school_year_id={$year->id}")->json('commitments')
+        );
+
+        $this->assertFalse($rows->firstWhere('description', 'Late line.')['linked']);
+        $this->assertTrue($rows->firstWhere('description', 'The delegated half.')['linked']);
+        $this->assertNull($rows->firstWhere('description', 'Finished line.'));
+    }
+
     public function test_the_year_reads_as_a_run_of_months_and_a_trend(): void
     {
         ['president' => $president, 'year' => $year] = $this->college();
@@ -128,6 +155,47 @@ class ReportInsightsTest extends PmsTestCase
         $this->actingAsUser($staff);
 
         $this->getJson("/api/reports/summary?school_year_id={$year->id}")->assertStatus(403);
+    }
+
+    public function test_a_head_reads_only_the_offices_they_oversee(): void
+    {
+        ['year' => $year, 'period' => $period, 'unit' => $mine, 'staff' => $mineStaff, 'late' => $late] = $this->college();
+
+        $other = $this->makeUnit(['name' => 'BS Criminology', 'code' => 'BSCRIM']);
+        $otherStaff = User::factory()->create(['role' => 'employee', 'org_unit_id' => $other->id, 'status' => 'active']);
+        $otherForm = $this->makeForm([
+            'type' => 'ipcr', 'org_unit_id' => $other->id, 'user_id' => $otherStaff->id,
+            'school_year_id' => $year->id, 'rating_period_id' => $period->id, 'status' => 'draft',
+        ]);
+        $otherOutput = PcrOutput::create(['form_id' => $otherForm->id, 'section' => 'core', 'title' => 'Other']);
+        PcrIndicator::create([
+            'output_id' => $otherOutput->id, 'description' => '<p>Other office late.</p>',
+            'progress_status' => 'ongoing', 'progress_pct' => 10,
+            'target_date' => now()->subDays(2)->toDateString(),
+        ]);
+
+        $head = User::factory()->create(['role' => 'program_head', 'org_unit_id' => $mine->id]);
+        $mine->update(['head_user_id' => $head->id]);
+
+        $this->actingAsUser($head);
+
+        $data = $this->getJson("/api/reports/summary?school_year_id={$year->id}")
+            ->assertSuccessful()
+            ->json();
+
+        $descriptions = collect($data['commitments'])->pluck('description');
+        $unitIds = collect($data['units'])->pluck('id');
+
+        $peopleIds = collect($data['people'])->pluck('id');
+
+        $this->assertTrue($descriptions->contains('Late line.'));
+        $this->assertFalse($descriptions->contains('Other office late.'));
+        $this->assertTrue($unitIds->contains($mine->id));
+        $this->assertFalse($unitIds->contains($other->id));
+        $this->assertSame(1, $data['totals']['forms']);
+        $this->assertTrue($peopleIds->contains($mineStaff->id));
+        $this->assertFalse($peopleIds->contains($otherStaff->id));
+        $this->assertSame($late->id, (int) collect($data['commitments'])->firstWhere('description', 'Late line.')['id']);
     }
 
     public function test_a_table_can_be_taken_away_as_a_spreadsheet(): void

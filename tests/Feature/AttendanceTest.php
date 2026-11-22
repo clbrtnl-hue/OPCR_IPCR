@@ -2,6 +2,8 @@
 
 namespace Tests\Feature;
 
+use App\Models\AttendanceDay;
+use App\Models\AttendanceMeeting;
 use App\Models\AttendanceRate;
 use App\Models\PcrOutput;
 use App\Models\User;
@@ -203,6 +205,130 @@ class AttendanceTest extends PmsTestCase
         $shown->assertJsonPath("attendance.{$period->id}.meeting.suggested", null);
     }
 
+    public function test_a_leave_day_is_not_overwritten_by_a_meeting_mark(): void
+    {
+        ['hr' => $hr, 'staff' => $staff, 'period' => $period, 'monday' => $monday] = $this->office();
+        $day = $monday->toDateString();
+
+        $this->actingAsUser($hr);
+
+        $this->putJson('/api/attendance/days', [
+            'rating_period_id' => $period->id,
+            'user_id'          => $staff->id,
+            'day'              => $day,
+            'status'           => 'leave',
+        ])->assertOk();
+
+        $meeting = $this->postJson('/api/attendance/meetings', [
+            'org_unit_id'      => $staff->org_unit_id,
+            'rating_period_id' => $period->id,
+            'title'            => 'Emergency meeting',
+            'category'         => 'meeting',
+            'held_on'          => $day,
+        ])->assertCreated();
+
+        $dayStatus = fn () => AttendanceDay::query()
+            ->where('user_id', $staff->id)
+            ->whereDate('day', $day)
+            ->value('status');
+
+        $this->putJson("/api/attendance/meetings/{$meeting->json('meeting.id')}/marks", [
+            'user_id' => $staff->id,
+            'status'  => 'present',
+        ])->assertOk();
+
+        $this->assertSame('leave', $dayStatus());
+        $this->assertDatabaseHas('attendance_rates', [
+            'user_id'          => $staff->id,
+            'rating_period_id' => $period->id,
+            'scope'            => 'daily',
+            'present'          => 0,
+            'absent'           => 0,
+            'excused'          => 1,
+            'counted'          => 0,
+            'pct'              => null,
+        ]);
+        $this->assertDatabaseHas('attendance_rates', [
+            'user_id'          => $staff->id,
+            'rating_period_id' => $period->id,
+            'scope'            => 'meeting',
+            'present'          => 1,
+            'pct'              => 100,
+        ]);
+
+        $this->putJson("/api/attendance/meetings/{$meeting->json('meeting.id')}/marks", [
+            'user_id' => $staff->id,
+            'status'  => 'absent',
+        ])->assertOk();
+
+        $this->assertSame('leave', $dayStatus());
+
+        $this->putJson("/api/attendance/meetings/{$meeting->json('meeting.id')}/marks", [
+            'user_id' => $staff->id,
+            'status'  => null,
+        ])->assertOk();
+
+        $this->assertSame('leave', $dayStatus());
+    }
+
+    public function test_a_head_can_mark_everyone_present_on_a_meeting(): void
+    {
+        ['hr' => $hr, 'staff' => $staff, 'period' => $period, 'monday' => $monday] = $this->office();
+
+        $other = User::factory()->create([
+            'role'        => 'employee',
+            'org_unit_id' => $staff->org_unit_id,
+            'name'        => 'Second Staff',
+        ]);
+
+        $this->actingAsUser($hr);
+
+        $meeting = $this->postJson('/api/attendance/meetings', [
+            'org_unit_id'      => $staff->org_unit_id,
+            'rating_period_id' => $period->id,
+            'title'            => 'Faculty meeting',
+            'category'         => 'meeting',
+            'held_on'          => $monday->toDateString(),
+        ])->assertCreated();
+
+        $this->putJson("/api/attendance/meetings/{$meeting->json('meeting.id')}/marks/all")
+            ->assertOk()
+            ->assertJsonPath('marked', 2)
+            ->assertJsonPath('rate.present', 2)
+            ->assertJsonPath('rate.pct', 100);
+
+        $this->assertDatabaseHas('attendance_meeting_marks', [
+            'meeting_id' => $meeting->json('meeting.id'),
+            'user_id'    => $staff->id,
+            'status'     => 'present',
+        ]);
+        $this->assertDatabaseHas('attendance_meeting_marks', [
+            'meeting_id' => $meeting->json('meeting.id'),
+            'user_id'    => $other->id,
+            'status'     => 'present',
+        ]);
+        $this->assertDatabaseHas('attendance_rates', [
+            'user_id'          => $staff->id,
+            'rating_period_id' => $period->id,
+            'scope'            => 'meeting',
+            'pct'              => 100,
+        ]);
+    }
+
+    public function test_support_titles_map_to_attendance_categories(): void
+    {
+        $this->assertSame('daily', AttendanceMeeting::categoryForTitle('Daily Attendance / DTR'));
+        $this->assertSame('daily', AttendanceMeeting::categoryForTitle('Submission of Daily Time Record'));
+        $this->assertSame('convocation', AttendanceMeeting::categoryForTitle('Flag Raising'));
+        $this->assertSame('convocation', AttendanceMeeting::categoryForTitle('Monday Flag Ceremony'));
+        $this->assertSame('training', AttendanceMeeting::categoryForTitle('Seminar / Workshop'));
+        $this->assertSame('training', AttendanceMeeting::categoryForTitle('Attendance to School Meetings and Trainings'));
+        $this->assertSame('lgu', AttendanceMeeting::categoryForTitle('LGU Outreach'));
+        $this->assertSame('meeting', AttendanceMeeting::categoryForTitle('Attendance to meetings'));
+        $this->assertNull(AttendanceMeeting::categoryForTitle('Maintenance of Classroom / Committee Chairmanship'));
+        $this->assertNull(AttendanceMeeting::categoryForTitle(''));
+    }
+
     public function test_a_full_attendance_record_suggests_five(): void
     {
         $this->assertSame(5, AttendanceRate::suggestedScore(100));
@@ -300,31 +426,43 @@ class AttendanceTest extends PmsTestCase
         $this->assertContains($staff->id, collect($own->json('members'))->pluck('id')->all());
     }
 
-    public function test_a_vp_records_heads_and_not_employees(): void
+    public function test_a_vp_and_the_president_have_no_attendance_on_their_account(): void
     {
         ['vp' => $vp, 'head' => $head, 'staff' => $staff, 'period' => $period, 'monday' => $monday] = $this->division();
 
-        $this->actingAsUser($vp);
+        $president = User::factory()->create(['role' => 'president', 'name' => 'College President']);
+        $this->makeUnit([
+            'name'         => 'Opol Community College',
+            'code'         => 'OCC',
+            'type'         => 'college',
+            'head_user_id' => $president->id,
+        ]);
+
+        foreach ([$vp, $president] as $account) {
+            $this->actingAsUser($account);
+
+            $this->getJson('/api/attendance')->assertStatus(403);
+
+            $this->putJson('/api/attendance/days', [
+                'rating_period_id' => $period->id,
+                'user_id'          => $head->id,
+                'day'              => $monday->toDateString(),
+                'status'           => 'present',
+            ])->assertStatus(403);
+
+            $this->postJson('/api/attendance/meetings', [
+                'org_unit_id'      => $head->org_unit_id,
+                'rating_period_id' => $period->id,
+                'title'            => 'Not their page',
+                'category'         => 'meeting',
+                'held_on'          => $monday->toDateString(),
+            ])->assertStatus(403);
+        }
+
+        $this->actingAsUser($head);
 
         $sheet = $this->getJson("/api/attendance?rating_period_id={$period->id}")->assertOk();
-        $names = collect($sheet->json('members'))->pluck('id')->all();
-
-        $this->assertContains($head->id, $names);
-        $this->assertNotContains($staff->id, $names);
-
-        $this->putJson('/api/attendance/days', [
-            'rating_period_id' => $period->id,
-            'user_id'          => $staff->id,
-            'day'              => $monday->toDateString(),
-            'status'           => 'present',
-        ])->assertStatus(403);
-
-        $this->putJson('/api/attendance/days', [
-            'rating_period_id' => $period->id,
-            'user_id'          => $head->id,
-            'day'              => $monday->toDateString(),
-            'status'           => 'present',
-        ])->assertOk();
+        $this->assertContains($staff->id, collect($sheet->json('members'))->pluck('id')->all());
     }
 
     private function office(): array

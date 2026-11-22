@@ -33,6 +33,7 @@ import dayjs from "dayjs";
 import relativeTime from "dayjs/plugin/relativeTime";
 import api from "~/utils/api";
 import PageHeader from "~/components/PageHeader";
+import ListPager, { tablePager, usePaged } from "~/components/ListPager";
 import UserAvatar from "~/components/UserAvatar";
 import { STATUS_META } from "~/utils/constants";
 
@@ -111,6 +112,7 @@ export default function AuditLogPage() {
     };
 
     const logs = data?.logs ?? [];
+    const logPage = usePaged(logs, 25);
     const busiest = useMemo(() => {
         const counts = {};
         logs.forEach((l) => {
@@ -273,6 +275,8 @@ export default function AuditLogPage() {
                     <Col xs={24} md={5}>
                         <DatePicker.RangePicker
                             style={{ width: "100%" }}
+                            inputReadOnly={window.matchMedia("(max-width: 991px)").matches}
+                            classNames={{ popup: { root: "pms-range-popup" } }}
                             value={filters.range}
                             onChange={(range) => setFilters((f) => ({ ...f, range }))}
                         />
@@ -291,7 +295,7 @@ export default function AuditLogPage() {
                 )}
             </Card>
 
-            <Card className="pms-list-panel">
+            <Card className="pms-list-panel pms-list-fill">
                 <div className="pms-mobile-only pms-pds-cards">
                     {logs.length === 0 ? (
                         <Empty
@@ -305,7 +309,7 @@ export default function AuditLogPage() {
                             }
                         />
                     ) : (
-                        logs.map((row) => {
+                        logPage.rows.map((row) => {
                             const meta = ACTIONS[row.action] ?? { label: row.action, colour: "default" };
 
                             return (
@@ -333,6 +337,7 @@ export default function AuditLogPage() {
                             );
                         })
                     )}
+                    <ListPager page={logPage.page} pageSize={logPage.pageSize} total={logPage.total} onChange={logPage.setPage} />
                 </div>
                 <div className="pms-desktop-only">
                 <Table
@@ -342,7 +347,7 @@ export default function AuditLogPage() {
                     dataSource={logs}
                     columns={columns}
                     scroll={{ x: 1000 }}
-                    pagination={{ pageSize: 25, showSizeChanger: false }}
+                    pagination={tablePager(25)}
                     locale={{
                         emptyText: (
                             <Empty

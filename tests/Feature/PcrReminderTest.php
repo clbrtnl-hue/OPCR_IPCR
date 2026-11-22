@@ -44,8 +44,8 @@ class PcrReminderTest extends PmsTestCase
         $this->assertSame("/forms/{$form->id}?line={$today->id}&when=today", Notification::where('type', 'due_today')->value('link'));
         $this->assertSame("/forms/{$form->id}?line={$late->id}&when=overdue", Notification::where('type', 'overdue')->where('user_id', $owner->id)->value('link'));
         $this->assertSame(1, Notification::where('user_id', $head->id)->where('type', 'overdue')->count());
-        $this->assertStringStartsWith(
-            '/reports?late=',
+        $this->assertSame(
+            '/reports?tab=commitments&late=1',
             Notification::where('user_id', $head->id)->where('type', 'overdue')->value('link')
         );
         $this->assertDatabaseMissing('notifications', ['user_id' => $owner->id, 'type' => 'overdue', 'body' => 'They are past their target date.']);
@@ -117,9 +117,15 @@ class PcrReminderTest extends PmsTestCase
         $this->assertSame(1, Notification::where('user_id', $owner->id)->where('type', 'period')->count());
         $this->assertSame("/forms/{$draft->id}?period={$period->id}", Notification::where('user_id', $owner->id)->value('link'));
         $this->assertSame(1, Notification::where('user_id', $head->id)->where('type', 'period')->count());
-        $this->assertSame("/forms/{$waitingForm->id}", Notification::where('user_id', $head->id)->where('type', 'period')->value('link'));
+        $this->assertSame(
+            "/review-queue?tab=rating&form={$waitingForm->id}",
+            Notification::where('user_id', $head->id)->where('type', 'period')->value('link')
+        );
         $this->assertSame(1, Notification::where('user_id', $qa->id)->where('type', 'period')->count());
-        $this->assertSame("/forms/{$ratingForm->id}", Notification::where('user_id', $qa->id)->where('type', 'period')->value('link'));
+        $this->assertSame(
+            "/review-queue?tab=rating&form={$ratingForm->id}",
+            Notification::where('user_id', $qa->id)->where('type', 'period')->value('link')
+        );
     }
 
     public function test_it_reminds_hr_once_that_a_rated_form_still_needs_to_be_closed(): void

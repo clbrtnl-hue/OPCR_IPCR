@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import api from "~/utils/api";
 import { ADJECTIVAL_COLORS, statusMeta } from "~/utils/constants";
 import PageHeader from "~/components/PageHeader";
+import { tablePager } from "~/components/ListPager";
 
 const score = (value) => (value == null ? "—" : Number(value).toFixed(2));
 
@@ -135,6 +136,7 @@ export default function ClosingPage() {
 
             {office && (
                 <Card
+                    className="pms-list-panel pms-list-fill"
                     title={
                         <Select
                             value={office.id}
@@ -161,7 +163,7 @@ export default function ClosingPage() {
 
                     <Table
                         rowKey="id"
-                        pagination={false}
+                        pagination={tablePager(10)}
                         dataSource={office.forms}
                         scroll={{ x: 640 }}
                         columns={columns}

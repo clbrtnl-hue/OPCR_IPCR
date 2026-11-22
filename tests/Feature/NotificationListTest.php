@@ -122,4 +122,49 @@ class NotificationListTest extends PmsTestCase
         $this->assertNotNull($keep->fresh());
         $this->assertNotNull($foreign->fresh());
     }
+
+    public function test_delete_all_moves_only_the_inbox_into_trash(): void
+    {
+        $this->makeOrganization();
+
+        $me    = $this->actingAsRole('employee');
+        $other = User::factory()->create(['role' => 'employee']);
+
+        $first = Notification::create([
+            'user_id' => $me->id,
+            'type'    => 'assignment',
+            'title'   => 'First',
+        ]);
+        $second = Notification::create([
+            'user_id' => $me->id,
+            'type'    => 'rated',
+            'title'   => 'Second',
+            'read_at' => now(),
+        ]);
+        $kept = now()->subDay()->startOfSecond();
+        $already = Notification::create([
+            'user_id'    => $me->id,
+            'type'       => 'review',
+            'title'      => 'Already gone',
+            'trashed_at' => $kept,
+        ]);
+        $foreign = Notification::create([
+            'user_id' => $other->id,
+            'type'    => 'review',
+            'title'   => 'Not yours',
+        ]);
+
+        $this->postJson('/api/notifications/trash-all')->assertSuccessful();
+
+        $this->assertNotNull($first->fresh()->trashed_at);
+        $this->assertNotNull($second->fresh()->trashed_at);
+        $this->assertSame($kept->toDateTimeString(), $already->fresh()->trashed_at->toDateTimeString());
+        $this->assertNull($foreign->fresh()->trashed_at);
+
+        $inbox = $this->getJson('/api/notifications')->assertSuccessful()->json();
+
+        $this->assertSame(0, $inbox['inbox']);
+        $this->assertSame(0, $inbox['total']);
+        $this->assertSame(3, $inbox['trash']);
+    }
 }

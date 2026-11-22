@@ -1,15 +1,22 @@
 import React from "react";
-import { Alert, Card, Empty, Segmented, Select, Space, Table, Tag, Typography } from "antd";
-import { useQuery } from "@tanstack/react-query";
+import { Alert, Button, Card, Empty, Popconfirm, Select, Space, Table, Tag, Typography, message } from "antd";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import dayjs from "dayjs";
 import api from "~/utils/api";
 import { ADJECTIVAL_COLORS, statusMeta } from "~/utils/constants";
 import PageHeader from "~/components/PageHeader";
+import { tablePager } from "~/components/ListPager";
 import UserAvatar from "~/components/UserAvatar";
+import { useAuth } from "~/hooks/useAuth";
+
+const OWNER_NUDGE_STATUSES = new Set(["draft", "returned", "commitments_approved"]);
 
 export default function MyTeamPage() {
     const navigate = useNavigate();
+    const queryClient = useQueryClient();
+    const { user } = useAuth();
+    const canNudge = ["program_head", "vp"].includes(user?.role);
     const [yearId, setYearId] = React.useState(null);
     const [periodId, setPeriodId] = React.useState(null);
 
@@ -25,6 +32,7 @@ export default function MyTeamPage() {
         (periods.some((p) => p.id === periodId) ? periodId : null) ??
         periods.find((p) => p.is_active)?.id ??
         periods[0]?.id;
+    const periodLocked = Boolean(periods.find((p) => p.id === chosenPeriodId)?.is_locked);
 
     const { data, isLoading } = useQuery({
         queryKey: ["my-team", year?.id, chosenPeriodId],
@@ -38,6 +46,17 @@ export default function MyTeamPage() {
                 })
                 .then((r) => r.data),
         enabled: Boolean(year?.id),
+    });
+
+    const nudge = useMutation({
+        mutationFn: (formId) => api.post(`pcr-forms/${formId}/nudge`),
+        onSuccess: ({ data: payload }) => {
+            message.success(payload?.message ?? "Follow-up sent.");
+            queryClient.invalidateQueries({ queryKey: ["my-team"] });
+        },
+        onError: (error) => {
+            message.error(error?.response?.data?.message ?? "Could not send the follow-up.");
+        },
     });
 
     const members = data?.members ?? [];
@@ -119,41 +138,67 @@ export default function MyTeamPage() {
         {
             title: "",
             key: "actions",
-            render: (_, record) =>
-                record.form ? (
-                    <a onClick={() => navigate(`/forms/${record.form.id}`, { state: { from: "/my-team" } })}>
-                        Open
-                    </a>
-                ) : (
-                    <Typography.Text type="secondary">—</Typography.Text>
-                ),
+            render: (_, record) => {
+                if (!record.form) {
+                    return <Typography.Text type="secondary">—</Typography.Text>;
+                }
+
+                const showNudge =
+                    canNudge && OWNER_NUDGE_STATUSES.has(record.form.status) && !periodLocked;
+
+                return (
+                    <Space size={8}>
+                        <a onClick={() => navigate(`/forms/${record.form.id}`, { state: { from: "/my-team" } })}>
+                            Open
+                        </a>
+                        {showNudge && (
+                            <Popconfirm
+                                title={`Follow up with ${record.name}?`}
+                                description="They get a notification asking them to finish their IPCR. One follow-up per form per day."
+                                okText="Nudge"
+                                onConfirm={() => nudge.mutate(record.form.id)}
+                                disabled={nudge.isPending}
+                            >
+                                <Button type="link" size="small" disabled={nudge.isPending}>
+                                    Nudge
+                                </Button>
+                            </Popconfirm>
+                        )}
+                    </Space>
+                );
+            },
         },
     ];
 
+    const periodOptions = periods.map((period) => ({
+        value: period.id,
+        label: period.is_active ? `${period.label} ★` : period.label,
+    }));
+    const yearOptions = years.map((item) => ({
+        value: item.id,
+        label: item.is_active ? `${item.label} ★` : item.label,
+    }));
+    const onYear = (value) => {
+        setYearId(value);
+        setPeriodId(null);
+    };
+
     const switcher = (
         <Space wrap>
-            {periods.length > 0 && (
-                <Segmented
-                    value={chosenPeriodId}
-                    onChange={setPeriodId}
-                    options={periods.map((p) => ({
-                        value: p.id,
-                        label: p.is_active ? `${p.label} ★` : p.label,
-                    }))}
-                />
-            )}
             {years.length > 1 && (
                 <Select
-                    style={{ width: 160 }}
+                    className="pms-filter-select"
                     value={year?.id}
-                    onChange={(value) => {
-                        setYearId(value);
-                        setPeriodId(null);
-                    }}
-                    options={years.map((y) => ({
-                        value: y.id,
-                        label: y.is_active ? `${y.label} (active)` : y.label,
-                    }))}
+                    onChange={onYear}
+                    options={yearOptions}
+                />
+            )}
+            {periods.length > 0 && (
+                <Select
+                    className="pms-filter-select"
+                    value={chosenPeriodId}
+                    onChange={setPeriodId}
+                    options={periodOptions}
                 />
             )}
         </Space>
@@ -167,6 +212,26 @@ export default function MyTeamPage() {
                     units.length
                         ? `${units.map((u) => u.name).join(" · ")} — everyone you review, and where their IPCR stands.`
                         : "Everyone you review, and where their IPCR stands."
+                }
+                extra={
+                    <Space className="pms-team-filters" wrap>
+                        {years.length > 1 && (
+                            <Select
+                                className="pms-filter-select"
+                                value={year?.id}
+                                onChange={onYear}
+                                options={yearOptions}
+                            />
+                        )}
+                        {periods.length > 0 && (
+                            <Select
+                                className="pms-filter-select"
+                                value={chosenPeriodId}
+                                onChange={setPeriodId}
+                                options={periodOptions}
+                            />
+                        )}
+                    </Space>
                 }
             />
 
@@ -182,7 +247,7 @@ export default function MyTeamPage() {
                 />
             )}
 
-            <Card>
+            <Card className="pms-list-panel pms-list-fill">
                 {members.length === 0 && !isLoading ? (
                     <Empty
                         image={Empty.PRESENTED_IMAGE_SIMPLE}
@@ -194,7 +259,7 @@ export default function MyTeamPage() {
                         loading={isLoading}
                         dataSource={members}
                         columns={columns}
-                        pagination={{ pageSize: 15 }}
+                        pagination={tablePager(15)}
                         scroll={{ x: 900 }}
                     />
                 )}

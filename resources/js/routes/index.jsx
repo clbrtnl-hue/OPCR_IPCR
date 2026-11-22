@@ -74,7 +74,14 @@ export default function AppRoutes() {
                                     }
                                 />
                                 <Route path="/my-team" element={<MyTeamPage />} />
-                                <Route path="/attendance" element={<AttendancePage />} />
+                                <Route
+                                    path="/attendance"
+                                    element={
+                                        <Protected roles={["admin", "qa", "program_head", "hr", "employee"]}>
+                                            <AttendancePage />
+                                        </Protected>
+                                    }
+                                />
                                 <Route path="/profile" element={<ProfilePage />} />
                                 <Route path="/forms/:id" element={<FormEditorPage />} />
                                 <Route
@@ -98,7 +105,7 @@ export default function AppRoutes() {
                                 <Route
                                     path="/reports"
                                     element={
-                                        <Protected roles={["president", "qa", "hr"]}>
+                                        <Protected roles={["president", "qa", "hr", "program_head", "vp"]}>
                                             <ReportsPage />
                                         </Protected>
                                     }
