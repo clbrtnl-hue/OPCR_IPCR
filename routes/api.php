@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\AnnouncementController;
 use App\Http\Controllers\AttendanceController;
 use App\Http\Controllers\HrClosingController;
 use App\Http\Controllers\AuthController;
@@ -36,6 +37,8 @@ Route::middleware('auth:api')->group(function () {
     Route::post('my-password', [AuthController::class, 'changePassword']);
 
     /* -------------------------------------------- Admin: accounts & org */
+    Route::post('organization', [OrganizationController::class, 'update'])->middleware($PMS_ADMIN);
+    Route::post('announcements', [AnnouncementController::class, 'store'])->middleware($PMS_ADMIN);
     Route::get('users', [UserController::class, 'index'])->middleware($PMS_ADMIN);
     Route::post('users', [UserController::class, 'store'])->middleware($PMS_ADMIN);
     Route::delete('users/{id}', [UserController::class, 'destroy'])->middleware($PMS_ADMIN);

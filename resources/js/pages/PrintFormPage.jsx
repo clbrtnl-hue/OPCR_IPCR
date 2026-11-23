@@ -423,7 +423,11 @@ export default function PrintFormPage() {
                             <div className="pms-print-siglabel">Head of Agency</div>
                             <div className="pms-signature-line">
                                 <strong>{officeHead?.name || rateeName || "\u00a0"}</strong>
-                                <div>{officeHead?.position_title || "Head of Agency"}</div>
+                                <div>
+                                    {officeHead?.position_title ||
+                                        organization.head_title ||
+                                        "Head of Agency"}
+                                </div>
                             </div>
                         </div>
                     </div>

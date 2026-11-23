@@ -129,7 +129,7 @@ class MyTeamTest extends PmsTestCase
             ->assertJsonPath('members.0.form.adjectival', 'Outstanding');
     }
 
-    public function test_qa_sees_the_campus_roster_as_a_college_monitor(): void
+    public function test_qa_who_heads_an_office_sees_that_office_not_campus(): void
     {
         ['year' => $year, 'bsit' => $bsit, 'novelyn' => $novelyn, 'outsider' => $outsider] = $this->college();
 
@@ -141,11 +141,12 @@ class MyTeamTest extends PmsTestCase
         $response = $this->getJson("/api/my-team?school_year_id={$year->id}")->assertOk();
         $ids = array_column($response->json('members'), 'id');
 
-        // QA is a college monitor — the roster is campus-wide, not only the
-        // office they happen to head.
+        // College monitors still follow up campus-wide from Forms → All; My
+        // Team is only the office they lead or watch.
         $this->assertContains($novelyn->id, $ids);
-        $this->assertContains($outsider->id, $ids);
+        $this->assertNotContains($outsider->id, $ids);
         $this->assertNotContains($qa->id, $ids);
+        $this->assertCount(1, $response->json('units'));
     }
 
     public function test_a_director_sees_the_staff_of_the_office_they_direct(): void

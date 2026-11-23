@@ -1,16 +1,30 @@
 import React, { useState } from "react";
-import { Button, Card, Drawer, Empty, Form, Select, Space, Table, Tabs, Tag, message } from "antd";
+import { Button, Card, Drawer, Empty, Form, Popconfirm, Select, Space, Table, Tabs, Tag, message } from "antd";
 import { PlusOutlined /* , TeamOutlined */ } from "@ant-design/icons";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import api from "~/utils/api";
 import { statusMeta } from "~/utils/constants";
+import { formIsWithReviewer } from "~/utils/formReviewer";
 import PageHeader from "~/components/PageHeader";
 import FormCards from "~/components/FormCards";
-import FormListFilters, { matchesListKind } from "~/components/FormListFilters";
+import FormListFilters, { byStatusThenYear, matchesListKind } from "~/components/FormListFilters";
 import ListPager, { tablePager, usePaged } from "~/components/ListPager";
 import { useAuth } from "~/hooks/useAuth";
 // import BulkIpcrModal from "~/components/BulkIpcrModal";
+
+const COLLEGE_FORM_ROLES = ["admin", "president", "hr", "qa"];
+
+const OWNER_NUDGE_STATUSES = new Set(["draft", "returned", "commitments_approved"]);
+const REVIEWER_NUDGE_STATUSES = new Set([
+    "commitment_review",
+    "head_review",
+    "dean_review",
+    "director_review",
+    "vp_review",
+    "qa_rating",
+    "qa_approval",
+]);
 
 function byYear(a, b) {
     const year = String(b.school_year?.label ?? "").localeCompare(String(a.school_year?.label ?? ""), undefined, {
@@ -23,15 +37,17 @@ function byYear(a, b) {
 
 export default function MyFormsPage() {
     const { user, can } = useAuth();
-    const isHr = user?.role === "hr";
-    const [list, setList] = useState("mine");
-    const collegeList = isHr && list === "all";
+    const hasCollegeTabs = COLLEGE_FORM_ROLES.includes(user?.role);
+    const [list, setList] = useState(user?.role === "admin" ? "all" : "mine");
+    const collegeList = hasCollegeTabs && list === "all";
     const viewOnly = user?.role === "admin" || collegeList;
+    const canNudge = Boolean(user?.capabilities?.follow_up) && collegeList;
     const navigate = useNavigate();
     const queryClient = useQueryClient();
     const [form] = Form.useForm();
     const [open, setOpen] = useState(false);
     const [formKind, setFormKind] = useState("all");
+    const [statusFilter, setStatusFilter] = useState("all");
     // const [bulkOpen, setBulkOpen] = useState(false);
 
     const { data: forms = [], isLoading } = useQuery({
@@ -60,15 +76,50 @@ export default function MyFormsPage() {
         },
     });
 
+    const nudge = useMutation({
+        mutationFn: (formId) => api.post(`pcr-forms/${formId}/nudge`),
+        onSuccess: ({ data: payload }) => {
+            message.success(payload?.message ?? "Follow-up sent.");
+            queryClient.invalidateQueries({ queryKey: ["pcr-forms"] });
+        },
+        onError: (error) => {
+            message.error(error?.response?.data?.message ?? "Could not send the follow-up.");
+        },
+    });
+
     const activeFormKind = formKind === "all" || forms.some((row) => row.type === formKind) ? formKind : "all";
-    const visibleForms = forms.filter((row) => matchesListKind(row, activeFormKind));
-    const shownForms = [...visibleForms].sort(byYear);
+    const activeStatus =
+        statusFilter === "all" || forms.some((row) => row.status === statusFilter) ? statusFilter : "all";
+    const visibleForms = forms.filter((row) => matchesListKind(row, activeFormKind, activeStatus));
+    const shownForms = [...visibleForms].sort(collegeList ? byStatusThenYear : byYear);
     const formPage = usePaged(shownForms, 10);
     const activeYear = years.find((y) => y.is_active);
     const chosenType = Form.useWatch("type", form);
     const chosenYearId = Form.useWatch("school_year_id", form);
     const chosenYear = years.find((y) => y.id === chosenYearId);
     const periodOptions = [...(chosenYear?.periods ?? [])].sort((a, b) => a.seq - b.seq);
+
+    const followUpFor = (record) => {
+        if (!canNudge) return null;
+
+        const locked = Boolean(record.rating_period?.is_locked);
+        const owner = record.owner?.name || record.org_unit?.name || "this form";
+        const onMyStep = formIsWithReviewer(user, record);
+        const ownerTap = OWNER_NUDGE_STATUSES.has(record.status);
+        const reviewerTap = REVIEWER_NUDGE_STATUSES.has(record.status) && !onMyStep;
+
+        if (!ownerTap && !reviewerTap) return null;
+
+        return {
+            locked,
+            title: ownerTap ? `Follow up with ${owner}?` : "Send a follow-up?",
+            description: locked
+                ? "This review period is locked. Unlock it before sending a follow-up."
+                : ownerTap
+                  ? "They get a notification asking them to finish this form. One follow-up per form per day."
+                  : `Ask the reviewer about ${owner}'s form.`,
+        };
+    };
 
     const columns = [
         {
@@ -103,6 +154,10 @@ export default function MyFormsPage() {
         {
             title: "Status",
             dataIndex: "status",
+            sorter: collegeList
+                ? (a, b) => byStatusThenYear(a, b)
+                : (a, b) => String(a.status).localeCompare(String(b.status)),
+            defaultSortOrder: collegeList ? "ascend" : undefined,
             render: (status, record) => {
                 const meta = statusMeta(status, record);
                 return <Tag color={meta.color}>{meta.label}</Tag>;
@@ -111,26 +166,48 @@ export default function MyFormsPage() {
         {
             title: "",
             key: "actions",
-            render: (_, record) => (
-                <Space>
-                    <Button size="small" type="primary" onClick={() => navigate(`/forms/${record.id}`, { state: { from: "/my-forms" } })}>
-                        {viewOnly ? "View" : "Open"}
-                    </Button>
-                    <Button size="small" onClick={() => window.open(`/forms/${record.id}/print`, "_blank")}>
-                        Print
-                    </Button>
-                </Space>
-            ),
+            render: (_, record) => {
+                const followUp = followUpFor(record);
+
+                return (
+                    <Space>
+                        <Button
+                            size="small"
+                            type="primary"
+                            onClick={() => navigate(`/forms/${record.id}`, { state: { from: "/my-forms" } })}
+                        >
+                            {viewOnly ? "View" : "Open"}
+                        </Button>
+                        <Button size="small" onClick={() => window.open(`/forms/${record.id}/print`, "_blank")}>
+                            Print
+                        </Button>
+                        {followUp && (
+                            <Popconfirm
+                                title={followUp.title}
+                                description={followUp.description}
+                                okText="Nudge"
+                                cancelText="Cancel"
+                                disabled={followUp.locked || nudge.isPending}
+                                onConfirm={() => nudge.mutate(record.id)}
+                            >
+                                <Button size="small" disabled={followUp.locked || nudge.isPending}>
+                                    Nudge
+                                </Button>
+                            </Popconfirm>
+                        )}
+                    </Space>
+                );
+            },
         },
     ];
 
     return (
         <>
             <PageHeader
-                title={isHr || user?.role === "admin" ? "Forms" : "My Forms"}
+                title={hasCollegeTabs ? "Forms" : "My Forms"}
                 subtitle={
-                    collegeList || user?.role === "admin"
-                        ? "Every IPCR and OPCR in the college, and where each one sits."
+                    collegeList
+                        ? "Every IPCR and OPCR in the college — follow up from here when something is stuck."
                         : "Your performance commitment for each school year, and where it currently sits."
                 }
                 extra={
@@ -165,18 +242,19 @@ export default function MyFormsPage() {
                 }
             />
 
-            {isHr && (
+            {hasCollegeTabs && (
                 <Tabs
                     className="pms-line-tabs"
                     activeKey={list}
                     onChange={(key) => {
                         setList(key);
                         setFormKind("all");
+                        setStatusFilter("all");
                     }}
                     style={{ marginBottom: 16 }}
                     items={[
                         { key: "mine", label: "My Forms" },
-                        { key: "all", label: "All" },
+                        { key: "all", label: "All Forms" },
                     ]}
                 />
             )}
@@ -187,6 +265,8 @@ export default function MyFormsPage() {
                         rows={forms}
                         formKind={activeFormKind}
                         onFormKind={setFormKind}
+                        statusFilter={activeStatus}
+                        onStatusFilter={setStatusFilter}
                     />
                 )}
                 {shownForms.length === 0 && !isLoading ? (
@@ -207,6 +287,36 @@ export default function MyFormsPage() {
                                 sideAction
                                 actionLabel={viewOnly ? () => "View" : undefined}
                                 onOpen={(record) => navigate(`/forms/${record.id}`, { state: { from: "/my-forms" } })}
+                                renderActions={
+                                    canNudge
+                                        ? (record, openBtn) => {
+                                              const followUp = followUpFor(record);
+                                              if (!followUp) return openBtn;
+
+                                              return (
+                                                  <Space size={4} direction="vertical" style={{ width: "100%" }}>
+                                                      <Popconfirm
+                                                          title={followUp.title}
+                                                          description={followUp.description}
+                                                          okText="Nudge"
+                                                          cancelText="Cancel"
+                                                          disabled={followUp.locked || nudge.isPending}
+                                                          onConfirm={() => nudge.mutate(record.id)}
+                                                      >
+                                                          <Button
+                                                              size="small"
+                                                              block
+                                                              disabled={followUp.locked || nudge.isPending}
+                                                          >
+                                                              Nudge
+                                                          </Button>
+                                                      </Popconfirm>
+                                                      {openBtn}
+                                                  </Space>
+                                              );
+                                          }
+                                        : undefined
+                                }
                             />
                             <ListPager
                                 page={formPage.page}

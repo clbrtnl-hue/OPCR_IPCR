@@ -7,8 +7,10 @@ import LoginPage from "~/pages/LoginPage";
 import DashboardPage from "~/pages/DashboardPage";
 import UsersPage from "~/pages/admin/UsersPage";
 import OrgUnitsPage from "~/pages/admin/OrgUnitsPage";
+import OrganizationPage from "~/pages/admin/OrganizationPage";
 import CollegeOpcrPage from "~/pages/CollegeOpcrPage";
 import SchoolYearsPage from "~/pages/admin/SchoolYearsPage";
+import AnnouncementsPage from "~/pages/admin/AnnouncementsPage";
 import WorkflowPage from "~/pages/admin/WorkflowPage";
 import MyFormsPage from "~/pages/MyFormsPage";
 import MyIpcrPage from "~/pages/MyIpcrPage";
@@ -119,6 +121,14 @@ export default function AppRoutes() {
                                     }
                                 />
                                 <Route
+                                    path="/admin/organization"
+                                    element={
+                                        <Protected roles={["admin"]}>
+                                            <OrganizationPage />
+                                        </Protected>
+                                    }
+                                />
+                                <Route
                                     path="/admin/org-units"
                                     element={
                                         <Protected roles={["admin"]}>
@@ -131,6 +141,14 @@ export default function AppRoutes() {
                                     element={
                                         <Protected roles={["admin"]}>
                                             <SchoolYearsPage />
+                                        </Protected>
+                                    }
+                                />
+                                <Route
+                                    path="/admin/announcements"
+                                    element={
+                                        <Protected roles={["admin"]}>
+                                            <AnnouncementsPage />
                                         </Protected>
                                     }
                                 />

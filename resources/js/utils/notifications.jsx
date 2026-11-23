@@ -31,6 +31,7 @@ export const NOTIFICATION_META = {
     due_today: { label: "Due today", color: "#d46b08", icon: <ClockCircleOutlined /> },
     overdue: { label: "Overdue", color: "#d4380d", icon: <WarningOutlined /> },
     period: { label: "Period", color: "#1e3a72", icon: <CalendarOutlined /> },
+    announcement: { label: "Announcement", color: "#1e3a72", icon: <NotificationOutlined /> },
     unclosed: { label: "Needs closing", color: "#1e3a72", icon: <LockOutlined /> },
     default: { label: "Update", color: "#8c8c8c", icon: <BellOutlined /> },
 };

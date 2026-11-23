@@ -259,7 +259,9 @@
                     Head of Agency:<br><br><br>
                     <div class="rule">
                         {{ $officeHead?->name ?? $ratee }}<br>
-                        {{ $officeHead?->position_title ?? 'Head of Agency' }}
+                        {{ $officeHead?->position_title
+                            ?? $organization->head_title
+                            ?? 'Head of Agency' }}
                     </div>
                 </td>
             </tr>

@@ -1,10 +1,10 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { Badge, Button, Drawer, Layout, Menu, Dropdown, Space, Tag, Tooltip, Typography } from "antd";
+import { Badge, Button, Drawer, Layout, Menu, Dropdown, Modal, Space, Tag, Tooltip, Typography } from "antd";
 import { useQuery } from "@tanstack/react-query";
 import { useLocation, useNavigate } from "react-router-dom";
 import api from "~/utils/api";
 import { useAuth } from "~/hooks/useAuth";
-import { useOrganization } from "~/hooks/useOrganization";
+import { organizationLogo, useOrganization } from "~/hooks/useOrganization";
 import { APPROVAL_QUEUE_STATUSES, ROLE_LABELS } from "~/utils/constants";
 import { formIsWithReviewer } from "~/utils/formReviewer";
 import UserAvatar from "~/components/UserAvatar";
@@ -29,8 +29,10 @@ const ITEMS = {
     reports: { key: "/reports", icon: <NavIcon name="reports" />, label: "Reports" },
     closing: { key: "/closing", icon: <NavIcon name="review" />, label: "Close ratings" },
     users: { key: "/admin/users", icon: <NavIcon name="accounts" />, label: "Accounts" },
+    organization: { key: "/admin/organization", icon: <NavIcon name="college" />, label: "Organization" },
     orgUnits: { key: "/admin/org-units", icon: <NavIcon name="hierarchy" />, label: "Hierarchy" },
     schoolYears: { key: "/admin/school-years", icon: <NavIcon name="calendar" />, label: "School Years" },
+    announcements: { key: "/admin/announcements", icon: <NavIcon name="bell" />, label: "Announcements" },
     workflow: { key: "/admin/workflow", icon: <NavIcon name="workflow" />, label: "Workflow" },
     audit: { key: "/admin/audit", icon: <NavIcon name="audit" />, label: "Audit Trail" },
     notifications: { key: "/notifications", icon: <NavIcon name="bell" />, label: "Notifications" },
@@ -83,11 +85,19 @@ const MENUS = {
             key: "setup",
             icon: <NavIcon name="setup" />,
             label: "Setup",
-            children: [ITEMS.users, ITEMS.orgUnits, ITEMS.schoolYears, ITEMS.workflow, ITEMS.audit],
+            children: [
+                ITEMS.users,
+                ITEMS.organization,
+                ITEMS.orgUnits,
+                ITEMS.schoolYears,
+                ITEMS.announcements,
+                ITEMS.workflow,
+                ITEMS.audit,
+            ],
         },
     ],
-    president: [ITEMS.dashboard, ITEMS.collegeOpcr, ITEMS.myForms, ITEMS.reviewQueue, ITEMS.reports],
-    qa: [ITEMS.dashboard, ITEMS.collegeOpcr, ITEMS.myIpcr, ITEMS.myForms, ITEMS.myTeam, ITEMS.reviewQueue, ITEMS.reports],
+    president: [ITEMS.dashboard, ITEMS.collegeOpcr, ITEMS.forms, ITEMS.reviewQueue, ITEMS.reports],
+    qa: [ITEMS.dashboard, ITEMS.collegeOpcr, ITEMS.myIpcr, ITEMS.forms, ITEMS.myTeam, ITEMS.reviewQueue, ITEMS.reports],
     vp: [ITEMS.dashboard, ITEMS.myIpcr, ITEMS.myForms, ITEMS.myTeam, ITEMS.reviewQueue, ITEMS.reports],
     program_head: [ITEMS.dashboard, ITEMS.myIpcr, ITEMS.myForms, ITEMS.myTeam, ITEMS.reviewQueue, ITEMS.reports],
     hr: [ITEMS.dashboard, ITEMS.myIpcr, ITEMS.collegeOpcr, ITEMS.forms, ITEMS.reviewQueue, ITEMS.closing, ITEMS.reports],
@@ -104,6 +114,20 @@ export default function AppLayout({ children }) {
     const [collapsed, setCollapsed] = useState(false);
     const [navOpen, setNavOpen] = useState(false);
     const [tabAway, setTabAway] = useState(false);
+
+    const confirmLogout = () => {
+        Modal.confirm({
+            title: "Sign out?",
+            content: "You will need to sign in again to continue.",
+            okText: "Sign out",
+            cancelText: "Cancel",
+            okButtonProps: { danger: true },
+            onOk: async () => {
+                await logout();
+                navigate("/login");
+            },
+        });
+    };
 
     const { data: notifications } = useQuery({
         queryKey: ["notifications", "bell", user?.id],
@@ -326,7 +350,7 @@ export default function AppLayout({ children }) {
                 onKeyDown={(event) => event.key === "Enter" && go("/")}
             >
                 <img
-                    src="/images/occ-logo.webp"
+                    src={organizationLogo(organization)}
                     alt={organization.name ?? "Opol Community College"}
                     className="pms-brand-logo"
                 />
@@ -403,11 +427,10 @@ export default function AppLayout({ children }) {
                         { key: "/profile", icon: <NavIcon name="user" />, label: "My profile" },
                         { key: "logout", icon: <NavIcon name="logout" />, label: "Sign out", danger: true },
                     ]}
-                    onClick={async ({ key }) => {
+                    onClick={({ key }) => {
                         if (key === "logout") {
                             setNavOpen(false);
-                            await logout();
-                            navigate("/login");
+                            confirmLogout();
 
                             return;
                         }
@@ -495,10 +518,7 @@ export default function AppLayout({ children }) {
                                         key: "logout",
                                         icon: <NavIcon name="logout" />,
                                         label: "Sign out",
-                                        onClick: async () => {
-                                            await logout();
-                                            navigate("/login");
-                                        },
+                                        onClick: () => confirmLogout(),
                                     },
                                 ],
                             }}

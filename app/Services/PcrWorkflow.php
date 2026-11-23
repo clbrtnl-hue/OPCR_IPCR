@@ -601,7 +601,11 @@ class PcrWorkflow
             && (int) $form->org_unit_id === (int) $user->org_unit_id;
     }
 
-    /** President, QA, HR, and admin — campus-wide follow-ups, not just one office. */
+    /**
+     * President, QA, HR, and admin — campus-wide form access and follow-ups.
+     * Their My Team roster is still limited to offices they lead or watch;
+     * campus follow-up is done from Forms → All.
+     */
     public static function isCollegeMonitor(User $user): bool
     {
         return in_array($user->role, ['admin', 'president', 'qa', 'hr'], true);

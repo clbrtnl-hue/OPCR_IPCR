@@ -98,7 +98,7 @@ class HrAccessTest extends PmsTestCase
             ->assertJsonFragment(['name' => 'Human Resource Management Office']);
     }
 
-    public function test_an_hr_who_heads_no_office_still_opens_the_college_roster(): void
+    public function test_an_hr_who_heads_no_office_sees_an_empty_team_roster(): void
     {
         $this->makeOrganization();
         $this->makeSchoolYear();
@@ -107,9 +107,11 @@ class HrAccessTest extends PmsTestCase
 
         $this->actingAsRole('hr');
 
+        // Campus follow-up stays on Forms → All; My Team needs a led/watched office.
         $this->getJson('/api/my-team')
             ->assertOk()
-            ->assertJsonFragment(['name' => 'Staff One']);
+            ->assertJsonPath('members', [])
+            ->assertJsonPath('units', []);
         $this->getJson('/api/org-units/leading')->assertOk()->assertExactJson([]);
     }
 

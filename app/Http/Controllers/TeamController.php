@@ -208,11 +208,8 @@ class TeamController extends Controller
     {
         $query = OrgUnit::query()->with(['reviewers', 'viewers'])->orderBy('name');
 
-        // College monitors see every office so they can follow up campus-wide.
-        if (PcrWorkflow::isCollegeMonitor($user)) {
-            return $query->get(['id', 'name', 'code']);
-        }
-
+        // Direct team only — offices this person leads or watches. Campus-wide
+        // follow-up for college monitors lives on Forms → All, not here.
         $ids = array_values(array_unique(array_merge(
             OrgUnit::query()->whereLedBy($user->id)->pluck('id')->map(fn ($id) => (int) $id)->all(),
             OrgUnit::watchedIds((int) $user->id)
