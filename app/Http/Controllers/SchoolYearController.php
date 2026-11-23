@@ -5,7 +5,6 @@ namespace App\Http\Controllers;
 use App\Models\ActivityLog;
 use App\Models\RatingPeriod;
 use App\Models\SchoolYear;
-use App\Services\AnnouncementService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
@@ -92,10 +91,9 @@ class SchoolYearController extends Controller
         return response()->json(['data' => 'activated', 'school_year' => $year->fresh('periods')]);
     }
 
-    public function activatePeriod($id, AnnouncementService $announcements)
+    public function activatePeriod($id)
     {
         $period = RatingPeriod::with('schoolYear')->findOrFail($id);
-        $wasOpen = $period->status === 'open' && $period->is_active;
 
         DB::transaction(function () use ($period) {
             RatingPeriod::query()
@@ -113,14 +111,10 @@ class SchoolYearController extends Controller
             "Set {$period->label} of {$period->schoolYear->label} as the active review period"
         );
 
-        if (! $wasOpen) {
-            $announcements->periodOpened($period->fresh('schoolYear'));
-        }
-
         return response()->json(['data' => 'activated', 'period' => $period->fresh()]);
     }
 
-    public function setPeriodStatus(Request $request, $id, AnnouncementService $announcements)
+    public function setPeriodStatus(Request $request, $id)
     {
         $data = $request->validate([
             'status' => ['required', Rule::in(['upcoming', 'open', 'closed'])],
@@ -137,10 +131,6 @@ class SchoolYearController extends Controller
             "{$period->label} moved from {$from} to {$data['status']}"
         );
 
-        if ($from !== 'open' && $data['status'] === 'open') {
-            $announcements->periodOpened($period->fresh('schoolYear'));
-        }
-
         return response()->json(['data' => 'updated', 'period' => $period->fresh()]);
     }
 
@@ -148,7 +138,7 @@ class SchoolYearController extends Controller
      * The cut-off. A locked period is view-only for everyone — no commitments,
      * accomplishments, evidence or ratings. Unlocking it is a setup action.
      */
-    public function setPeriodLock(Request $request, $id, AnnouncementService $announcements)
+    public function setPeriodLock(Request $request, $id)
     {
         $data = $request->validate([
             'locked' => 'required|boolean',
@@ -179,10 +169,6 @@ class SchoolYearController extends Controller
             $lock ? 'lock' : 'unlock',
             $lock ? "{$period->label} locked — view only" : "{$period->label} unlocked"
         );
-
-        if ($lock) {
-            $announcements->periodLocked($period->fresh('schoolYear'));
-        }
 
         return response()->json(['data' => 'updated', 'period' => $period->fresh()]);
     }

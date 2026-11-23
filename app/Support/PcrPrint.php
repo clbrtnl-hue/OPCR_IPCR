@@ -6,9 +6,8 @@ use App\Models\User;
 use App\Services\RatingScale;
 
 /**
- * Shared bits of the printed OPCR/IPCR. Prefer the college logo from Setup →
- * Branding; otherwise an LGU seal dropped in public/images. The title still
- * prints without either.
+ * Shared bits of the printed OPCR/IPCR. The LGU seal is optional until the
+ * file is dropped in public/images — the title still prints without it.
  */
 class PcrPrint
 {
@@ -16,12 +15,6 @@ class PcrPrint
 
     public static function sealPath(): ?string
     {
-        $logo = app(CurrentOrganization::class)->get()?->logoFilePath();
-
-        if ($logo) {
-            return $logo;
-        }
-
         foreach (self::SEAL_FILES as $name) {
             $path = public_path('images/'.$name);
 
@@ -55,12 +48,6 @@ class PcrPrint
 
     public static function sealUrl(): ?string
     {
-        $logo = app(CurrentOrganization::class)->get()?->logoUrl();
-
-        if ($logo) {
-            return $logo;
-        }
-
         foreach (self::SEAL_FILES as $name) {
             if (is_file(public_path('images/'.$name))) {
                 return '/images/'.$name;

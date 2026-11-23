@@ -10,7 +10,7 @@ import {
 import { Navigate, useNavigate, useSearchParams } from "react-router-dom";
 import { errorText } from "~/utils/api";
 import { useAuth } from "~/hooks/useAuth";
-import { organizationLogo, useOrganization } from "~/hooks/useOrganization";
+import { useOrganization } from "~/hooks/useOrganization";
 import ThemeToggle from "~/components/ThemeToggle";
 
 const POINTS = [
@@ -42,7 +42,6 @@ export default function LoginPage() {
     }
 
     const name = organization.name ?? "Performance Management";
-    const logo = organizationLogo(organization);
 
     const onFinish = async (values) => {
         setSubmitting(true);
@@ -71,7 +70,7 @@ export default function LoginPage() {
         <div className="pms-login">
             <aside className="pms-login-brand">
                 <div className="pms-login-mark">
-                    <img src={logo} alt="" />
+                    <img src="/images/occ-logo.webp" alt="" />
                     <div>
                         <div className="pms-login-org">{name}</div>
                         {organization.address && (
@@ -99,7 +98,7 @@ export default function LoginPage() {
             <main className="pms-login-panel">
                 <Card className="pms-login-card" variant="borderless">
                     <div className="pms-login-inline-mark">
-                        <img src={logo} alt="" />
+                        <img src="/images/occ-logo.webp" alt="" />
                         <span>{name}</span>
                     </div>
 
