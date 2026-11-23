@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { Badge, Button, Drawer, Layout, Menu, Dropdown, Space, Tag, Tooltip, Typography } from "antd";
+import { Badge, Button, Drawer, Layout, Menu, Dropdown, Modal, Space, Tag, Tooltip, Typography } from "antd";
 import { useQuery } from "@tanstack/react-query";
 import { useLocation, useNavigate } from "react-router-dom";
 import api from "~/utils/api";
@@ -86,8 +86,8 @@ const MENUS = {
             children: [ITEMS.users, ITEMS.orgUnits, ITEMS.schoolYears, ITEMS.workflow, ITEMS.audit],
         },
     ],
-    president: [ITEMS.dashboard, ITEMS.collegeOpcr, ITEMS.myForms, ITEMS.reviewQueue, ITEMS.reports],
-    qa: [ITEMS.dashboard, ITEMS.collegeOpcr, ITEMS.myIpcr, ITEMS.myForms, ITEMS.myTeam, ITEMS.reviewQueue, ITEMS.reports],
+    president: [ITEMS.dashboard, ITEMS.collegeOpcr, ITEMS.forms, ITEMS.reviewQueue, ITEMS.reports],
+    qa: [ITEMS.dashboard, ITEMS.collegeOpcr, ITEMS.myIpcr, ITEMS.forms, ITEMS.myTeam, ITEMS.reviewQueue, ITEMS.reports],
     vp: [ITEMS.dashboard, ITEMS.myIpcr, ITEMS.myForms, ITEMS.myTeam, ITEMS.reviewQueue, ITEMS.reports],
     program_head: [ITEMS.dashboard, ITEMS.myIpcr, ITEMS.myForms, ITEMS.myTeam, ITEMS.reviewQueue, ITEMS.reports],
     hr: [ITEMS.dashboard, ITEMS.myIpcr, ITEMS.collegeOpcr, ITEMS.forms, ITEMS.reviewQueue, ITEMS.closing, ITEMS.reports],
@@ -104,6 +104,20 @@ export default function AppLayout({ children }) {
     const [collapsed, setCollapsed] = useState(false);
     const [navOpen, setNavOpen] = useState(false);
     const [tabAway, setTabAway] = useState(false);
+
+    const confirmLogout = () => {
+        Modal.confirm({
+            title: "Sign out?",
+            content: "You will need to sign in again to continue.",
+            okText: "Sign out",
+            cancelText: "Cancel",
+            okButtonProps: { danger: true },
+            onOk: async () => {
+                await logout();
+                navigate("/login");
+            },
+        });
+    };
 
     const { data: notifications } = useQuery({
         queryKey: ["notifications", "bell", user?.id],
@@ -165,8 +179,12 @@ export default function AppLayout({ children }) {
         queryFn: () => api.get("org-units/leading").then((r) => r.data),
         enabled: Boolean(user),
     });
-    const seesTeam = canFollowUp || leadsATeam || watchedUnits.length > 0 || ledUnits.length > 0;
+    // Admin is setup/oversight — never a team desk, even if named on a unit.
+    const seesTeam =
+        user?.role !== "admin" &&
+        (canFollowUp || leadsATeam || watchedUnits.length > 0 || ledUnits.length > 0);
     const seesAttendance =
+        user?.role !== "admin" &&
         user?.role !== "vp" &&
         user?.role !== "president" &&
         (user?.role === "hr" || ledUnits.length > 0);
@@ -403,11 +421,10 @@ export default function AppLayout({ children }) {
                         { key: "/profile", icon: <NavIcon name="user" />, label: "My profile" },
                         { key: "logout", icon: <NavIcon name="logout" />, label: "Sign out", danger: true },
                     ]}
-                    onClick={async ({ key }) => {
+                    onClick={({ key }) => {
                         if (key === "logout") {
                             setNavOpen(false);
-                            await logout();
-                            navigate("/login");
+                            confirmLogout();
 
                             return;
                         }
@@ -495,10 +512,7 @@ export default function AppLayout({ children }) {
                                         key: "logout",
                                         icon: <NavIcon name="logout" />,
                                         label: "Sign out",
-                                        onClick: async () => {
-                                            await logout();
-                                            navigate("/login");
-                                        },
+                                        onClick: () => confirmLogout(),
                                     },
                                 ],
                             }}

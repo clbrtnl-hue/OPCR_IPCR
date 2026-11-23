@@ -37,10 +37,12 @@ function byYear(a, b) {
 
 export default function MyFormsPage() {
     const { user, can } = useAuth();
-    const hasCollegeTabs = COLLEGE_FORM_ROLES.includes(user?.role);
-    const [list, setList] = useState(user?.role === "admin" ? "all" : "mine");
-    const collegeList = hasCollegeTabs && list === "all";
-    const viewOnly = user?.role === "admin" || collegeList;
+    const isAdmin = user?.role === "admin";
+    // Admin is college-wide only — no personal "My Forms" tab.
+    const hasCollegeTabs = COLLEGE_FORM_ROLES.includes(user?.role) && !isAdmin;
+    const [list, setList] = useState("mine");
+    const collegeList = isAdmin || (hasCollegeTabs && list === "all");
+    const viewOnly = isAdmin || collegeList;
     const canNudge = Boolean(user?.capabilities?.follow_up) && collegeList;
     const navigate = useNavigate();
     const queryClient = useQueryClient();
@@ -204,7 +206,7 @@ export default function MyFormsPage() {
     return (
         <>
             <PageHeader
-                title={hasCollegeTabs ? "Forms" : "My Forms"}
+                title={isAdmin || hasCollegeTabs ? "Forms" : "My Forms"}
                 subtitle={
                     collegeList
                         ? "Every IPCR and OPCR in the college — follow up from here when something is stuck."

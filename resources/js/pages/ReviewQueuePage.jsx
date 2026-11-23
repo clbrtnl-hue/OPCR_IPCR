@@ -121,11 +121,14 @@ export default function ReviewQueuePage() {
     const approvalRows = monitors
         ? rows.filter((form) => APPROVAL_QUEUE_STATUSES.includes(form.status))
         : rows.filter((form) => !scoreable(form, user));
-    const ratedRows = periodId
+    // Oversight rating list should not keep finished forms — rated/final belong
+    // on Reports / Closing, not the active Rating tab.
+    const ratedRows = (periodId
         ? ratedForms.filter(
               (form) => Number(form.rating_period_id ?? form.rating_period?.id) === periodId
           )
-        : ratedForms;
+        : ratedForms
+    ).filter((form) => !["rated", "final"].includes(form.status));
     const ratingRows = viewOnly
         ? ratedRows
         : rows.filter((form) => !APPROVAL_QUEUE_STATUSES.includes(form.status));
@@ -188,6 +191,8 @@ export default function ReviewQueuePage() {
         {
             title: "",
             key: "actions",
+            align: "right",
+            width: 160,
             render: (_, record) => {
                 const owner = record.owner?.name || record.org_unit?.name || "this form";
                 const locked = Boolean(record.rating_period?.is_locked);
@@ -195,37 +200,53 @@ export default function ReviewQueuePage() {
                 const showNudge = canNudge && NUDGE_STATUSES.has(record.status) && !onMyStep;
 
                 return (
-                    <Space size={8} onClick={(event) => event.stopPropagation()}>
-                        {showNudge && (
-                            <Popconfirm
-                                title="Send a follow-up?"
-                                description={
-                                    locked
-                                        ? "This review period is locked. Unlock it before sending a follow-up."
-                                        : `Ask the reviewer about ${owner}'s form.`
-                                }
-                                okText="Nudge"
-                                cancelText="Cancel"
-                                disabled={locked || nudge.isPending}
-                                onConfirm={() => nudge.mutate(record.id)}
-                            >
-                                <Button
-                                    size="small"
-                                    disabled={locked || nudge.isPending}
-                                    title={
+                    <div
+                        style={{
+                            display: "inline-flex",
+                            gap: 8,
+                            alignItems: "center",
+                            justifyContent: "flex-end",
+                        }}
+                        onClick={(event) => event.stopPropagation()}
+                    >
+                        <span
+                            style={{
+                                display: "inline-flex",
+                                justifyContent: "flex-end",
+                                minWidth: 58,
+                            }}
+                        >
+                            {showNudge ? (
+                                <Popconfirm
+                                    title="Send a follow-up?"
+                                    description={
                                         locked
-                                            ? "Unlock the review period before sending a follow-up."
-                                            : "Ask the reviewer to check this form"
+                                            ? "This review period is locked. Unlock it before sending a follow-up."
+                                            : `Ask the reviewer about ${owner}'s form.`
                                     }
+                                    okText="Nudge"
+                                    cancelText="Cancel"
+                                    disabled={locked || nudge.isPending}
+                                    onConfirm={() => nudge.mutate(record.id)}
                                 >
-                                    Nudge
-                                </Button>
-                            </Popconfirm>
-                        )}
+                                    <Button
+                                        size="small"
+                                        disabled={locked || nudge.isPending}
+                                        title={
+                                            locked
+                                                ? "Unlock the review period before sending a follow-up."
+                                                : "Ask the reviewer to check this form"
+                                        }
+                                    >
+                                        Nudge
+                                    </Button>
+                                </Popconfirm>
+                            ) : null}
+                        </span>
                         <Button type="primary" size="small" onClick={() => openForm(record)}>
                             View
                         </Button>
-                    </Space>
+                    </div>
                 );
             },
         },
