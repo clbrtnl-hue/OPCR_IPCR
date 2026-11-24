@@ -5,6 +5,7 @@ import dayjs from "dayjs";
 import api from "~/utils/api";
 import { useAuth } from "~/hooks/useAuth";
 import { scoreable } from "~/pages/RatingPage";
+import { formYearId } from "~/components/FormListFilters";
 import FormEditorPage from "~/pages/FormEditorPage";
 
 function arrivalTime(form) {
@@ -14,7 +15,7 @@ function arrivalTime(form) {
     return Number.isNaN(time) ? Number.POSITIVE_INFINITY : time;
 }
 
-export default function CommitmentPage({ periodFilter = null, focusFormId = null }) {
+export default function CommitmentPage({ periodFilter = null, yearFilter, focusFormId = null }) {
     const { user } = useAuth();
     const [selectedId, setSelectedId] = useState(null);
     const leavingId = useRef(null);
@@ -34,6 +35,10 @@ export default function CommitmentPage({ periodFilter = null, focusFormId = null
                 return false;
             }
 
+            if (yearFilter !== undefined && (yearFilter == null || formYearId(form) !== Number(yearFilter))) {
+                return false;
+            }
+
             if (scoreable(form, user)) return false;
 
             if (form.status === "commitment_review") return true;
@@ -45,7 +50,7 @@ export default function CommitmentPage({ periodFilter = null, focusFormId = null
         });
 
         return [...forms].sort((a, b) => arrivalTime(a) - arrivalTime(b) || a.id - b.id);
-    }, [queue, periodFilter, user]);
+    }, [queue, periodFilter, yearFilter, user]);
     const waitingRef = useRef(waiting);
     waitingRef.current = waiting;
 
@@ -89,12 +94,14 @@ export default function CommitmentPage({ periodFilter = null, focusFormId = null
 
     const periodId = form?.type === "ipcr" ? (form?.rating_period_id ?? null) : null;
     const periods = form?.school_year?.periods ?? [];
+    const selectedWaiting = waiting.find((item) => item.id === selectedId);
+    const pickerLabel = "Form waiting for approval:";
 
     return (
         <>
             <Card className="pms-rate-picker" size="small" style={{ marginBottom: 16 }}>
                 <Space wrap className="pms-rate-pick">
-                    <span>Form waiting for approval:</span>
+                    <span>{pickerLabel}</span>
                     <Select
                         className="pms-rate-form"
                         classNames={{ popup: { root: "pms-rate-form-popup" } }}

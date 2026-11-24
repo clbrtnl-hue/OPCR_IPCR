@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { Badge, Button, Card, Empty, Popconfirm, Space, Table, Tabs, Tag, message } from "antd";
+import { Badge, Button, Card, Empty, Popconfirm, Select, Space, Table, Tabs, Tag, message } from "antd";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import dayjs from "dayjs";
@@ -9,7 +9,7 @@ import { formIsWithReviewer } from "~/utils/formReviewer";
 import { dimensionPhrase } from "~/utils/ratingScale";
 import PageHeader from "~/components/PageHeader";
 import FormCards from "~/components/FormCards";
-import FormListFilters, { matchesListKind } from "~/components/FormListFilters";
+import FormListFilters, { formYearId, matchesListKind, yearChoices } from "~/components/FormListFilters";
 import ListPager, { tablePager, usePaged } from "~/components/ListPager";
 import { useAuth } from "~/hooks/useAuth";
 import RatingPage, { scoreable } from "~/pages/RatingPage";
@@ -74,11 +74,16 @@ export default function ReviewQueuePage() {
     const { user } = useAuth();
     const viewOnly = user?.role === "admin";
     const isQa = user?.role === "qa";
-    const monitors = ["admin", "qa", "hr"].includes(user?.role);
+    const monitors = ["admin", "qa"].includes(user?.role);
     const canNudge = Boolean(user?.capabilities?.follow_up);
-    const seesRating = user?.role !== "president";
     const periodId = Number(searchParams.get("period")) || null;
     const focusFormId = Number(searchParams.get("form")) || null;
+    const [yearChoice, setYearChoice] = useState(null);
+
+    const { data: years = [], isLoading: yearsLoading } = useQuery({
+        queryKey: ["school-years"],
+        queryFn: () => api.get("school-years").then((r) => r.data),
+    });
 
     const nudge = useMutation({
         mutationFn: (formId) => api.post(`pcr-forms/${formId}/nudge`),
@@ -93,13 +98,11 @@ export default function ReviewQueuePage() {
         },
     });
     const requested = searchParams.get("tab");
-    const tab = !seesRating
-        ? "approval"
-        : requested === "rating"
-          ? "rating"
-          : requested === "viewing" && isQa
-            ? "viewing"
-            : "approval";
+    const tab = requested === "rating"
+        ? "rating"
+        : requested === "viewing" && isQa
+          ? "viewing"
+          : "approval";
     const [formKind, setFormKind] = useState("all");
 
     const { data: queue = [], isLoading } = useQuery({
@@ -113,11 +116,20 @@ export default function ReviewQueuePage() {
         enabled: viewOnly,
     });
 
-    const rows = periodId
+    const activeYear = years.find((year) => year.is_active);
+    const focusForm = [...queue, ...ratedForms].find((form) => form.id === focusFormId);
+    const focusYear = focusForm ? formYearId(focusForm) : null;
+    const resolvedYear = yearChoice ?? (focusYear != null ? String(focusYear) : activeYear ? String(activeYear.id) : null);
+    const yearReady = !yearsLoading && resolvedYear != null;
+    const inSelectedYear = (form) => yearReady && formYearId(form) === Number(resolvedYear);
+    const yearOptions = yearChoices(years);
+
+    const rows = (periodId
         ? queue.filter(
               (form) => Number(form.rating_period_id ?? form.rating_period?.id) === periodId
           )
-        : queue;
+        : queue
+    ).filter(inSelectedYear);
     const approvalRows = monitors
         ? rows.filter((form) => APPROVAL_QUEUE_STATUSES.includes(form.status))
         : rows.filter((form) => !scoreable(form, user));
@@ -128,7 +140,7 @@ export default function ReviewQueuePage() {
               (form) => Number(form.rating_period_id ?? form.rating_period?.id) === periodId
           )
         : ratedForms
-    ).filter((form) => !["rated", "final"].includes(form.status));
+    ).filter((form) => !["rated", "final"].includes(form.status) && inSelectedYear(form));
     const ratingRows = viewOnly
         ? ratedRows
         : rows.filter((form) => !APPROVAL_QUEUE_STATUSES.includes(form.status));
@@ -224,7 +236,7 @@ export default function ReviewQueuePage() {
                                             ? "This review period is locked. Unlock it before sending a follow-up."
                                             : `Ask the reviewer about ${owner}'s form.`
                                     }
-                                    okText="Nudge"
+                                    okText="Remind"
                                     cancelText="Cancel"
                                     disabled={locked || nudge.isPending}
                                     onConfirm={() => nudge.mutate(record.id)}
@@ -238,7 +250,7 @@ export default function ReviewQueuePage() {
                                                 : "Ask the reviewer to check this form"
                                         }
                                     >
-                                        Nudge
+                                        Remind
                                     </Button>
                                 </Popconfirm>
                             ) : null}
@@ -256,15 +268,13 @@ export default function ReviewQueuePage() {
         ? "Commitments and office targets waiting for approval. You can open them, but you cannot approve them."
         : user?.role === "president"
           ? "IPCR commitments waiting for your approval."
-          : user?.role === "qa"
-            ? "Commitments and office targets waiting for your approval."
-            : user?.role === "hr"
+            : user?.role === "qa"
               ? "Commitments and office targets waiting for your approval."
               : user?.role === "vp"
                 ? "Forms the heads have endorsed and that are waiting for your review."
                 : "Forms your unit has submitted and that are waiting for your review.";
 
-    const scoresHere = !monitors || isQa || user?.role === "hr";
+    const scoresHere = !monitors || isQa;
     const ratingSubtitle = scoresHere
         ? `Score each success indicator on ${dimensionPhrase(user)}. A is their average; the final rating is the mean of the section averages.`
         : viewOnly
@@ -272,7 +282,7 @@ export default function ReviewQueuePage() {
           : "Forms in review or with QA. Open one to read it, or to score it when it is waiting on you.";
     const viewingSubtitle = "Forms in review or with QA. Open one to read it.";
     const subtitle = tab === "viewing" ? viewingSubtitle : tab === "rating" ? ratingSubtitle : approvalSubtitle;
-    const showingList = tab === "viewing" || (tab === "rating" && monitors && !isQa && user?.role !== "hr");
+    const showingList = tab === "viewing" || (tab === "rating" && monitors && !isQa);
     const approverRoles = user?.workflow?.opcr?.approver_roles ?? ["qa"];
     const commitmentBadge = rows.filter((form) => {
         if (scoreable(form, user)) return false;
@@ -291,40 +301,65 @@ export default function ReviewQueuePage() {
         </span>
     );
 
-    const queueTabs = seesRating ? (
-        <Tabs
-            className="pms-line-tabs"
-            activeKey={tab}
-            onChange={selectTab}
-            style={{ marginBottom: 16 }}
-            items={[
-                { key: "approval", label: tabLabel("Commitment approval", approvalBadge) },
-                ...(isQa ? [{ key: "viewing", label: "Viewing" }] : []),
-                { key: "rating", label: tabLabel("Rating", ratingBadge) },
-            ]}
-        />
-    ) : null;
+    const queueTabs = (
+        <>
+            {yearOptions.length > 0 && (
+                <Select
+                    value={resolvedYear == null ? undefined : Number(resolvedYear)}
+                    onChange={(value) => setYearChoice(String(value))}
+                    style={{ minWidth: 180, marginBottom: 16 }}
+                    options={yearOptions.map((year) => ({
+                        value: year.id,
+                        label: year.is_active ? `${year.label} ★` : year.label,
+                    }))}
+                />
+            )}
+            <Tabs
+                className="pms-line-tabs"
+                activeKey={tab}
+                onChange={selectTab}
+                style={{ marginBottom: 16 }}
+                items={[
+                    { key: "approval", label: tabLabel("Commitment approval", approvalBadge) },
+                    ...(isQa ? [{ key: "viewing", label: "Viewing" }] : []),
+                    { key: "rating", label: tabLabel("Rating", ratingBadge) },
+                ]}
+            />
+        </>
+    );
 
     return (
         <>
             <PageHeader title="Review Queue" subtitle={subtitle} />
 
             {tab === "rating" ? (
-                <RatingPage
-                    embedded
-                    periodFilter={periodId}
-                    focusFormId={focusFormId}
-                    ahead={queueTabs}
-                />
+                yearReady ? (
+                    <RatingPage
+                        embedded
+                        periodFilter={periodId}
+                        yearFilter={resolvedYear}
+                        focusFormId={focusFormId}
+                        ahead={queueTabs}
+                    />
+                ) : (
+                    <>
+                        {queueTabs}
+                        <Card loading />
+                    </>
+                )
             ) : (
                 <>
                     {queueTabs}
                     {tab === "approval" && !viewOnly ? (
-                        <CommitmentPage periodFilter={periodId} focusFormId={focusFormId} />
+                        yearReady ? (
+                            <CommitmentPage periodFilter={periodId} yearFilter={resolvedYear} focusFormId={focusFormId} />
+                        ) : (
+                            <Card loading />
+                        )
                     ) : (
                         <QueueList
                             rows={showingList ? visibleRating : approvalRows}
-                            loading={tab === "rating" && viewOnly ? ratingLoading : isLoading}
+                            loading={tab === "rating" && viewOnly ? ratingLoading || yearsLoading : isLoading || yearsLoading}
                             empty={
                                 showingList && ratingRows.length > 0
                                     ? "No forms match this filter."
@@ -351,7 +386,7 @@ export default function ReviewQueuePage() {
                                                               ? "This review period is locked. Unlock it before sending a follow-up."
                                                               : `Ask the reviewer about ${owner}'s form.`
                                                       }
-                                                      okText="Nudge"
+                                                      okText="Remind"
                                                       cancelText="Cancel"
                                                       disabled={locked || nudge.isPending}
                                                       onConfirm={() => nudge.mutate(record.id)}
@@ -366,7 +401,7 @@ export default function ReviewQueuePage() {
                                                                   : "Ask the reviewer to check this form"
                                                           }
                                                       >
-                                                          Nudge
+                                                          Remind
                                                       </Button>
                                                   </Popconfirm>
                                                   {openBtn}

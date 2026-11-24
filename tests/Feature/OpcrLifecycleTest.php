@@ -223,7 +223,7 @@ class OpcrLifecycleTest extends PmsTestCase
         $this->assertSame('qa_rating', $opcr->fresh()->status);
     }
 
-    public function test_the_president_sends_a_published_opcr_for_rating_in_december(): void
+    public function test_the_president_sends_a_published_opcr_for_rating_during_its_school_year(): void
     {
         [$unit, $year] = $this->setUpOffice();
         $year->update(['start_date' => '2026-01-01', 'end_date' => '2026-12-31']);
@@ -235,19 +235,19 @@ class OpcrLifecycleTest extends PmsTestCase
 
         $this->actingAsRole('president', ['org_unit_id' => $unit->id]);
 
-        Carbon::setTestNow('2026-06-15');
+        Carbon::setTestNow('2025-11-24');
 
         try {
             $this->postJson("/api/pcr-forms/{$opcr->id}/status", ['status' => 'qa_rating'])
                 ->assertStatus(409)
-                ->assertJsonPath('message', 'The college OPCR is sent for rating in December, with the last period.');
+                ->assertJsonPath('message', 'The college OPCR can be sent for rating during its school year.');
         } finally {
             Carbon::setTestNow();
         }
 
         $this->assertSame('published', $opcr->fresh()->status);
 
-        Carbon::setTestNow('2026-12-01');
+        Carbon::setTestNow('2026-06-15');
 
         try {
             $this->getJson("/api/pcr-forms/{$opcr->id}")

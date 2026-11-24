@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Models\PcrForm;
 use App\Models\PcrStatusLog;
 use App\Models\User;
+use App\Services\PcrAssignmentService;
 use Laravel\Passport\Passport;
 use Tests\PmsTestCase;
 
@@ -148,6 +149,36 @@ class PcrWorkflowTest extends PmsTestCase
         $this->assertSame('head_review', $form->fresh()->status);
     }
 
+    public function test_submitting_is_refused_when_an_accountable_person_has_no_narrative(): void
+    {
+        $this->makeOrganization();
+        ['form' => $form, 'employee' => $employee, 'period' => $period, 'unit' => $unit] = $this->scenario();
+
+        $handed = $this->makeIndicator($form, 'support');
+        $faculty = User::factory()->create([
+            'role' => 'employee', 'org_unit_id' => $unit->id, 'name' => 'Ana Cruz',
+        ]);
+
+        app(PcrAssignmentService::class)->assignIndicator($handed, $faculty, $employee, $period->id, false);
+
+        $this->move($employee, $form, 'head_review')
+            ->assertStatus(422)
+            ->assertJsonPath('message', fn ($message) => str_contains($message, 'Ana Cruz still needs a narrative'));
+
+        $this->assertSame('commitments_approved', $form->fresh()->status);
+
+        $child = $this->commitAgainst($handed, $faculty, ['rating_period_id' => $period->id]);
+
+        $this->move($employee, $form, 'head_review')
+            ->assertStatus(422)
+            ->assertJsonPath('message', fn ($message) => str_contains($message, 'Ana Cruz still needs a narrative'));
+
+        $this->documentLine($child, false);
+
+        $this->move($employee, $form, 'head_review')->assertOk();
+        $this->assertSame('head_review', $form->fresh()->status);
+    }
+
     public function test_submitting_without_any_indicator_is_rejected(): void
     {
         ['form' => $form, 'employee' => $employee] = $this->scenario();
@@ -250,14 +281,14 @@ class PcrWorkflowTest extends PmsTestCase
         $this->move($admin, $form, 'head_review')->assertStatus(403);
     }
 
-    public function test_qa_cannot_close_a_rated_form(): void
+    public function test_qa_closes_a_rated_form(): void
     {
         ['form' => $form, 'qa' => $qa] = $this->scenario();
 
         $form->update(['status' => 'rated']);
 
-        $this->move($qa, $form, 'final')->assertStatus(403);
-        $this->assertSame('rated', $form->fresh()->status);
+        $this->move($qa, $form, 'final')->assertOk();
+        $this->assertSame('final', $form->fresh()->status);
     }
 
     public function test_president_cannot_close_a_rated_form(): void
@@ -288,5 +319,6 @@ class PcrWorkflowTest extends PmsTestCase
         $form->update(['status' => 'final']);
 
         $this->move($qa, $form, 'qa_rating')->assertStatus(409);
+        $this->move($qa, $form, 'appeal')->assertStatus(422);
     }
 }

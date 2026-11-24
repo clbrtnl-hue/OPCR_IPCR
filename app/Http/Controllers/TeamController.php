@@ -166,7 +166,7 @@ class TeamController extends Controller
 
         if ($alreadyHas) {
             return response()->json([
-                'message' => 'They already have an IPCR for this period. Open it and nudge from there.',
+                'message' => 'They already have an IPCR for this period. Open it and remind from there.',
             ], 422);
         }
 
@@ -466,7 +466,8 @@ class TeamController extends Controller
         $outputs = PcrOutput::whereIn('form_id', $forms->pluck('id'))->get(['id', 'form_id']);
         $formUser = $forms->pluck('user_id', 'id');
 
-        $indicators = PcrIndicator::whereIn('output_id', $outputs->pluck('id'))
+        $indicators = PcrIndicator::inForce()
+            ->whereIn('output_id', $outputs->pluck('id'))
             ->when(
                 $period,
                 fn ($query) => $query->where(

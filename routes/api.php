@@ -1,8 +1,9 @@
 <?php
 
+use App\Http\Controllers\AttendanceCategoryController;
 use App\Http\Controllers\AttendanceController;
-use App\Http\Controllers\HrClosingController;
 use App\Http\Controllers\AuthController;
+use App\Http\Controllers\CalendarEventController;
 use App\Http\Controllers\NotificationController;
 use App\Http\Controllers\OrganizationController;
 use App\Http\Controllers\OrgUnitController;
@@ -29,7 +30,7 @@ Route::get('organization', [OrganizationController::class, 'show']);
 Route::middleware('auth:api')->group(function () {
     $PMS_ADMIN     = 'role:admin';
     $PMS_QA        = 'role:qa';
-    $PMS_REPORTS   = 'role:president,qa,hr,program_head,vp';
+    $PMS_REPORTS   = 'role:president,qa,program_head,vp';
 
     /* ---------------------------------------------------------------- Auth */
     Route::get('me', [AuthController::class, 'me']);
@@ -49,6 +50,7 @@ Route::middleware('auth:api')->group(function () {
     Route::get('org-units/roster', [OrgUnitController::class, 'roster'])->middleware($PMS_ADMIN);
     Route::get('org-units/{id}/members', [OrgUnitController::class, 'members'])->middleware($PMS_ADMIN);
     Route::post('org-units', [OrgUnitController::class, 'store'])->middleware($PMS_ADMIN);
+    Route::post('org-units/{id}/place', [OrgUnitController::class, 'place'])->middleware($PMS_ADMIN);
     Route::delete('org-units/{id}', [OrgUnitController::class, 'destroy'])->middleware($PMS_ADMIN);
 
     /* --------------------------------------------- Admin: rating cycles */
@@ -84,6 +86,16 @@ Route::middleware('auth:api')->group(function () {
     Route::delete('attendance/meetings/{id}', [AttendanceController::class, 'destroyMeeting']);
     Route::put('attendance/meetings/{id}/marks', [AttendanceController::class, 'markMeeting']);
     Route::put('attendance/meetings/{id}/marks/all', [AttendanceController::class, 'markMeetingAll']);
+    Route::get('calendar-events', [CalendarEventController::class, 'index']);
+    Route::post('calendar-events', [CalendarEventController::class, 'store']);
+    Route::get('calendar-events/{id}', [CalendarEventController::class, 'show']);
+    Route::patch('calendar-events/{id}', [CalendarEventController::class, 'update']);
+    Route::delete('calendar-events/{id}', [CalendarEventController::class, 'destroy']);
+    Route::put('calendar-events/{id}/marks', [CalendarEventController::class, 'mark']);
+    Route::get('attendance-categories', [AttendanceCategoryController::class, 'index']);
+    Route::post('attendance-categories', [AttendanceCategoryController::class, 'store']);
+    Route::patch('attendance-categories/{id}', [AttendanceCategoryController::class, 'update']);
+    Route::delete('attendance-categories/{id}', [AttendanceCategoryController::class, 'destroy']);
     Route::get('people/{id}', [UserProfileController::class, 'show']);
     Route::get('people/{id}/pdf', [UserProfileController::class, 'pdf']);
     Route::post('my-profile', [UserProfileController::class, 'updateProfile']);
@@ -145,10 +157,6 @@ Route::middleware('auth:api')->group(function () {
     Route::get('pcr-ratings/targets', [PcrRatingController::class, 'targets']);
     Route::post('pcr-ratings', [PcrRatingController::class, 'store']);
     Route::post('pcr-forms/{id}/finalize-rating', [PcrRatingController::class, 'finalize']);
-
-    /* ------------------------------------------------ HR closing */
-    Route::get('hr/closing', [HrClosingController::class, 'index']);
-    Route::post('hr/closing/{orgUnitId}', [HrClosingController::class, 'closeOffice']);
 
     /* ------------------------------------------------------- Reports */
     Route::get('reports/my-summary', [ReportController::class, 'mySummary']);

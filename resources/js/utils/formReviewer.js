@@ -1,13 +1,22 @@
 const samePerson = (left, right) => Number(left) === Number(right);
 
+/** QA's own IPCR waits on the president's Rating tab. */
+export function qaIpcrWithPresident(form) {
+    if (!form || form.type !== "ipcr" || form.status !== "qa_rating") {
+        return false;
+    }
+
+    if (form.status_label === "With the President") {
+        return true;
+    }
+
+    return form.owner?.role === "qa";
+}
+
 /** This form is sitting with the signed-in person for review, approval, or rating. */
 export function formIsWithReviewer(user, form) {
     if (!user || !form) {
         return false;
-    }
-
-    if (user.role === "president" && form.status === "appeal") {
-        return true;
     }
 
     if (
@@ -15,6 +24,10 @@ export function formIsWithReviewer(user, form) {
         samePerson(form.commitment_approver?.id ?? form.commitment_approver_id, user.id)
     ) {
         return true;
+    }
+
+    if (qaIpcrWithPresident(form)) {
+        return user.role === "president";
     }
 
     const approves = (user.workflow?.opcr?.approver_roles ?? ["qa"]).includes(user.role);

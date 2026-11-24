@@ -56,7 +56,7 @@ class ReportController extends Controller
      */
     private function reportScopeUnitIds(User $user): ?array
     {
-        if (in_array($user->role, ['president', 'qa', 'hr', 'admin'], true)) {
+        if (in_array($user->role, ['president', 'qa', 'admin'], true)) {
             return null;
         }
 
@@ -72,9 +72,10 @@ class ReportController extends Controller
             'orgUnit:id,name,code',
             'orgUnit.reviewers',
             'stageReviewers',
-            'owner:id,name,image,position_title,role,org_unit_id',
+            'owner:id,name,image,position_title,role,org_unit_id,status',
             'owner.orgUnit:id,name,code',
         ])
+            ->forActiveAccounts()
             ->where('school_year_id', $data['school_year_id'])
             ->when(
                 $periodId,
@@ -230,14 +231,16 @@ class ReportController extends Controller
             return response()->json(['year' => null]);
         }
 
-        $forms = PcrForm::with(['orgUnit:id,name,code', 'owner:id,name', 'ratingPeriod:id,label,seq'])
+        $forms = PcrForm::with(['orgUnit:id,name,code', 'owner:id,name,status', 'ratingPeriod:id,label,seq'])
+            ->forActiveAccounts()
             ->where('school_year_id', $year->id)
             ->get()
             ->filter(fn ($form) => PcrWorkflow::owns($user, $form) && ! $user->isAdmin())
             ->values();
 
         if ($user->isAdmin()) {
-            $forms = PcrForm::with(['orgUnit:id,name,code', 'owner:id,name', 'ratingPeriod:id,label,seq'])
+            $forms = PcrForm::with(['orgUnit:id,name,code', 'owner:id,name,status', 'ratingPeriod:id,label,seq'])
+                ->forActiveAccounts()
                 ->where('school_year_id', $year->id)
                 ->where(fn ($q) => $q->where('user_id', $user->id)->orWhere('org_unit_id', $user->org_unit_id))
                 ->get();
@@ -763,7 +766,8 @@ class ReportController extends Controller
     {
         $outputs = PcrOutput::whereIn('form_id', $forms->pluck('id'))->get(['id', 'form_id', 'section']);
 
-        $indicators = PcrIndicator::whereIn('output_id', $outputs->pluck('id'))
+        $indicators = PcrIndicator::inForce()
+            ->whereIn('output_id', $outputs->pluck('id'))
             ->when(
                 $periodId,
                 fn ($q, $p) => $q->where(
@@ -772,7 +776,8 @@ class ReportController extends Controller
             )
             ->get(['id', 'output_id', 'description', 'target_date', 'progress_pct', 'progress_status', 'parent_indicator_id']);
 
-        $parents = PcrIndicator::whereIn('parent_indicator_id', $indicators->pluck('id'))
+        $parents = PcrIndicator::inForce()
+            ->whereIn('parent_indicator_id', $indicators->pluck('id'))
             ->distinct()
             ->pluck('parent_indicator_id')
             ->flip();

@@ -6,6 +6,7 @@ import {
     Input,
     Modal,
     Popconfirm,
+    Select,
     Space,
     Tag,
     Tooltip,
@@ -19,9 +20,7 @@ import {
     DisconnectOutlined,
     EditOutlined,
     DeleteOutlined,
-    ExpandOutlined,
     LinkOutlined,
-    PaperClipOutlined,
     PlusOutlined,
     UserAddOutlined,
 } from "@ant-design/icons";
@@ -29,8 +28,9 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import api from "~/utils/api";
 import SheetCell from "~/components/SheetCell";
 import OpcrTargetCell, { isPickedTarget, TargetLink, TargetPicker } from "~/components/OpcrTargetCell";
-import { AccomplishmentCell } from "~/components/AccomplishmentView";
+import { AccomplishmentField } from "~/components/AccomplishmentView";
 import IndicatorRow from "~/components/IndicatorRow";
+import LineDrawerTitle, { formWhen } from "~/components/LineDrawerTitle";
 import LineCards from "~/components/LineCards";
 import UserAvatar from "~/components/UserAvatar";
 import AssignDrawer from "~/components/AssignDrawer";
@@ -41,6 +41,7 @@ import { ADJECTIVAL_COLORS, DELAY_META, NARRATIVE_MAX, SECTION_LABELS } from "~/
 import { returnMark } from "~/utils/returnMarks";
 import { ratingRules } from "~/utils/ratingScale";
 import { ScoreCells, ScoreFields, ScoreHeaders } from "~/components/SheetScoreCells";
+import AttendancePct from "~/components/AttendancePct";
 import { useAuth } from "~/hooks/useAuth";
 
 const SECTIONS = ["strategic", "core", "support"];
@@ -90,6 +91,10 @@ export default function IpcrSheet({
     onRestartUi = null,
 }) {
     const { user } = useAuth();
+    const { data: attendanceCategories = [] } = useQuery({
+        queryKey: ["attendance-categories"],
+        queryFn: () => api.get("attendance-categories").then((response) => response.data.categories ?? []),
+    });
     const scale = ratingRules(user);
     const queryClient = useQueryClient();
     const [openLineId, setOpenLineId] = useState(null);
@@ -171,6 +176,7 @@ export default function IpcrSheet({
                                             section: saved.section,
                                             parent_output_id: saved.parent_output_id,
                                             sort_order: saved.sort_order,
+                                            attendance_category_id: saved.attendance_category_id ?? null,
                                         }
                                       : output
                               ),
@@ -523,6 +529,27 @@ export default function IpcrSheet({
                             }
                         />
                     </div>
+                    {section === "support" && (
+                        <Select
+                            className="pms-attendance-category"
+                            size="small"
+                            allowClear
+                            disabled={!canEdit}
+                            placeholder="Attendance evidence"
+                            value={output.attendance_category_id ?? undefined}
+                            options={attendanceCategories.map((item) => ({
+                                value: item.id,
+                                label: item.source === "daily" ? `${item.name} · daily` : item.name,
+                            }))}
+                            onChange={(id) => saveOutput.mutate({
+                                id: output.id,
+                                section,
+                                attendance_category_id: id ?? null,
+                            })}
+                            popupMatchSelectWidth={false}
+                        />
+                    )}
+                    {showScores && <AttendancePct form={form} output={output} periodId={periodId} />}
                     {(canEdit || canAssignHeadings) && (
                         <Space size={2} className="pms-sheet-rowtools">
                             {canEdit && (
@@ -620,7 +647,10 @@ export default function IpcrSheet({
                 const accomplishment = (line.accomplishments ?? []).find(
                     (a) => a.rating_period_id === periodId
                 );
-                const evidenceCount = accomplishment?.attachments?.length ?? 0;
+                const lineCanRecord =
+                    Boolean(canRecordProgress) &&
+                    !line.closed_at &&
+                    !(line.needs_commitment_approval && !line.line_approved_at);
                 const handedTo = accountableFor(line);
                 const restarted =
                     Boolean(line.needs_commitment_approval) && !line.line_approved_at && !line.closed_at;
@@ -888,9 +918,13 @@ export default function IpcrSheet({
 
                         {showAccomplishments && (
                             <td className="pms-sheet-muted">
-                                <AccomplishmentCell
+                                <AccomplishmentField
+                                    formId={form.id}
+                                    indicatorId={line.id}
+                                    periodId={periodId}
                                     html={accomplishment?.actual_accomplishment}
-                                    evidenceCount={evidenceCount}
+                                    attachments={accomplishment?.attachments}
+                                    canRecord={lineCanRecord}
                                     mark={returnMark(returnMarks, {
                                         indicatorId: line.id,
                                         field: "actual_accomplishment",
@@ -899,12 +933,8 @@ export default function IpcrSheet({
                                         indicatorId: line.id,
                                         field: "evidence",
                                     })}
-                                    empty={
-                                        canRecordProgress
-                                            ? "Open the row to record it"
-                                            : "Recorded at period end"
-                                    }
-                                    label={canRecordProgress ? "Record" : "Open"}
+                                    empty={lineCanRecord ? "Click to record" : "Recorded at period end"}
+                                    placeholder="What was actually delivered against this target?"
                                     onOpen={() => setOpenLineId(line.id)}
                                 />
                             </td>
@@ -1075,7 +1105,7 @@ export default function IpcrSheet({
                             {showProgress && <th style={{ width: 140 }}>Progress</th>}
                             {showAccountable && <th style={{ width: 180 }}>Accountable</th>}
                             {showAccomplishments && (
-                                <th style={{ width: 240 }}>Actual Accomplishments</th>
+                                <th style={{ width: 280 }}>Actual Accomplishments</th>
                             )}
                             {showScores && <ScoreHeaders scoreEdit={scoreEdit} />}
                         </tr>
@@ -1094,9 +1124,24 @@ export default function IpcrSheet({
                     undoes.
                 </Typography.Text>
             )}
+            {canRecordProgress && !canEdit && (
+                <Typography.Text className="pms-sheet-hint" type="secondary" style={{ fontSize: 12 }}>
+                    Click an accomplishment to write it. Enter saves, Shift+Enter starts a new line,
+                    Escape undoes.
+                </Typography.Text>
+            )}
 
             <Drawer
-                title={openLine ? toPlainText(openLine.description) : ""}
+                title={
+                    openLine ? (
+                        <LineDrawerTitle
+                            name={toPlainText(openLine.description)}
+                            when={formWhen(form, periodId)}
+                        />
+                    ) : (
+                        ""
+                    )
+                }
                 placement="right"
                 width={620}
                 open={Boolean(openLine)}
@@ -1119,6 +1164,10 @@ export default function IpcrSheet({
                         isOpcr={false}
                         linkLabel={vpLinkByTarget?.[String(openLine.parent_indicator_id)]}
                         scoreEdit={scoreEdit}
+                        form={form}
+                        attendanceOutput={(form.outputs ?? []).find((output) =>
+                            (output.indicators ?? []).some((item) => item.id === openLine.id)
+                        )}
                         remarksOpen={openLine.id === focusLineId}
                     />
                 )}

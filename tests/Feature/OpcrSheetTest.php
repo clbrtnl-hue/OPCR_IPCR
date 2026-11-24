@@ -122,6 +122,46 @@ class OpcrSheetTest extends PmsTestCase
         );
     }
 
+    public function test_a_replaced_commitment_is_not_copied_into_the_next_year(): void
+    {
+        ['unit' => $unit, 'president' => $president, 'opcr' => $last] = $this->college('final');
+
+        $output = PcrOutput::create(['form_id' => $last->id, 'section' => 'core', 'title' => 'Research']);
+        PcrIndicator::create([
+            'output_id'     => $output->id,
+            'description'   => '<p>The old target.</p>',
+            'closed_at'     => now(),
+            'closed_reason' => 'target_replaced',
+        ]);
+        PcrIndicator::create([
+            'output_id'   => $output->id,
+            'description' => '<p>The target that replaced it.</p>',
+        ]);
+
+        $nextYear = $this->makeSchoolYear([
+            'label' => '2027', 'start_date' => '2027-01-01', 'end_date' => '2027-12-31',
+        ]);
+        $this->makePeriod($nextYear, 1);
+        $fresh = $this->makeForm([
+            'type' => 'opcr', 'org_unit_id' => $unit->id,
+            'school_year_id' => $nextYear->id, 'status' => 'draft',
+        ]);
+
+        $this->actingAsUser($president);
+
+        $this->postJson("/api/pcr-forms/{$fresh->id}/copy-from", ['source_form_id' => $last->id])
+            ->assertSuccessful()
+            ->assertJsonPath('lines', 1);
+
+        $copied = $fresh->fresh()->outputs()->with('indicators')->first();
+
+        $this->assertCount(1, $copied->indicators);
+        $this->assertSame('<p>The target that replaced it.</p>', $copied->indicators->first()->description);
+        $this->assertNotNull(
+            $last->outputs()->first()->indicators()->where('description', '<p>The old target.</p>')->value('closed_at')
+        );
+    }
+
     public function test_it_refuses_to_copy_over_existing_work(): void
     {
         ['unit' => $unit, 'president' => $president, 'opcr' => $last] = $this->college('final');

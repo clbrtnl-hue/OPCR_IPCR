@@ -80,11 +80,35 @@ export default function RichText({
     autoFocus = false,
     mentions,
     maxLength,
+    commitOnEnter = false,
+    onCommit,
+    onCancel,
+    sheet = false,
 }) {
     // The list is read through a ref so the suggestion popup always sees the
     // current people without the editor being torn down and rebuilt.
     const peopleRef = useRef(mentions ?? []);
     peopleRef.current = mentions ?? [];
+    const commitRef = useRef(onCommit);
+    const cancelRef = useRef(onCancel);
+    const editorRef = useRef(null);
+    const closing = useRef(false);
+    // Ignore the blur that happens while the cell is swapping into this editor.
+    const armed = useRef(false);
+    commitRef.current = onCommit;
+    cancelRef.current = onCancel;
+
+    const finish = (save) => {
+        if (closing.current) return;
+
+        closing.current = true;
+        const current = editorRef.current;
+        const html = !current || current.isEmpty ? "" : current.getHTML();
+
+        if (save) commitRef.current?.(html);
+        else cancelRef.current?.();
+    };
+
     const editor = useEditor({
         editable: !disabled,
         extensions: [
@@ -127,9 +151,40 @@ export default function RichText({
         content: value || "",
         // Passing `undefined` replaces Tiptap's default `{}`. createView then
         // reads editorProps.dispatchTransaction and the whole page unmounts.
-        ...(maxLength
-            ? {
-                  editorProps: {
+        editorProps: {
+            handleKeyDown(view, event) {
+                if (!commitOnEnter) return false;
+
+                if (event.key === "Escape") {
+                    event.preventDefault();
+                    finish(false);
+
+                    return true;
+                }
+
+                if (event.key !== "Enter") return false;
+
+                event.preventDefault();
+
+                // Enter commits; Shift+Enter is a new line, as in a spreadsheet.
+                if (event.shiftKey) {
+                    const breakType = view.state.schema.nodes.hardBreak;
+
+                    if (breakType) {
+                        view.dispatch(
+                            view.state.tr.replaceSelectionWith(breakType.create()).scrollIntoView()
+                        );
+                    }
+
+                    return true;
+                }
+
+                finish(true);
+
+                return true;
+            },
+            ...(maxLength
+                ? {
                       handleTextInput(view, from, to, text) {
                           const current = view.state.doc.textContent.length;
                           const replacing = Math.max(0, to - from);
@@ -144,9 +199,19 @@ export default function RichText({
 
                           return current - replacing + pasted.length > maxLength;
                       },
-                  },
-              }
-            : {}),
+                  }
+                : {}),
+        },
+        onBlur: ({ event }) => {
+            if (!commitOnEnter || !armed.current) return;
+
+            const next = event?.relatedTarget;
+            const root = editorRef.current?.view?.dom?.closest(".pms-richtext");
+
+            if (next && root?.contains(next)) return;
+
+            finish(true);
+        },
         onUpdate: ({ editor: current }) => {
             // An editor cleared back to nothing should read as empty, not as
             // the empty paragraph it leaves behind.
@@ -154,6 +219,18 @@ export default function RichText({
         },
         autofocus: autoFocus,
     });
+
+    editorRef.current = editor;
+
+    useEffect(() => {
+        if (!commitOnEnter || !editor) return undefined;
+
+        const id = requestAnimationFrame(() => {
+            armed.current = true;
+        });
+
+        return () => cancelAnimationFrame(id);
+    }, [commitOnEnter, editor]);
 
     // Follow the field when it is reset or loaded from the server, without
     // fighting the person mid-sentence.
@@ -182,7 +259,7 @@ export default function RichText({
     ];
 
     return (
-        <div className={`pms-richtext${disabled ? " pms-richtext-disabled" : ""}`}>
+        <div className={`pms-richtext${sheet ? " pms-richtext-sheet" : ""}${disabled ? " pms-richtext-disabled" : ""}`}>
             {!disabled && (
                 <div className="pms-richtext-toolbar">
                     <Space size={2}>

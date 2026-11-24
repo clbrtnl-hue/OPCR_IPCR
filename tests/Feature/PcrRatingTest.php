@@ -125,7 +125,7 @@ class PcrRatingTest extends PmsTestCase
             'rating_period_id' => $this->period->id,
         ])->assertOk();
 
-        $this->assertSame('rated', $this->form->fresh()->status);
+        $this->assertSame('final', $this->form->fresh()->status);
     }
 
     public function test_final_average_is_the_mean_of_the_rated_sections(): void
@@ -172,7 +172,7 @@ class PcrRatingTest extends PmsTestCase
         $this->assertDatabaseHas('pcr_status_logs', [
             'form_id'     => $form->id,
             'from_status' => 'qa_rating',
-            'to_status'   => 'rated',
+            'to_status'   => 'final',
         ]);
     }
 

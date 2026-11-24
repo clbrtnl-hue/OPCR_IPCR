@@ -25,6 +25,7 @@ class OrgUnitController extends Controller
                 'viewers.user:id,name',
             ])
             ->withCount('members')
+            ->orderBy('sort_order')
             ->orderBy('name')
             ->get();
 
@@ -95,11 +96,13 @@ class OrgUnitController extends Controller
             }
         }
 
+        $parentId = empty($data['parent_id']) ? null : (int) $data['parent_id'];
+
         $attributes = [
             'name'         => $data['name'],
             'code'         => $data['code'] ?? null,
             'type'         => $data['type'],
-            'parent_id'    => $data['parent_id'] ?? null,
+            'parent_id'    => $parentId,
             'head_user_id' => $data['head_user_id'] ?? null,
             'dean_user_id' => $data['dean_user_id'] ?? null,
             'vp_user_id'   => $data['vp_user_id'] ?? null,
@@ -107,6 +110,11 @@ class OrgUnitController extends Controller
 
         if ($id) {
             $unit    = OrgUnit::findOrFail($id);
+            $oldParent = $unit->parent_id ? (int) $unit->parent_id : null;
+
+            if ($oldParent !== $parentId) {
+                $attributes['sort_order'] = $this->nextSortOrder($parentId);
+            }
             $changes = ActivityLog::diff($unit, $attributes);
             $unit->update($attributes);
 
@@ -118,6 +126,7 @@ class OrgUnitController extends Controller
             return response()->json(['data' => 'updated', 'unit' => $unit->load(['head', 'dean', 'vp', 'reviewers.user', 'viewers.user'])]);
         }
 
+        $attributes['sort_order'] = $this->nextSortOrder($parentId);
         $unit = OrgUnit::create($attributes);
         $this->syncReviewers($unit, $data['reviewers'] ?? null);
         $this->syncViewers($unit, $data['viewers'] ?? null);
@@ -126,6 +135,111 @@ class OrgUnitController extends Controller
         ActivityLog::record('OrgUnit', $unit->id, 'create', "Created unit {$unit->name}");
 
         return response()->json(['data' => 'created', 'unit' => $unit->load(['head', 'dean', 'vp', 'reviewers.user', 'viewers.user'])], 201);
+    }
+
+    /** Move a unit under a parent and place it before a sibling. A missing sibling puts it last. */
+    public function place(Request $request, $id)
+    {
+        $data = $request->validate([
+            'parent_id' => 'present|nullable|integer|exists:org_units,id',
+            'before_id' => 'present|nullable|integer|exists:org_units,id',
+        ]);
+
+        $unit     = OrgUnit::findOrFail($id);
+        $parentId = empty($data['parent_id']) ? null : (int) $data['parent_id'];
+        $beforeId = empty($data['before_id']) ? null : (int) $data['before_id'];
+
+        if ($parentId && in_array($parentId, OrgUnit::subtreeIds([(int) $unit->id]), true)) {
+            $message = $parentId === (int) $unit->id
+                ? 'A unit cannot be its own parent.'
+                : 'A unit cannot be placed under one of its own sub-units.';
+
+            return response()->json(['message' => $message], 422);
+        }
+
+        if ($beforeId === (int) $unit->id) {
+            return response()->json(['message' => 'Choose a different place.'], 422);
+        }
+
+        if ($beforeId) {
+            $before = OrgUnit::findOrFail($beforeId);
+            $beforeParent = $before->parent_id ? (int) $before->parent_id : null;
+
+            if ($beforeParent !== $parentId) {
+                return response()->json(['message' => 'That place is not beside the unit you chose.'], 422);
+            }
+        }
+
+        $oldParent = $unit->parent_id ? (int) $unit->parent_id : null;
+
+        DB::transaction(function () use ($unit, $parentId, $beforeId, $oldParent) {
+            if ($oldParent !== $parentId) {
+                $unit->update(['parent_id' => $parentId]);
+            }
+
+            $this->insertAmongSiblings($unit, $parentId, $beforeId);
+
+            if ($oldParent !== $parentId) {
+                $this->renumberSiblings($oldParent);
+            }
+        });
+
+        ActivityLog::record('OrgUnit', $unit->id, 'update', "Moved unit {$unit->name}");
+
+        return response()->json(['data' => 'moved']);
+    }
+
+    private function nextSortOrder(?int $parentId): int
+    {
+        $query = OrgUnit::query();
+        $parentId === null
+            ? $query->whereNull('parent_id')
+            : $query->where('parent_id', $parentId);
+
+        return ((int) $query->max('sort_order')) + 1;
+    }
+
+    private function siblingIds(?int $parentId): array
+    {
+        $query = OrgUnit::query()->orderBy('sort_order')->orderBy('name');
+        $parentId === null
+            ? $query->whereNull('parent_id')
+            : $query->where('parent_id', $parentId);
+
+        return $query->pluck('id')->map(fn ($id) => (int) $id)->all();
+    }
+
+    private function insertAmongSiblings(OrgUnit $unit, ?int $parentId, ?int $beforeId): void
+    {
+        $ids = array_values(array_filter(
+            $this->siblingIds($parentId),
+            fn ($siblingId) => $siblingId !== (int) $unit->id
+        ));
+
+        if ($beforeId) {
+            $index = array_search($beforeId, $ids, true);
+            if ($index === false) {
+                $ids[] = (int) $unit->id;
+            } else {
+                array_splice($ids, $index, 0, [(int) $unit->id]);
+            }
+        } else {
+            $ids[] = (int) $unit->id;
+        }
+
+        $this->writeOrder($ids);
+    }
+
+    private function renumberSiblings(?int $parentId): void
+    {
+        $this->writeOrder($this->siblingIds($parentId));
+    }
+
+    private function writeOrder(array $ids): void
+    {
+        foreach (array_values($ids) as $index => $id) {
+            OrgUnit::whereKey($id)->update(['sort_order' => $index + 1]);
+        }
     }
 
     /** Extra steps name their reviewer here. Head, dean, and VP are saved on the unit and stored in the same reviewer list. */

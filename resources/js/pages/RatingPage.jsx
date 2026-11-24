@@ -20,11 +20,20 @@ import {
     RATING_LEGEND,
     nextReviewStop,
 } from "~/utils/constants";
-import { averageOf, dimensionPhrase, ratingRules, scoreOptions } from "~/utils/ratingScale";
+import { averageOf, dimensionPhrase, scoreOptions } from "~/utils/ratingScale";
 import PageHeader from "~/components/PageHeader";
 import ReturnPlacesModal from "~/components/ReturnPlacesModal";
 import TargetRating from "~/pages/TargetRating";
 import FormEditorPage from "~/pages/FormEditorPage";
+import { adjectivalOf, draftSummary } from "~/utils/draftRating";
+import { qaIpcrWithPresident } from "~/utils/formReviewer";
+import { formYearId } from "~/components/FormListFilters";
+
+function countsTowardRating(line) {
+    if (line?.closed_at || line?.replacement_status === "pending") return false;
+
+    return !line?.needs_commitment_approval || Boolean(line?.line_approved_at);
+}
 
 function RatingLegend({ user }) {
     const bands = user?.workflow?.rating?.bands?.length ? user.workflow.rating.bands : RATING_LEGEND;
@@ -46,14 +55,6 @@ function samePerson(left, right) {
     return Number(left) === Number(right);
 }
 
-function attendanceRate(category, attendance, periodId) {
-    if (!category || !attendance || !periodId) {
-        return null;
-    }
-
-    return (attendance[periodId] ?? attendance[String(periodId)])?.[category] ?? null;
-}
-
 function arrivalTime(form) {
     const stamp = form.stage_arrived_at || form.submitted_at || form.created_at;
     const time = stamp ? dayjs(stamp).valueOf() : Number.POSITIVE_INFINITY;
@@ -63,6 +64,7 @@ function arrivalTime(form) {
 
 export function scoreable(form, user) {
     if (!form || !user || user.role === "admin") return false;
+    if (qaIpcrWithPresident(form)) return user.role === "president";
     const step = form.review_steps?.find((item) => item.status === form.status);
     if (step?.reviewer?.id && samePerson(step.reviewer.id, user.id)) return true;
     if (form.status === "head_review" && samePerson(form.head_reviewer_id, user.id)) return true;
@@ -74,7 +76,7 @@ export function scoreable(form, user) {
     return false;
 }
 
-export default function RatingPage({ embedded = false, periodFilter = null, ahead = null, focusFormId = null }) {
+export default function RatingPage({ embedded = false, periodFilter = null, yearFilter, ahead = null, focusFormId = null }) {
     const { user } = useAuth();
     const viewOnly = user?.role === "admin";
     const queryClient = useQueryClient();
@@ -102,6 +104,10 @@ export default function RatingPage({ embedded = false, periodFilter = null, ahea
                 return false;
             }
 
+            if (yearFilter !== undefined && (yearFilter == null || formYearId(form) !== Number(yearFilter))) {
+                return false;
+            }
+
             if (viewOnly) return true;
 
             return scoreable(form, user);
@@ -110,7 +116,7 @@ export default function RatingPage({ embedded = false, periodFilter = null, ahea
         if (!followsArrival) return filtered;
 
         return [...filtered].sort((a, b) => arrivalTime(a) - arrivalTime(b) || a.id - b.id);
-    }, [queue, periodFilter, viewOnly, user, followsArrival]);
+    }, [queue, periodFilter, yearFilter, viewOnly, user, followsArrival]);
     const toRateRef = useRef(toRate);
     toRateRef.current = toRate;
 
@@ -171,11 +177,10 @@ export default function RatingPage({ embedded = false, periodFilter = null, ahea
 
     const canRate = scoreable(form, user);
     const readingScores = viewOnly || !["rated", "final"].includes(form?.status);
-    const closesHere = (user?.workflow?.rater_roles ?? ["qa"]).includes(user?.role);
-    const scale = ratingRules(user);
+    const closesHere =
+        (user?.workflow?.rater_roles ?? ["qa"]).includes(user?.role) ||
+        (user?.role === "president" && qaIpcrWithPresident(form));
     const scoresChoices = scoreOptions(user);
-    const choiceKey = scoresChoices.map((choice) => choice.value).join(",");
-    const dimensionKey = scale.dimensions.map((dimension) => dimension.key).join(",");
     const periods = form?.school_year?.periods ?? [];
     const formPeriodId = form?.type === "ipcr" ? (form?.rating_period_id ?? null) : null;
     const activePeriodId =
@@ -225,6 +230,8 @@ export default function RatingPage({ embedded = false, periodFilter = null, ahea
             const next = {};
 
             indicators.forEach((indicator) => {
+                if (!countsTowardRating(indicator)) return;
+
                 if (dirtyScores.current.has(indicator.id) && prev[indicator.id]) {
                     next[indicator.id] = prev[indicator.id];
 
@@ -232,28 +239,17 @@ export default function RatingPage({ embedded = false, periodFilter = null, ahea
                 }
 
                 const existing = indicator.ratings?.find((r) => r.rating_period_id === activePeriodId);
-                const suggested = canRate
-                    ? attendanceRate(indicator.output?.attendance_category, form.attendance, activePeriodId)?.suggested
-                    : null;
-                const allowed = new Set(choiceKey.split(",").filter(Boolean).map(Number));
-                const active = new Set(dimensionKey.split(",").filter(Boolean));
-                const offered = suggested != null && allowed.has(Number(suggested)) ? Number(suggested) : null;
-                const fill = (key) => {
-                    if (existing?.[key] != null) return existing[key];
-
-                    return active.has(key) ? offered : null;
-                };
                 next[indicator.id] = {
-                    q: fill("q"),
-                    e: fill("e"),
-                    t: fill("t"),
+                    q: existing?.q ?? null,
+                    e: existing?.e ?? null,
+                    t: existing?.t ?? null,
                     remarks: existing?.remarks ?? "",
                 };
             });
 
             return next;
         });
-    }, [form, activePeriodId, indicators, canRate, choiceKey, dimensionKey]);
+    }, [form, activePeriodId, indicators]);
 
     const save = useMutation({
         mutationFn: () =>
@@ -311,7 +307,6 @@ export default function RatingPage({ embedded = false, periodFilter = null, ahea
             queryClient.invalidateQueries({ queryKey: ["qa-queue"] });
             queryClient.invalidateQueries({ queryKey: ["review-queue"] });
             queryClient.invalidateQueries({ queryKey: ["pcr-form", String(selectedId)] });
-            queryClient.invalidateQueries({ queryKey: ["hr-closing"] });
             if (followsArrival) showNextAfter(form.id);
             else setSelectedId(null);
         },
@@ -329,6 +324,17 @@ export default function RatingPage({ embedded = false, periodFilter = null, ahea
     const rowAverage = (row) => averageOf(row, user);
 
     const unrated = Object.values(scores).filter((row) => rowAverage(row) === null).length;
+
+    const liveSummary = useMemo(() => {
+        if (!form || !canRate || !activePeriodId) return null;
+
+        const draft = draftSummary(form, scores, activePeriodId);
+
+        return {
+            ...draft,
+            adjectival: adjectivalOf(draft.final_average, user?.workflow?.rating?.bands),
+        };
+    }, [form, canRate, activePeriodId, scores, user]);
 
     const rateActions = () =>
         canRate ? (
@@ -384,6 +390,7 @@ export default function RatingPage({ embedded = false, periodFilter = null, ahea
                 )}
                 <TargetRating
                     periodFilter={periodFilter}
+                    yearFilter={yearFilter}
                     ahead={
                         <>
                             {ahead}
@@ -518,6 +525,7 @@ export default function RatingPage({ embedded = false, periodFilter = null, ahea
                             formId={form.id}
                             hideTitle
                             hideLockAlert
+                            liveSummary={liveSummary}
                             toolbarExtra={canRate ? rateActions : null}
                             scoreLegend={canRate ? () => <RatingLegend user={user} /> : null}
                             scoreEdit={{

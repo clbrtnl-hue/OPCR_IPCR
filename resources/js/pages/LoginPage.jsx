@@ -117,6 +117,13 @@ export default function LoginPage() {
                             message={failure.text}
                             style={{ marginBottom: 16 }}
                         />
+                    ) : params.get("reason") === "inactive" ? (
+                        <Alert
+                            type="error"
+                            showIcon
+                            message="This account is inactive. Ask an administrator to reactivate it."
+                            style={{ marginBottom: 16 }}
+                        />
                     ) : (
                         params.get("reason") === "session-expired" && (
                             <Alert

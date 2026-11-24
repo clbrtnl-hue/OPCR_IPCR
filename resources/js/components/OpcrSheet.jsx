@@ -18,8 +18,6 @@ import {
     ArrowUpOutlined,
     CloseOutlined,
     DeleteOutlined,
-    ExpandOutlined,
-    MessageOutlined,
     PaperClipOutlined,
     PlusOutlined,
     UserAddOutlined,
@@ -27,6 +25,8 @@ import {
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import api from "~/utils/api";
 import SheetCell from "~/components/SheetCell";
+import { AccomplishmentField } from "~/components/AccomplishmentView";
+import LineDrawerTitle, { formWhen } from "~/components/LineDrawerTitle";
 import { toPlainText } from "~/components/RichTextView";
 import { usePerson } from "~/hooks/usePerson";
 import UserAvatar from "~/components/UserAvatar";
@@ -34,11 +34,11 @@ import AssignDrawer from "~/components/AssignDrawer";
 import ProgressCell from "~/components/ProgressCell";
 import OpcrLineDrawer from "~/components/OpcrLineDrawer";
 import LineCards from "~/components/LineCards";
-import CommentThread from "~/components/CommentThread";
 import { ADJECTIVAL_COLORS, DELAY_META, NARRATIVE_MAX, SECTION_LABELS } from "~/utils/constants";
 import { returnMark } from "~/utils/returnMarks";
 import { ratingRules } from "~/utils/ratingScale";
 import { ScoreCells, ScoreHeaders } from "~/components/SheetScoreCells";
+import AttendancePct from "~/components/AttendancePct";
 import { useAuth } from "~/hooks/useAuth";
 
 const SECTIONS = ["strategic", "core", "support"];
@@ -71,7 +71,6 @@ export default function OpcrSheet({ form, periodId, canEdit, canAssign, canRecor
     const [assigning, setAssigning] = useState(null);   // an output, or an indicator
     const [justAdded, setJustAdded] = useState(null);   // { kind, id }
     const [openLineId, setOpenLineId] = useState(null);
-    const [commentLineId, setCommentLineId] = useState(null);
     const [editing, setEditing] = useState(false);
     const [drafts, setDrafts] = useState({});
     const [sendBackOpen, setSendBackOpen] = useState(false);
@@ -79,30 +78,6 @@ export default function OpcrSheet({ form, periodId, canEdit, canAssign, canRecor
     const focusedLine = useRef(null);
     const focusedOutput = useRef(null);
     const { openPerson } = usePerson();
-
-    const { data: comments = [] } = useQuery({
-        queryKey: ["comments", form.id],
-        queryFn: () => api.get(`pcr-forms/${form.id}/comments`).then((r) => r.data),
-    });
-
-    const commentCounts = useMemo(
-        () =>
-            comments.reduce((counts, c) => {
-                if (c.indicator_id) counts[c.indicator_id] = (counts[c.indicator_id] ?? 0) + 1;
-                return counts;
-            }, {}),
-        [comments]
-    );
-
-    const commentLine = useMemo(() => {
-        for (const output of form.outputs ?? []) {
-            const found = (output.indicators ?? []).find((i) => i.id === commentLineId);
-
-            if (found) return found;
-        }
-
-        return null;
-    }, [commentLineId, form.outputs]);
 
     const refresh = () => queryClient.invalidateQueries({ queryKey: ["pcr-form", String(form.id)] });
     const opcrRules = user?.workflow?.opcr ?? {
@@ -326,7 +301,7 @@ export default function OpcrSheet({ form, periodId, canEdit, canAssign, canRecor
         focusedLine.current = focusLineId;
 
         if (openFocusedLine) {
-            setCommentLineId(focusLineId);
+            setOpenLineId(focusLineId);
         }
 
         const row = document.querySelector(`[data-row="indicator-${focusLineId}"]`);
@@ -637,6 +612,7 @@ export default function OpcrSheet({ form, periodId, canEdit, canAssign, canRecor
             const outputCell = (
                 <td rowSpan={span} className="pms-sheet-output" data-output-id={output.id}>
                     {numbering}
+                    {showScores && <AttendancePct form={form} output={output} periodId={periodId} />}
                     {canEdit && (
                         <Space size={2} className="pms-sheet-rowtools">
                             <Tooltip title="Add a PPA under this MFO">
@@ -760,6 +736,7 @@ export default function OpcrSheet({ form, periodId, canEdit, canAssign, canRecor
                     indicatorId: line.id,
                     field: "evidence",
                 });
+                const lineCanRecord = Boolean(canRecordProgress) && !line.closed_at;
                 const proposal = (output.indicators ?? []).find(
                     (item) => item.replaces_indicator_id === line.id && item.replacement_status === "pending"
                 );
@@ -1036,62 +1013,39 @@ export default function OpcrSheet({ form, periodId, canEdit, canAssign, canRecor
 
                         {showAccomplishments && (
                             <td className="pms-sheet-muted">
-                                <div className={accomplishmentMark ? "pms-flag" : undefined}>
-                                {accomplishment?.actual_accomplishment && (
-                                    <div
-                                        className="pms-richtext-view"
-                                        dangerouslySetInnerHTML={{
-                                            __html: accomplishment.actual_accomplishment,
-                                        }}
-                                    />
-                                )}
-
-                                {delivery.people > 0 ? (
-                                    <span
-                                        className={
-                                            delivery.recorded ? "pms-delivery-count" : "pms-cell-empty"
-                                        }
-                                    >
-                                        {delivery.recorded} of {delivery.people} recorded
-                                    </span>
-                                ) : (
-                                    !accomplishment?.actual_accomplishment && (
-                                        <span className="pms-cell-empty">
-                                            {Number(output.delegated_outputs_count ?? 0) > 0
+                                <AccomplishmentField
+                                    formId={form.id}
+                                    indicatorId={line.id}
+                                    periodId={periodId}
+                                    html={accomplishment?.actual_accomplishment}
+                                    attachments={accomplishment?.attachments}
+                                    canRecord={lineCanRecord}
+                                    mark={accomplishmentMark}
+                                    evidenceMark={evidenceMark}
+                                    empty={
+                                        lineCanRecord
+                                            ? "Click to record"
+                                            : delivery.people > 0
+                                              ? ""
+                                              : Number(output.delegated_outputs_count ?? 0) > 0
                                                 ? "Handed out with the MFO/PPA"
-                                                : "Not yet recorded"}
-                                        </span>
-                                    )
-                                )}
-                                {accomplishmentMark && <div className="pms-cell-mark">{accomplishmentMark}</div>}
-                                </div>
-
-                                <div className={evidenceMark ? "pms-flag" : undefined} style={{ marginTop: 4 }}>
-                                    <Space size={6}>
-                                        <Button
-                                            size="small"
-                                            type="text"
-                                            icon={<ExpandOutlined />}
-                                            onClick={() => setOpenLineId(line.id)}
-                                        >
-                                            Open
-                                        </Button>
-                                        <Badge
-                                            count={commentCounts[line.id] ?? 0}
-                                            size="small"
-                                            color="#1e3a72"
-                                            offset={[-4, 2]}
-                                        >
-                                            <Button
-                                                size="small"
-                                                type="text"
-                                                icon={<MessageOutlined />}
-                                                onClick={() => setCommentLineId(line.id)}
+                                                : "Not yet recorded"
+                                    }
+                                    placeholder="What did the college deliver against this target?"
+                                    onOpen={() => setOpenLineId(line.id)}
+                                    note={
+                                        delivery.people > 0 ? (
+                                            <span
+                                                className={
+                                                    delivery.recorded ? "pms-delivery-count" : "pms-cell-empty"
+                                                }
                                             >
-                                                Comment
-                                            </Button>
-                                        </Badge>
-                                        {delivery.files > 0 && (
+                                                {delivery.recorded} of {delivery.people} recorded
+                                            </span>
+                                        ) : null
+                                    }
+                                    extra={
+                                        delivery.files > 0 ? (
                                             <Badge
                                                 count={delivery.files}
                                                 size="small"
@@ -1100,10 +1054,9 @@ export default function OpcrSheet({ form, periodId, canEdit, canAssign, canRecor
                                             >
                                                 <PaperClipOutlined style={{ opacity: 0.6 }} />
                                             </Badge>
-                                        )}
-                                    </Space>
-                                    {evidenceMark && <div className="pms-cell-mark">{evidenceMark}</div>}
-                                </div>
+                                        ) : null
+                                    }
+                                />
                             </td>
                         )}
 
@@ -1304,7 +1257,7 @@ export default function OpcrSheet({ form, periodId, canEdit, canAssign, canRecor
                             <th style={{ width: 110 }}>Alloted Budget</th>
                             <th style={{ width: 190 }}>Individual / Accountable</th>
                             {showAccomplishments && (
-                                <th style={{ width: 210 }}>Actual Accomplishments</th>
+                                <th style={{ width: 280 }}>Actual Accomplishments</th>
                             )}
                             {showScores && <ScoreHeaders scoreEdit={scoreEdit} />}
                         </tr>
@@ -1323,21 +1276,24 @@ export default function OpcrSheet({ form, periodId, canEdit, canAssign, canRecor
                     undoes.
                 </Typography.Text>
             )}
+            {canRecordProgress && !canEdit && (
+                <Typography.Text className="pms-sheet-hint" type="secondary" style={{ fontSize: 12 }}>
+                    Click an accomplishment to write it. Enter saves, Shift+Enter starts a new line,
+                    Escape undoes.
+                </Typography.Text>
+            )}
 
             <Drawer
-                title={commentLine ? `Comments — ${toPlainText(commentLine.description)}` : ""}
-                placement="right"
-                width={480}
-                open={Boolean(commentLine)}
-                onClose={() => setCommentLineId(null)}
-            >
-                {commentLine && (
-                    <CommentThread key={commentLine.id} formId={form.id} indicatorId={commentLine.id} />
-                )}
-            </Drawer>
-
-            <Drawer
-                title={openLine ? toPlainText(openLine.line.description) : ""}
+                title={
+                    openLine ? (
+                        <LineDrawerTitle
+                            name={toPlainText(openLine.line.description)}
+                            when={formWhen(form, periodId)}
+                        />
+                    ) : (
+                        ""
+                    )
+                }
                 placement="right"
                 width={620}
                 open={Boolean(openLine)}

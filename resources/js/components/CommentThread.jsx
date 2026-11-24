@@ -26,8 +26,7 @@ export default function CommentThread({ formId, indicatorId = null, compact = fa
         queryFn: () => api.get(`pcr-forms/${formId}`).then((r) => r.data),
         enabled: Boolean(formId),
     });
-    const viewOnly = user?.role === "admin"
-        || (user?.role === "hr" && Number(form?.user_id) !== Number(user?.id));
+    const viewOnly = user?.role === "admin";
     const ownsForm = Number(form?.user_id) === Number(user?.id)
         || (form?.type === "opcr" && user?.role === "president");
     const closed = remarksClosed(form);

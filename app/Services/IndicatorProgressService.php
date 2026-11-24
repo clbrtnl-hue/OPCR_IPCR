@@ -188,7 +188,13 @@ class IndicatorProgressService
             ->when($form->rating_period_id, function ($query) use ($form) {
                 $query->where(function ($inner) use ($form) {
                     $inner->whereNull('rating_period_id')
-                        ->orWhere('rating_period_id', $form->rating_period_id);
+                        ->orWhere('rating_period_id', $form->rating_period_id)
+                        // An office target named in one period is still theirs
+                        // in the other period of the same year.
+                        ->orWhereHas('indicator.output.form', function ($owner) use ($form) {
+                            $owner->where('type', 'opcr')
+                                ->where('school_year_id', $form->school_year_id);
+                        });
                 });
             })
             ->get();

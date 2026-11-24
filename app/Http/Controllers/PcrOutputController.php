@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\AttendanceCategory;
 use App\Models\PcrForm;
 use App\Models\PcrIndicator;
 use App\Models\PcrOutput;
@@ -24,6 +25,7 @@ class PcrOutputController extends Controller
             // A new heading may be blank. The sheet shows a placeholder until
             // it is named, and readiness still blocks an unnamed row.
             'title'            => ['nullable', 'string', Html::maxChars(500)],
+            'attendance_category_id' => 'nullable|integer',
             'parent_output_id' => 'nullable|integer|exists:pcr_outputs,id',
             'sort_order' => 'nullable|integer|min:0',
         ]);
@@ -117,6 +119,22 @@ class PcrOutputController extends Controller
                     ? PcrOutput::where('id', $id)->value('sort_order')
                     : PcrOutput::where('form_id', $form->id)->max('sort_order') + 1),
         ];
+
+        $section = $attributes['section'];
+
+        if ($section !== 'support') {
+            $attributes['attendance_category_id'] = null;
+        } elseif (array_key_exists('attendance_category_id', $data)) {
+            $categoryId = $data['attendance_category_id'];
+
+            if ($categoryId && ! AttendanceCategory::query()->whereKey($categoryId)->exists()) {
+                return response()->json([
+                    'message' => 'Choose an attendance category from this organization.',
+                ], 422);
+            }
+
+            $attributes['attendance_category_id'] = $categoryId ?: null;
+        }
 
         if ($id) {
             $output = PcrOutput::findOrFail($id);

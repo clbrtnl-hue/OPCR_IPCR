@@ -457,7 +457,129 @@ class CommitmentApprovalTest extends PmsTestCase
         $this->assertSame('qa_rating', $fresh->status);
         $this->assertNull($fresh->vp_reviewer_id);
 
-        $this->actingAsUser($president);
+        $this->actingAsUser($qa);
         $this->assertNotContains($form->id, array_column($this->getJson('/api/pcr-forms?queue=1')->json(), 'id'));
+
+        $this->actingAsUser($president);
+        $this->assertContains($form->id, array_column($this->getJson('/api/pcr-forms?queue=1')->json(), 'id'));
+    }
+
+    public function test_a_head_with_no_vp_has_commitments_approved_by_the_next_reviewer(): void
+    {
+        $this->makeOrganization();
+
+        $college = $this->makeUnit(['name' => 'Opol Community College', 'code' => 'OCC', 'type' => 'college']);
+        $year    = $this->makeSchoolYear();
+        $period  = $this->makePeriod($year);
+        $president = User::factory()->create(['role' => 'president', 'name' => 'President Santos']);
+        $qa        = User::factory()->create(['role' => 'qa', 'name' => 'QA Director']);
+        $head      = User::factory()->create(['role' => 'program_head', 'name' => 'Head Diaz']);
+        $staff     = User::factory()->create(['role' => 'employee', 'name' => 'Staff Lee']);
+
+        $office = $this->makeUnit([
+            'name'         => 'Research Office',
+            'code'         => 'RES',
+            'parent_id'    => $college->id,
+            'head_user_id' => $head->id,
+        ]);
+        $head->update(['org_unit_id' => $office->id]);
+        $staff->update(['org_unit_id' => $office->id]);
+
+        $this->makeForm([
+            'type' => 'opcr', 'org_unit_id' => $college->id, 'school_year_id' => $year->id,
+            'status' => 'published', 'user_id' => $president->id,
+        ]);
+
+        $own = $this->makeForm([
+            'org_unit_id' => $office->id, 'school_year_id' => $year->id,
+            'user_id' => $head->id, 'rating_period_id' => $period->id,
+        ]);
+        $this->makeIndicator($own, 'support', ['rating_period_id' => $period->id]);
+
+        $this->actingAsUser($head);
+        $this->postJson("/api/pcr-forms/{$own->id}/status", ['status' => 'commitment_review'])->assertOk();
+        $this->assertSame($qa->id, (int) $own->fresh()->commitment_approver_id);
+
+        $this->actingAsUser($president);
+        $this->postJson("/api/pcr-forms/{$own->id}/status", ['status' => 'commitments_approved'])->assertStatus(403);
+
+        $this->actingAsUser($qa);
+        $this->assertContains(
+            $own->id,
+            array_column($this->getJson('/api/pcr-forms?queue=1')->assertOk()->json(), 'id')
+        );
+        $this->postJson("/api/pcr-forms/{$own->id}/status", ['status' => 'commitments_approved'])->assertOk();
+        $this->assertSame('commitments_approved', $own->fresh()->status);
+
+        $staffForm = $this->makeForm([
+            'org_unit_id' => $office->id, 'school_year_id' => $year->id,
+            'user_id' => $staff->id, 'rating_period_id' => $period->id,
+        ]);
+        $this->makeIndicator($staffForm, 'support', ['rating_period_id' => $period->id]);
+
+        $this->actingAsUser($staff);
+        $this->postJson("/api/pcr-forms/{$staffForm->id}/status", ['status' => 'commitment_review'])->assertOk();
+        $this->assertSame($head->id, (int) $staffForm->fresh()->commitment_approver_id);
+    }
+
+    public function test_a_head_with_an_empty_vp_slot_still_goes_to_the_parent_vp(): void
+    {
+        $this->makeOrganization();
+
+        $college = $this->makeUnit(['name' => 'Opol Community College', 'code' => 'OCC2', 'type' => 'college']);
+        $year    = $this->makeSchoolYear();
+        $period  = $this->makePeriod($year);
+        $president = User::factory()->create(['role' => 'president', 'name' => 'President Santos']);
+        $vp        = User::factory()->create(['role' => 'vp', 'name' => 'VP Reyes']);
+        User::factory()->create(['role' => 'qa', 'name' => 'QA Director']);
+        $head = User::factory()->create(['role' => 'program_head', 'name' => 'Head Diaz']);
+
+        $affairs = $this->makeUnit([
+            'name' => 'Academic Affairs', 'code' => 'AAS', 'parent_id' => $college->id, 'vp_user_id' => $vp->id,
+        ]);
+        $office = $this->makeUnit([
+            'name' => 'College of IT', 'code' => 'CIT', 'parent_id' => $affairs->id, 'head_user_id' => $head->id,
+        ]);
+        $head->update(['org_unit_id' => $office->id]);
+
+        $this->makeForm([
+            'type' => 'opcr', 'org_unit_id' => $college->id, 'school_year_id' => $year->id,
+            'status' => 'published', 'user_id' => $president->id,
+        ]);
+
+        $own = $this->makeForm([
+            'org_unit_id' => $office->id, 'school_year_id' => $year->id,
+            'user_id' => $head->id, 'rating_period_id' => $period->id,
+        ]);
+        $this->makeIndicator($own, 'support', ['rating_period_id' => $period->id]);
+
+        $this->actingAsUser($head);
+        $this->postJson("/api/pcr-forms/{$own->id}/status", ['status' => 'commitment_review'])->assertOk();
+        $this->assertSame($vp->id, (int) $own->fresh()->commitment_approver_id);
+    }
+
+    public function test_a_first_period_opcr_assignment_still_sends_the_second_period_to_the_president(): void
+    {
+        ['year' => $year, 'period' => $period, 'office' => $office, 'president' => $president, 'dean' => $dean, 'target' => $target] = $this->college();
+
+        $later = $this->makePeriod($year, 2);
+
+        $this->actingAsUser($president);
+        app(PcrAssignmentService::class)->assignIndicator($target, $dean, $president, $period->id);
+
+        $second = $this->makeForm([
+            'org_unit_id'      => $office->id,
+            'school_year_id'   => $year->id,
+            'user_id'          => $dean->id,
+            'rating_period_id' => $later->id,
+        ]);
+        $this->makeIndicator($second, 'core', ['rating_period_id' => $later->id]);
+
+        $this->actingAsUser($dean);
+        $this->postJson("/api/pcr-forms/{$second->id}/status", ['status' => 'commitment_review'])->assertOk();
+
+        $second->refresh();
+        $this->assertSame('commitment_review', $second->status);
+        $this->assertSame($president->id, (int) $second->commitment_approver_id);
     }
 }

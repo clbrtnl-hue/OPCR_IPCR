@@ -186,12 +186,12 @@ export default function MyTeamPage() {
                             <Popconfirm
                                 title={`Follow up with ${record.name}?`}
                                 description="They get a notification asking them to finish their IPCR. One follow-up per form per day."
-                                okText="Nudge"
+                                okText="Remind"
                                 onConfirm={() => nudge.mutate(record.form.id)}
                                 disabled={followUpBusy}
                             >
                                 <Button type="link" size="small" disabled={followUpBusy}>
-                                    Nudge
+                                    Remind
                                 </Button>
                             </Popconfirm>
                         )}

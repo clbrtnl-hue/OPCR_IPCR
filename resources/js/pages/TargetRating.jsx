@@ -42,7 +42,7 @@ function targetGroupKind(item, role) {
     return kind;
 }
 
-export default function TargetRating({ periodFilter = null, ahead = null }) {
+export default function TargetRating({ periodFilter = null, yearFilter, ahead = null }) {
     const { user } = useAuth();
     const organization = useOrganization();
     const queryClient = useQueryClient();
@@ -63,15 +63,30 @@ export default function TargetRating({ periodFilter = null, ahead = null }) {
         },
     });
 
-    useEffect(() => {
-        if (selectedId && targets.some((target) => target.id === selectedId)) return;
+    const visibleTargets = useMemo(
+        () =>
+            yearFilter === undefined
+                ? targets
+                : targets
+                      .map((item) => ({
+                          ...item,
+                          lines: (item.lines ?? []).filter(
+                              (line) => yearFilter != null && Number(line.form?.school_year_id) === Number(yearFilter)
+                          ),
+                      }))
+                      .filter((item) => item.lines.length > 0),
+        [targets, yearFilter]
+    );
 
-        setSelectedId(targets[0]?.id ?? null);
+    useEffect(() => {
+        if (selectedId && visibleTargets.some((item) => item.id === selectedId)) return;
+
+        setSelectedId(visibleTargets[0]?.id ?? null);
         setChosenPeriodId(null);
         setOpenLineId(null);
-    }, [selectedId, targets]);
+    }, [selectedId, visibleTargets]);
 
-    const target = targets.find((item) => item.id === selectedId) ?? null;
+    const target = visibleTargets.find((item) => item.id === selectedId) ?? null;
     const lines = target?.lines ?? [];
     const needsPeriod = lines.some((line) => !line.form.rating_period_id);
     const periodChoices = lines.find((line) => !line.form.rating_period_id)?.form.periods ?? [];
@@ -263,7 +278,7 @@ export default function TargetRating({ periodFilter = null, ahead = null }) {
     const targetOptions = useMemo(() => {
         const buckets = new Map();
 
-        targets.forEach((item) => {
+        visibleTargets.forEach((item) => {
             const kind = targetGroupKind(item, user?.role);
             const bucket = buckets.get(kind) ?? [];
 
@@ -287,7 +302,7 @@ export default function TargetRating({ periodFilter = null, ahead = null }) {
                 label: targetKindLabel(kind),
                 options: buckets.get(kind),
             }));
-    }, [targets, organization.name, user?.role]);
+    }, [visibleTargets, organization.name, user?.role]);
 
     return (
         <>
@@ -325,7 +340,7 @@ export default function TargetRating({ periodFilter = null, ahead = null }) {
                 <Card>
                     <Empty
                         description={
-                            targets.length === 0
+                            visibleTargets.length === 0
                                 ? "No commitments are linked to a target you can see."
                                 : "Pick a target above to rate the commitments linked to it."
                         }

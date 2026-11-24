@@ -15,7 +15,14 @@ const STAGE_SHORT = {
     vp: "VP",
 };
 
-const TYPE_LABELS = { office: "Office", program: "Program" };
+const WAIT_SHORT = {
+    commitment_review: "Approver",
+    head_review: "Head",
+    dean_review: "Dean",
+    director_review: "Director",
+    vp_review: "VP",
+    qa_rating: "QA",
+};
 
 const BAND_COLOR = {
     Outstanding: VIZ.good,
@@ -24,6 +31,8 @@ const BAND_COLOR = {
     Unsatisfactory: VIZ.warning,
     Poor: VIZ.critical,
 };
+
+const NAME_SKIP = new Set(["of", "the", "and", "for", "in", "a", "an"]);
 
 function paceColor(pct) {
     if (pct == null) return VIZ.muted;
@@ -57,6 +66,42 @@ function initials(name) {
     const mark = parts.map((part) => part[0]?.toUpperCase() ?? "").join("");
 
     return mark || "?";
+}
+
+/** Saved unit code, otherwise the initials of the name. */
+function unitTag(name, code) {
+    const saved = String(code || "").trim();
+
+    if (saved) return saved.toUpperCase();
+
+    const words = String(name || "")
+        .split(/[^A-Za-z0-9]+/)
+        .filter((word) => word && !NAME_SKIP.has(word.toLowerCase()));
+
+    if (!words.length) return "—";
+    if (words.length === 1) return words[0].slice(0, 4).toUpperCase();
+
+    return words
+        .map((word) => word[0])
+        .join("")
+        .toUpperCase()
+        .slice(0, 6);
+}
+
+function dueFigure(unit) {
+    if (unit.overdue > 0) return String(unit.overdue);
+    if (!unit.nextDue) return "—";
+
+    const days = dayjs(unit.nextDue).startOf("day").diff(dayjs().startOf("day"), "day");
+
+    return `${Math.max(0, days)}d`;
+}
+
+function dueTitle(unit) {
+    if (unit.overdue > 0) return `${unit.name} — ${unit.overdue} overdue`;
+    if (unit.nextDue) return `${unit.name} — ${dayjs(unit.nextDue).format("MMM D, YYYY")}`;
+
+    return unit.name;
 }
 
 /** Same person-average the report uses before a parent office absorbs its children. */
@@ -96,14 +141,13 @@ function hasWorkingDescendant(id, childrenOf, stats) {
     return false;
 }
 
-function BoardCard({ title, note, children, className }) {
+function BoardCard({ title, children, className }) {
     return (
         <section className={["pms-board-card", className].filter(Boolean).join(" ")}>
             <header className="pms-board-card-head">
                 <h3>{title}</h3>
             </header>
             {children}
-            {note && <p className="pms-board-note">{note}</p>}
         </section>
     );
 }
@@ -142,6 +186,7 @@ export default function PresidentGlance({ data, periodLocked = false }) {
 
         const stats = new Map(units.map((unit) => [unit.id, ownProgress(linesByUnit.get(unit.id) ?? [])]));
         const childrenOf = new Map();
+        const tags = new Map(units.map((unit) => [unit.id, unitTag(unit.name, unit.code)]));
 
         for (const unit of units) {
             if (!unit.parent_id) continue;
@@ -162,15 +207,21 @@ export default function PresidentGlance({ data, periodLocked = false }) {
                     pace = collegePct == null || own.progress_pct >= collegePct ? "ahead" : "behind";
                 }
 
-                const people = [
-                    ...new Set(unitLines.map((line) => line.owner).filter(Boolean)),
-                ];
+                const people = [...new Set(unitLines.map((line) => line.owner).filter(Boolean))];
                 const nextDue = unitLines
                     .filter((line) => line.progress_status !== "completed" && line.target_date)
                     .map((line) => line.target_date)
                     .sort()[0];
 
-                return { ...unit, ...own, pace, people, nextDue: nextDue ?? null };
+                return {
+                    ...unit,
+                    ...own,
+                    pace,
+                    people,
+                    nextDue: nextDue ?? null,
+                    tag: tags.get(unit.id),
+                    parentTag: unit.parent_id ? (tags.get(unit.parent_id) ?? null) : null,
+                };
             })
             .sort((a, b) => {
                 if (a.progress_pct == null && b.progress_pct == null) return a.name.localeCompare(b.name);
@@ -272,15 +323,6 @@ export default function PresidentGlance({ data, periodLocked = false }) {
         href: reportPath("ratings", band.label),
     }));
 
-    const fastestVp = vpBars.find((row) => row.value != null);
-    const slowestVp = [...vpBars].reverse().find((row) => row.value != null);
-    const vpNote =
-        fastestVp && slowestVp && fastestVp.key !== slowestVp.key
-            ? `${fastestVp.label} is furthest ahead, while ${slowestVp.label} needs the most support.`
-            : fastestVp
-              ? `${fastestVp.label} is the only VP with commitments recorded.`
-              : "No VP has commitments recorded yet.";
-
     const waitingStages = (data?.turnaround?.waiting ?? [])
         .filter((row) => row.forms > 0)
         .map((row) => {
@@ -292,7 +334,7 @@ export default function PresidentGlance({ data, periodLocked = false }) {
 
             return {
                 key: row.status,
-                label: row.label,
+                label: WAIT_SHORT[row.status] ?? row.label,
                 forms: row.forms,
                 oldest,
                 tone,
@@ -303,15 +345,6 @@ export default function PresidentGlance({ data, periodLocked = false }) {
         .filter((row) => row.pending > 0 && row.oldest_form_id)
         .sort((a, b) => (b.oldest_pending_days ?? 0) - (a.oldest_pending_days ?? 0))
         .slice(0, 4);
-    const waitingTotal = waitingStages.reduce((sum, row) => sum + row.forms, 0);
-    const queueNote =
-        waitingTotal > 0
-            ? `${waitingTotal} form${waitingTotal === 1 ? "" : "s"} waiting on a reviewer${
-                  overdue > 0 ? ` · ${overdue} commitment${overdue === 1 ? "" : "s"} overdue` : ""
-              }.`
-            : overdue > 0
-              ? `No forms are waiting in review · ${overdue} commitment${overdue === 1 ? "" : "s"} overdue.`
-              : "Nothing is waiting on a reviewer right now.";
 
     return (
         <div className="pms-president">
@@ -321,7 +354,7 @@ export default function PresidentGlance({ data, periodLocked = false }) {
                 ) : (
                     <div className="pms-board-table">
                         <div className="pms-board-table-head">
-                            <span>Office or program</span>
+                            <span>Unit</span>
                             <span>People</span>
                             <span>Progress</span>
                             <span>Due</span>
@@ -333,13 +366,16 @@ export default function PresidentGlance({ data, periodLocked = false }) {
                                     key={unit.id}
                                     type="button"
                                     className="pms-board-table-row"
+                                    title={unit.parent_name ? `${unit.name} · ${unit.parent_name}` : unit.name}
                                     onClick={() => open(reportPath("units", unit.name))}
                                 >
                                     <span className="pms-board-unit">
-                                        <span className="pms-board-unit-name">{unit.name}</span>
-                                        <span className="pms-board-unit-meta">
-                                            {[TYPE_LABELS[unit.type] ?? unit.type, unit.parent_name].filter(Boolean).join(" · ")}
-                                        </span>
+                                        <span className="pms-board-unit-name">{unit.tag}</span>
+                                        {unit.parentTag && (
+                                            <span className="pms-board-unit-meta" title={unit.parent_name}>
+                                                {unit.parentTag}
+                                            </span>
+                                        )}
                                     </span>
                                     <span className="pms-board-people">
                                         <span className="pms-board-faces" aria-hidden="true">
@@ -366,12 +402,8 @@ export default function PresidentGlance({ data, periodLocked = false }) {
                                         </span>
                                         <strong>{unit.progress_pct != null ? `${unit.progress_pct}%` : "—"}</strong>
                                     </span>
-                                    <span className={unit.overdue > 0 ? "pms-board-due is-late" : "pms-board-due"}>
-                                        {unit.overdue > 0
-                                            ? `${unit.overdue} late`
-                                            : unit.nextDue
-                                              ? dayjs(unit.nextDue).format("MMM D, YYYY")
-                                              : "—"}
+                                    <span className={unit.overdue > 0 ? "pms-board-due is-late" : "pms-board-due"} title={dueTitle(unit)}>
+                                        {dueFigure(unit)}
                                     </span>
                                     <span className="pms-board-score">
                                         {unit.average != null ? Number(unit.average).toFixed(1) : "—"}
@@ -441,7 +473,7 @@ export default function PresidentGlance({ data, periodLocked = false }) {
                 </div>
             </BoardCard>
 
-            <BoardCard title="Where forms wait" note={queueNote} className="pms-board-queue">
+            <BoardCard title="Where forms wait" className="pms-board-queue">
                 {waitingStages.length === 0 && pendingReviewers.length === 0 ? (
                     <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="Nothing is waiting on a reviewer." />
                 ) : (
@@ -465,11 +497,7 @@ export default function PresidentGlance({ data, periodLocked = false }) {
                                         </span>
                                         <span className="pms-board-pipe-copy">
                                             <strong>{row.label}</strong>
-                                            <em>
-                                                {row.oldest != null
-                                                    ? `oldest ${Math.round(row.oldest)}d`
-                                                    : "in queue"}
-                                            </em>
+                                            <em>{row.oldest != null ? `${Math.round(row.oldest)}d` : "—"}</em>
                                         </span>
                                         <span className="pms-board-pipe-count">{row.forms}</span>
                                     </button>
@@ -507,7 +535,7 @@ export default function PresidentGlance({ data, periodLocked = false }) {
                                                 </span>
                                                 <span className="pms-board-queue-wait">
                                                     <strong>{row.pending}</strong>
-                                                    <em>oldest {oldestDays}d</em>
+                                                    <em>{oldestDays}d</em>
                                                 </span>
                                             </button>
                                             <Popconfirm
@@ -517,7 +545,7 @@ export default function PresidentGlance({ data, periodLocked = false }) {
                                                         ? "This review period is locked. Unlock it before sending a follow-up."
                                                         : `Ask ${who} about ${owner}'s form — waiting ${oldestDays} day${oldestDays === 1 ? "" : "s"}.`
                                                 }
-                                                okText="Nudge"
+                                                okText="Remind"
                                                 cancelText="Cancel"
                                                 disabled={!canNudgeRow}
                                                 onConfirm={() => nudge.mutate(row.oldest_form_id)}
@@ -535,7 +563,7 @@ export default function PresidentGlance({ data, periodLocked = false }) {
                                                     }
                                                     onClick={(event) => event.stopPropagation()}
                                                 >
-                                                    Nudge
+                                                    Remind
                                                 </button>
                                             </Popconfirm>
                                         </div>
@@ -547,7 +575,7 @@ export default function PresidentGlance({ data, periodLocked = false }) {
                 )}
             </BoardCard>
 
-            <BoardCard title="By VP" note={vpNote} className="pms-board-team">
+            <BoardCard title="By VP" className="pms-board-team">
                 {vpBars.length === 0 ? (
                     <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="No VP is named on a unit yet." />
                 ) : (

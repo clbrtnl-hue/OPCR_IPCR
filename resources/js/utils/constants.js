@@ -2,7 +2,6 @@ export const ROLE_LABELS = {
     admin: "Administrator",
     president: "President",
     qa: "Quality Assurance",
-    hr: "Human Resource",
     vp: "Vice President",
     program_head: "Head",
     employee: "Employee",
@@ -111,6 +110,14 @@ export function nextReviewStop(form) {
 }
 
 export function statusMeta(status, form) {
+    if (
+        status === "qa_rating" &&
+        form?.type === "ipcr" &&
+        (form.status_label === "With the President" || form.owner?.role === "qa")
+    ) {
+        return { label: "With the President", color: "purple", who: "Waiting for the President to rate" };
+    }
+
     if (STATUS_META[status]) return STATUS_META[status];
 
     const step = form?.review_steps?.find((item) => item.status === status);

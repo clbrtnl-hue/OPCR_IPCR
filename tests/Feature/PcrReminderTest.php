@@ -69,6 +69,29 @@ class PcrReminderTest extends PmsTestCase
         $this->assertDatabaseMissing('notifications', ['user_id' => $president->id]);
     }
 
+    public function test_a_replaced_commitment_does_not_raise_a_deadline(): void
+    {
+        $this->makeOrganization();
+        $unit = $this->makeUnit();
+        $owner = User::factory()->create(['role' => 'employee', 'org_unit_id' => $unit->id]);
+        $year = $this->makeSchoolYear();
+        $form = $this->makeForm([
+            'org_unit_id'    => $unit->id,
+            'school_year_id' => $year->id,
+            'user_id'        => $owner->id,
+            'status'         => 'draft',
+        ]);
+        $this->makeIndicator($form, 'core', [
+            'target_date'   => now()->subDay()->toDateString(),
+            'closed_at'     => now(),
+            'closed_reason' => 'target_replaced',
+        ]);
+
+        app(PcrReminderService::class)->send();
+
+        $this->assertDatabaseMissing('notifications', ['user_id' => $owner->id]);
+    }
+
     public function test_it_reminds_a_draft_owner_and_a_reviewer_when_the_period_is_closing(): void
     {
         $this->makeOrganization();
@@ -128,43 +151,57 @@ class PcrReminderTest extends PmsTestCase
         );
     }
 
-    public function test_it_reminds_hr_once_that_a_rated_form_still_needs_to_be_closed(): void
+    public function test_an_inactive_account_is_not_chased_or_handed_to_the_head(): void
     {
         $this->makeOrganization();
         $unit = $this->makeUnit();
-        $owner = User::factory()->create(['role' => 'employee', 'org_unit_id' => $unit->id, 'name' => 'Ana Cruz']);
-        $closed = User::factory()->create(['role' => 'employee', 'org_unit_id' => $unit->id]);
-        $hr = User::factory()->create(['role' => 'hr']);
-        $inactive = User::factory()->create(['role' => 'hr', 'status' => 'inactive']);
-        $qa = User::factory()->create(['role' => 'qa']);
-        $president = User::factory()->create(['role' => 'president']);
+        $head = User::factory()->create(['role' => 'program_head', 'org_unit_id' => $unit->id]);
+        $unit->update(['head_user_id' => $head->id]);
+        $left = User::factory()->create([
+            'role' => 'employee', 'org_unit_id' => $unit->id, 'status' => 'inactive', 'name' => 'Richard Gutierrez',
+        ]);
+        $ratedLeft = User::factory()->create([
+            'role' => 'employee', 'org_unit_id' => $unit->id, 'status' => 'inactive',
+        ]);
         $year = $this->makeSchoolYear();
-
-        $open = $this->makeForm([
-            'org_unit_id'    => $unit->id,
-            'school_year_id' => $year->id,
-            'user_id'        => $owner->id,
-            'status'         => 'rated',
+        $period = $this->makePeriod($year);
+        $period->update([
+            'opens_at'  => now()->subMonth()->toDateString(),
+            'closes_at' => now()->addDays(4)->toDateString(),
+            'status'    => 'open',
         ]);
+
+        $draft = $this->makeForm([
+            'org_unit_id'      => $unit->id,
+            'school_year_id'   => $year->id,
+            'rating_period_id' => $period->id,
+            'user_id'          => $left->id,
+            'status'           => 'draft',
+        ]);
+        $this->makeIndicator($draft, 'core', ['target_date' => now()->subDay()->toDateString()]);
         $this->makeForm([
-            'org_unit_id'    => $unit->id,
-            'school_year_id' => $year->id,
-            'user_id'        => $closed->id,
-            'status'         => 'final',
+            'org_unit_id'      => $unit->id,
+            'school_year_id'   => $year->id,
+            'rating_period_id' => $period->id,
+            'user_id'          => $ratedLeft->id,
+            'status'           => 'rated',
+        ]);
+        $waiting = User::factory()->create([
+            'role' => 'employee', 'org_unit_id' => $unit->id, 'status' => 'inactive',
+        ]);
+        PcrForm::create([
+            'type'             => 'ipcr',
+            'status'           => 'head_review',
+            'org_unit_id'      => $unit->id,
+            'school_year_id'   => $year->id,
+            'rating_period_id' => $period->id,
+            'user_id'          => $waiting->id,
+            'head_reviewer_id' => $head->id,
         ]);
 
-        $reminders = app(PcrReminderService::class);
-        $reminders->send();
-        $reminders->send();
+        app(PcrReminderService::class)->send();
 
-        $notice = Notification::where('user_id', $hr->id)->where('type', 'unclosed')->get();
-        $this->assertCount(1, $notice);
-        $this->assertSame($open->id, $notice->first()->form_id);
-        $this->assertSame("/closing?form={$open->id}", $notice->first()->link);
-        $this->assertStringContainsString('Ana Cruz', $notice->first()->body);
-        $this->assertStringContainsString('Close ratings', $notice->first()->body);
-        $this->assertDatabaseMissing('notifications', ['user_id' => $inactive->id, 'type' => 'unclosed']);
-        $this->assertDatabaseMissing('notifications', ['user_id' => $qa->id, 'type' => 'unclosed']);
-        $this->assertDatabaseMissing('notifications', ['user_id' => $president->id, 'type' => 'unclosed']);
+        $this->assertDatabaseMissing('notifications', ['user_id' => $left->id]);
+        $this->assertDatabaseMissing('notifications', ['user_id' => $head->id]);
     }
 }

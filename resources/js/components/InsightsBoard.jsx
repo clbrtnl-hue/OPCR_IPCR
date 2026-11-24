@@ -422,7 +422,7 @@ export default function InsightsBoard({ data, periodLocked = false }) {
                                                 ? "This review period is locked. Unlock it before sending a follow-up."
                                                 : `Ask ${who} about ${owner}'s form — waiting ${oldestDays} day${oldestDays === 1 ? "" : "s"}.`
                                         }
-                                        okText="Nudge"
+                                        okText="Remind"
                                         cancelText="Cancel"
                                         disabled={!canNudge}
                                         onConfirm={() => nudge.mutate(row.oldest_form_id)}
@@ -439,7 +439,7 @@ export default function InsightsBoard({ data, periodLocked = false }) {
                                             }
                                             onClick={(event) => event.stopPropagation()}
                                         >
-                                            Nudge
+                                            Remind
                                         </Button>
                                     </Popconfirm>,
                                 ]}

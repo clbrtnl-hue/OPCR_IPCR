@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\ActivityLog;
+use App\Services\AttendanceSync;
 use App\Models\AttendanceDay;
 use App\Models\AttendanceMeeting;
 use App\Models\AttendanceMeetingMark;
@@ -28,20 +29,21 @@ class AttendanceController extends Controller
             'org_unit_id'      => 'nullable|integer|exists:org_units,id',
         ]);
 
-        $user     = $request->user();
-        $led      = $this->ledUnits($user);
-        $watching = $user->role === 'hr';
-        $catalog  = $watching
-            ? OrgUnit::query()->orderBy('name')->get(['id', 'name', 'code'])
-            : $led;
+        $user    = $request->user();
+        $led     = $this->ledUnits($user);
+        $catalog = $led;
         $year = $this->year($data['school_year_id'] ?? null);
 
         if (! $year || $catalog->isEmpty()) {
+            if ($user->role === 'employee' && $year) {
+                return response()->json($this->personalRecord($user, $year, $data));
+            }
+
             return response()->json([
                 'year'             => $year ? ['id' => $year->id, 'label' => $year->label] : null,
                 'period'           => null,
-                'watching'         => $watching,
-                'readonly'         => $watching,
+                'watching'         => false,
+                'readonly'         => false,
                 'selected_unit_id' => null,
                 'units'            => [],
                 'record_units'     => [],
@@ -59,15 +61,6 @@ class AttendanceController extends Controller
 
         $focus    = $catalog;
         $readonly = false;
-
-        if ($watching) {
-            $requested = (int) ($data['org_unit_id'] ?? 0);
-            $picked    = $catalog->firstWhere('id', $requested)
-                ?? ($led->isNotEmpty() ? $catalog->firstWhere('id', (int) $led->first()->id) : null)
-                ?? $catalog->first();
-            $focus    = collect([$picked]);
-            $readonly = $led->firstWhere('id', (int) $picked->id) === null;
-        }
 
         $period = $this->period($year, $data['rating_period_id'] ?? null);
         $span   = $period ? AttendanceDay::periodSpan($period) : null;
@@ -139,9 +132,9 @@ class AttendanceController extends Controller
                 'opens_at'  => $span ? $span[0]->toDateString() : null,
                 'closes_at' => $span ? $span[1]->toDateString() : null,
             ] : null,
-            'watching'         => $watching,
+            'watching'         => false,
             'readonly'         => $readonly,
-            'selected_unit_id' => $watching ? (int) $focus->first()->id : null,
+            'selected_unit_id' => null,
             'units'            => $catalog->map(fn (OrgUnit $unit) => [
                 'id'   => $unit->id,
                 'name' => $unit->name,
@@ -382,33 +375,7 @@ class AttendanceController extends Controller
      */
     private function syncDayFromActivities(int $actorId, int $personId, int $periodId, string $day): void
     {
-        $existing = AttendanceDay::query()
-            ->where('user_id', $personId)
-            ->whereDate('day', $day)
-            ->first();
-
-        if ($existing && $existing->status === 'leave') {
-            return;
-        }
-
-        $statuses = AttendanceMeetingMark::query()
-            ->where('user_id', $personId)
-            ->whereHas('meeting', fn ($query) => $query
-                ->where('rating_period_id', $periodId)
-                ->whereDate('held_on', $day))
-            ->pluck('status');
-
-        $status = null;
-
-        if ($statuses->contains('present')) {
-            $status = 'present';
-        } elseif ($statuses->contains('absent')) {
-            $status = 'absent';
-        } elseif ($statuses->contains('excused')) {
-            $status = 'leave';
-        }
-
-        $this->writeDay($personId, $day, $status, $periodId, $actorId);
+        AttendanceSync::dayFromActivities($actorId, $personId, $periodId, $day);
     }
 
     private function writeDay(int $personId, string $day, ?string $status, int $periodId, int $actorId): void
@@ -452,6 +419,84 @@ class AttendanceController extends Controller
             'category'         => 'required|in:' . implode(',', array_keys(AttendanceMeeting::CATEGORIES)),
             'held_on'          => 'required|date',
         ]);
+    }
+
+    /**
+     * The signed-in employee's own days. They can read the record. The head still writes it.
+     *
+     * @param  array<string, mixed>  $data
+     * @return array<string, mixed>
+     */
+    private function personalRecord(User $user, SchoolYear $year, array $data): array
+    {
+        $period = $this->period($year, isset($data['rating_period_id']) ? (int) $data['rating_period_id'] : null);
+        $span   = $period ? AttendanceDay::periodSpan($period) : null;
+        $days   = $span ? AttendanceDay::days($span[0], $span[1]) : [];
+        $months = $this->months($days);
+        $month  = $this->chosenMonth($months, $data['month'] ?? null);
+        $shown  = array_values(array_filter($days, fn (string $day) => str_starts_with($day, (string) $month)));
+        $daily  = [];
+
+        if ($period && $shown !== []) {
+            $marks = AttendanceDay::query()
+                ->where('rating_period_id', $period->id)
+                ->where('user_id', $user->id)
+                ->get(['day', 'status']);
+
+            foreach ($marks as $mark) {
+                $date = $mark->day->toDateString();
+
+                if (in_array($date, $shown, true)) {
+                    $daily[$user->id][$date] = $mark->status;
+                }
+            }
+        }
+
+        $rates = [];
+        $activityRates = [];
+        $categoryRates = [];
+
+        if ($period) {
+            AttendanceRate::remember((int) $user->id, (int) $period->id);
+            $only = [(int) $user->id => true];
+            $rates = array_intersect_key(AttendanceRate::forPeriod((int) $period->id, 'daily'), $only);
+            $activityRates = array_intersect_key(AttendanceRate::forPeriod((int) $period->id, 'activities'), $only);
+            $categoryRates = array_intersect_key(AttendanceRate::categoriesForPeriod((int) $period->id), $only);
+        }
+
+        $unit = $user->org_unit_id ? OrgUnit::query()->find($user->org_unit_id) : null;
+
+        return [
+            'year'   => ['id' => $year->id, 'label' => $year->label],
+            'period' => $period ? [
+                'id'        => $period->id,
+                'label'     => $period->label,
+                'locked'    => $period->isLockedFor($user),
+                'opens_at'  => $span ? $span[0]->toDateString() : null,
+                'closes_at' => $span ? $span[1]->toDateString() : null,
+            ] : null,
+            'watching'         => false,
+            'readonly'         => true,
+            'selected_unit_id' => null,
+            'units'            => $unit ? [['id' => $unit->id, 'name' => $unit->name]] : [],
+            'record_units'     => [],
+            'categories'       => AttendanceMeeting::categoryList(),
+            'members'          => [[
+                'id'             => $user->id,
+                'name'           => $user->name,
+                'position_title' => $user->position_title,
+                'image'          => $user->image,
+                'org_unit_id'    => $user->org_unit_id,
+            ]],
+            'months'         => $months,
+            'month'          => $month,
+            'days'           => $shown,
+            'daily'          => $daily ?: (object) [],
+            'daily_rates'    => $rates ?: (object) [],
+            'activity_rates' => $activityRates ?: (object) [],
+            'category_rates' => $categoryRates ?: (object) [],
+            'meetings'       => [],
+        ];
     }
 
     private function year(?int $id): ?SchoolYear

@@ -3,7 +3,9 @@
 namespace App\Http\Controllers;
 
 use App\Models\ActivityLog;
+use App\Models\OrgUnit;
 use App\Models\User;
+use App\Services\InactiveAccount;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Validation\Rule;
@@ -32,12 +34,21 @@ class UserController extends Controller
         return response()->json($query->get());
     }
 
-    public function options()
+    public function options(Request $request)
     {
+        $query = User::where('status', 'active')->orderByPerson();
+
+        // A head picks from the offices they lead, including the units under them.
+        if ($request->query('scope') === 'led') {
+            $subordinates = OrgUnit::subordinates((int) $request->user()->id);
+
+            if ($subordinates) {
+                $query = $subordinates->orderByPerson();
+            }
+        }
+
         return response()->json(
-            User::where('status', 'active')
-                ->orderByPerson()
-                ->get(['id', 'name', 'role', 'position_title', 'org_unit_id'])
+            $query->get(['id', 'name', 'role', 'position_title', 'org_unit_id'])
         );
     }
 
@@ -93,9 +104,19 @@ class UserController extends Controller
         }
 
         if ($id) {
-            $user    = User::findOrFail($id);
+            $user = User::findOrFail($id);
+            $becomingInactive = $attributes['status'] === 'inactive' && $user->status !== 'inactive';
+
+            if ($becomingInactive && (int) $user->id === (int) $request->user()->id) {
+                return response()->json(['message' => 'You cannot deactivate your own account.'], 409);
+            }
+
             $changes = ActivityLog::diff($user, $attributes);
             $user->update($attributes);
+
+            if ($becomingInactive) {
+                app(InactiveAccount::class)->seal($user);
+            }
 
             ActivityLog::record('User', $user->id, 'update', "Updated account {$user->name}", $changes);
 
@@ -151,6 +172,7 @@ class UserController extends Controller
         }
 
         $user->update(['status' => 'inactive']);
+        app(InactiveAccount::class)->seal($user);
 
         ActivityLog::record('User', $user->id, 'deactivate', "Deactivated account {$user->name}");
 

@@ -26,6 +26,9 @@ class UnitViewAccessTest extends PmsTestCase
         $year = $this->makeSchoolYear();
         $this->makePeriod($year);
 
+        $head    = User::factory()->create(['role' => 'program_head', 'org_unit_id' => $department->id]);
+        $department->update(['head_user_id' => $head->id]);
+
         $faculty = User::factory()->create(['role' => 'employee', 'org_unit_id' => $department->id]);
         $first   = User::factory()->create(['role' => 'program_head', 'org_unit_id' => $college->id]);
         $second  = User::factory()->create(['role' => 'employee']);
@@ -43,7 +46,7 @@ class UnitViewAccessTest extends PmsTestCase
         $this->assertNull($fresh->resolvedReviewerMap['director_review'] ?? null);
         $this->assertSame(0, OrgUnitReviewer::where('user_id', $first->id)->count());
 
-        $form->forceFill(['status' => 'head_review'])->save();
+        $form->forceFill(['status' => 'head_review', 'head_reviewer_id' => $head->id])->save();
 
         foreach ([$first, $second] as $person) {
             $this->actingAsUser($person);

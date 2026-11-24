@@ -3,6 +3,8 @@
 namespace App\Services;
 
 use App\Models\OrgUnit;
+use App\Models\PcrIndicator;
+use App\Support\Html;
 use App\Models\OrgUnitReviewer;
 use App\Models\PcrForm;
 use App\Models\PcrFormReviewer;
@@ -17,8 +19,9 @@ class PcrWorkflow
      * An IPCR's commitments are approved before any tasks or cascade, then
      * reviewed up the hierarchy. An OPCR is planned
      * first: the president drafts it, QA approves it, the president publishes
-     * it — only then is it something other people's IPCRs can be tied to — and
-     * it is rated once, in December, with the last period, on the same document.
+     * it — only then is it something other people's IPCRs can be tied to.
+     * The president rates that same document and closes it. Rating is not
+     * sent to QA.
      */
     public const TRANSITIONS = [
         'ipcr' => [
@@ -30,10 +33,9 @@ class PcrWorkflow
             'dean_review' => ['director_review', 'vp_review', 'qa_rating', 'returned'],
             'director_review' => ['vp_review', 'qa_rating', 'returned'],
             'vp_review'   => ['qa_rating', 'returned'],
-            'qa_rating'   => ['rated', 'returned'],
-            'rated'       => ['final', 'qa_rating'],
-            'final'       => ['appeal'],
-            'appeal'      => ['qa_rating', 'final'],
+            'qa_rating'   => ['rated', 'final', 'returned'],
+            'rated'       => ['final'],
+            'final'       => [],
         ],
         'opcr' => [
             'draft'       => ['qa_approval'],
@@ -41,8 +43,8 @@ class PcrWorkflow
             'qa_approval' => ['approved', 'returned'],
             'approved'    => ['published', 'draft'],
             'published'   => ['qa_rating'],
-            'qa_rating'   => ['rated', 'returned'],
-            'rated'       => ['final', 'qa_rating'],
+            'qa_rating'   => ['rated', 'final', 'returned'],
+            'rated'       => ['final'],
             'final'       => [],
         ],
     ];
@@ -55,7 +57,7 @@ class PcrWorkflow
             'vp_review'   => ['program_head'],
             'qa_rating'   => ['vp'],
             'rated'       => ['qa'],
-            'final'       => ['hr'],
+            'final'       => ['qa'],
             'returned'    => ['program_head', 'vp', 'qa'],
         ],
         'opcr' => [
@@ -65,7 +67,7 @@ class PcrWorkflow
             'draft'       => ['president'],   // pull an approved OPCR back before it is published
             'qa_rating'   => ['qa'],
             'rated'       => ['qa'],
-            'final'       => ['hr'],
+            'final'       => ['qa'],
             'returned'    => ['qa'],
         ],
     ];
@@ -83,10 +85,10 @@ class PcrWorkflow
     /**
      * Who reviews this form, resolved from the ratee's place in the hierarchy.
      * Head is the person named on the ratee's own unit. Dean, VP, and extra
-     * steps use that unit first, then the parent if the slot is empty. A stage
-     * whose reviewer is absent — or would be the ratee reviewing themselves —
-     * is null, and the chain skips it. A VP with nobody above them therefore
-     * goes straight to QA.
+     * steps use that unit first, then the parent if the slot is empty or the
+     * named account is inactive. A stage whose reviewer is absent — or would
+     * be the ratee reviewing themselves — is null, and the chain skips it. A
+     * VP with nobody active above them therefore goes straight to QA.
      */
     public static function resolveReviewers(PcrForm $form): array
     {
@@ -206,9 +208,25 @@ class PcrWorkflow
     public static function chainFor(PcrForm $form): array
     {
         $form->loadMissing('stageReviewers.reviewer:id,name,position_title');
+        $toPresident = self::qaIpcrGoesToPresident($form);
+        $president   = $toPresident
+            ? User::query()->where('role', 'president')->where('status', 'active')->first(['id', 'name', 'position_title'])
+            : null;
 
-        return array_map(function (array $stage) use ($form) {
+        return array_map(function (array $stage) use ($form, $toPresident, $president) {
             $status = $stage['status'];
+
+            // QA writes the IPCR. The president is the one who rates it.
+            if ($toPresident && $status === 'qa_rating') {
+                return [
+                    'status'      => 'qa_rating',
+                    'label'       => 'With the President',
+                    'reviewer_id' => $president?->id,
+                    'reviewer'    => $president?->only(['id', 'name', 'position_title']),
+                    'filled'      => true,
+                ];
+            }
+
             $id     = self::reviewerId($form, $status);
             $row    = $form->stageReviewers->firstWhere('stage', $status);
             $person = $row?->reviewer;
@@ -228,6 +246,80 @@ class PcrWorkflow
                 'filled'      => $named ? (bool) $id : true,
             ];
         }, app(WorkflowSettings::class)->reviewStages());
+    }
+
+    /**
+     * A form parked on a reviewer who can no longer sign in. Re-resolve the
+     * chain and, when this step is now empty, move it to the next one that
+     * has somebody. Returns the move when the status or the person changed.
+     *
+     * @return array{from: string, to: string}|null
+     */
+    public static function advancePastInactiveReviewer(PcrForm $form): ?array
+    {
+        if ($form->type !== 'ipcr' || ! $form->exists || ! self::isReviewDestination($form->status)) {
+            return null;
+        }
+
+        $status = $form->status;
+        $stage  = collect(app(WorkflowSettings::class)->reviewStages())->firstWhere('status', $status);
+
+        if (! $stage) {
+            return null;
+        }
+
+        $source = $stage['source'] ?? 'unit_slot';
+
+        if ($source === 'role' && ! isset(self::REVIEWER_COLUMNS[$status])) {
+            return null;
+        }
+
+        $currentId = self::reviewerId($form, $status);
+
+        if ($currentId && User::query()->whereKey($currentId)->where('status', 'active')->exists()) {
+            return null;
+        }
+
+        $form->forceFill(self::resolveReviewers($form));
+
+        if (self::stageFilled($form, $stage)) {
+            $replacement = self::reviewerId($form, $status);
+
+            if (! $replacement || (int) $replacement === (int) $currentId) {
+                return null;
+            }
+
+            $form->save();
+
+            PcrStatusLog::record(
+                $form->id,
+                $status,
+                $status,
+                'The reviewer account is inactive, so this step now goes to the next active person in that slot.'
+            );
+
+            return ['from' => $status, 'to' => $status];
+        }
+
+        $next = self::nextStatusFor($form, $status);
+
+        if (! $next || $next === $status) {
+            $form->save();
+
+            return null;
+        }
+
+        $form->status = $next;
+        $form->save();
+
+        PcrStatusLog::record(
+            $form->id,
+            $status,
+            $next,
+            'Moved on because the reviewer account is inactive.'
+        );
+
+        return ['from' => $status, 'to' => $next];
     }
 
     /** The next status that actually has somebody to act on it. */
@@ -276,17 +368,22 @@ class PcrWorkflow
         return null;
     }
 
-    /** Whoever is named for this stage on this form — not whoever holds a role. */
     /**
      * The owner may optionally score their own IPCR while it is still with
      * them. After that, the head scores a faculty IPCR and may change that
      * score, the VP may change the score that reaches them, and QA may change
-     * any score that reaches them or leave it. QA also scores their own IPCR.
+     * any score that reaches them or leave it. The president scores QA's own
+     * IPCR and closes it, and scores the published college OPCR and closes that.
      */
     public static function mayScore(User $user, PcrForm $form): bool
     {
         if ($form->type !== 'ipcr') {
-            return $form->status === 'qa_rating' && self::isRater($user);
+            return ($form->status === 'qa_rating' && self::isRater($user))
+                || self::presidentRatesOwnOpcr($user, $form);
+        }
+
+        if ($form->status === 'qa_rating' && self::qaIpcrGoesToPresident($form)) {
+            return $user->role === 'president';
         }
 
         if (self::ownerMaySelfRate($user, $form)) {
@@ -309,9 +406,40 @@ class PcrWorkflow
             && in_array($form->status, ['commitments_approved', 'returned'], true);
     }
 
+    /**
+     * The president closes the college OPCR from the published document.
+     * A return from an earlier QA rating comes back to the president as well.
+     */
+    public static function presidentRatesOwnOpcr(User $user, PcrForm $form): bool
+    {
+        if ($form->type !== 'opcr' || ! self::owns($user, $form)) {
+            return false;
+        }
+
+        $rules = app(WorkflowSettings::class);
+
+        if (! in_array($user->role, $rules->opcr('rating_trigger_roles'), true)) {
+            return false;
+        }
+
+        if ($form->status === 'published') {
+            return true;
+        }
+
+        return $form->status === 'returned' && self::returnedFromRating($form);
+    }
+
     /** The rating role closes the rating. On their own staff they close it without sending it up. */
     public static function mayFinalize(User $user, PcrForm $form): bool
     {
+        if (self::presidentRatesOwnOpcr($user, $form)) {
+            return true;
+        }
+
+        if ($form->status === 'qa_rating' && self::qaIpcrGoesToPresident($form)) {
+            return $user->role === 'president';
+        }
+
         if (! self::isRater($user)) {
             return false;
         }
@@ -321,6 +449,21 @@ class PcrWorkflow
         }
 
         return (int) self::reviewerId($form, $form->status) === (int) $user->id;
+    }
+
+    /**
+     * QA's own IPCR is rated by the president. The rating step stays
+     * qa_rating so it opens on the Rating tab, and QA's queue leaves it out.
+     */
+    public static function qaIpcrGoesToPresident(PcrForm $form): bool
+    {
+        if ($form->type !== 'ipcr') {
+            return false;
+        }
+
+        $owner = self::ownerWithRole($form);
+
+        return (bool) ($owner && self::isRater($owner));
     }
 
     /** The role named on the final review step. Defaults to QA. */
@@ -383,14 +526,12 @@ class PcrWorkflow
                 'approved'    => $rules->opcr('approver_roles'),
                 'published',
                 'draft'       => $rules->opcr('publisher_roles'),
-                'qa_rating'   => $from === 'rated'
-                    ? ['hr']
-                    : $rules->opcr('rating_trigger_roles'),
+                'qa_rating'   => $rules->opcr('rating_trigger_roles'),
                 'rated'       => $rules->raterRoles(),
                 'returned'    => $from === 'qa_rating'
                     ? $rules->raterRoles()
                     : $rules->opcr('approver_roles'),
-                'final'       => ['hr'],
+                'final'       => $rules->raterRoles(),
                 default       => null,
             };
 
@@ -403,84 +544,15 @@ class PcrWorkflow
             return in_array($user->role, $rules->raterRoles(), true);
         }
 
-        if ($to === 'qa_rating' && $from === 'rated') {
-            return $user->role === 'hr';
-        }
-
         if ($type === 'ipcr' && $to === 'final') {
-            return $user->role === 'hr';
+            return in_array($user->role, $rules->raterRoles(), true);
         }
 
         return in_array($user->role, self::ACTOR_ROLES[$type][$to] ?? [], true);
     }
 
     /**
-     * Why this final IPCR cannot be appealed. Null when the owner may file.
-     * One appeal per close. A denial does not open a second one. A later
-     * close, after an upheld appeal is rated again, starts a new 15 days.
-     */
-    public static function appealBlock(PcrForm $form): ?string
-    {
-        if ($form->type !== 'ipcr' || $form->status !== 'final') {
-            return 'Only a final IPCR can be appealed.';
-        }
-
-        $close = self::latestClose($form);
-
-        if (! $close?->created_at) {
-            return 'This rating has no close date, so it cannot be appealed.';
-        }
-
-        if (self::appealAfter($form, $close)) {
-            return 'An appeal was already filed for this rating.';
-        }
-
-        if (now()->gt($close->created_at->copy()->addDays(15)->endOfDay())) {
-            return 'The 15 days to appeal this rating have passed.';
-        }
-
-        return null;
-    }
-
-    /**
-     * @return array{can_file: bool, deadline: ?string, reason: ?string}
-     */
-    public static function appealState(PcrForm $form): array
-    {
-        $close    = self::latestClose($form);
-        $deadline = $close?->created_at?->copy()->addDays(15)->endOfDay();
-        $filed    = $close ? self::appealAfter($form, $close) : null;
-
-        return [
-            'can_file' => $form->status === 'final' && $close && ! $filed && $deadline && now()->lte($deadline),
-            'deadline' => $deadline?->toDateString(),
-            'reason'   => $form->status === 'appeal' ? $filed?->note : null,
-        ];
-    }
-
-    private static function latestClose(PcrForm $form): ?PcrStatusLog
-    {
-        $form->loadMissing('statusLogs');
-
-        return $form->statusLogs
-            ->filter(fn (PcrStatusLog $log) => $log->to_status === 'final' && $log->from_status !== 'appeal')
-            ->sortByDesc('id')
-            ->first();
-    }
-
-    private static function appealAfter(PcrForm $form, PcrStatusLog $close): ?PcrStatusLog
-    {
-        return $form->statusLogs
-            ->filter(fn (PcrStatusLog $log) => $log->id > $close->id
-                && $log->from_status === 'final'
-                && $log->to_status === 'appeal')
-            ->sortByDesc('id')
-            ->first();
-    }
-
-    /**
-     * The college OPCR stays published until December of its school year,
-     * when the last period (July to December) is rated.
+     * The college OPCR can be sent for rating on any day of its school year.
      */
     public static function opcrRatingMonthOpen(PcrForm $form): bool
     {
@@ -493,8 +565,7 @@ class PcrWorkflow
 
         $today = now()->startOfDay();
 
-        return $today->month === 12
-            && $today->greaterThanOrEqualTo($year->start_date->copy()->startOfDay())
+        return $today->greaterThanOrEqualTo($year->start_date->copy()->startOfDay())
             && $today->lessThanOrEqualTo($year->end_date->copy()->endOfDay());
     }
 
@@ -616,13 +687,13 @@ class PcrWorkflow
     }
 
     /**
-     * President, QA, HR, and admin — campus-wide form access and follow-ups.
+     * President, QA, and admin — campus-wide form access and follow-ups.
      * Their My Team roster is still limited to offices they lead or watch;
      * campus follow-up is done from Forms → All.
      */
     public static function isCollegeMonitor(User $user): bool
     {
-        return in_array($user->role, ['admin', 'president', 'qa', 'hr'], true);
+        return in_array($user->role, ['admin', 'president', 'qa'], true);
     }
 
     /**
@@ -836,11 +907,14 @@ class PcrWorkflow
 
     /**
      * Who approves this IPCR's commitments. QA and people named on the published
-     * OPCR go to the president. Naming someone before the OPCR is published
-     * does not send the form to their VP instead. A head of units under two
-     * different VPs is approved by the president. Everyone else goes to the person who
-     * handed them the work, then to the head named on their unit. When that head
-     * is the president, the president approves.
+     * OPCR go to the president. That naming lasts the school year, so the second
+     * period uses the same list — nobody is assigned again. Naming someone before
+     * the OPCR is published does not send the form to their VP instead. A head of
+     * units under two different VPs is approved by the president. Everyone else
+     * goes to the person who handed them the work, then to the first active
+     * reviewer above them. An empty slot is skipped, so a head with no VP is
+     * approved by whoever fills the next stage — QA, when nobody sits in a unit
+     * slot above them.
      */
     public static function commitmentApprover(PcrForm $form): ?User
     {
@@ -889,17 +963,7 @@ class PcrWorkflow
         }
 
         foreach (app(WorkflowSettings::class)->reviewStages() as $stage) {
-            if (($stage['source'] ?? 'unit_slot') !== 'unit_slot') {
-                continue;
-            }
-
-            $id = $form->orgUnit?->reviewerIdForSlotInChain($stage['slot'] ?? '');
-
-            if (! $id || (int) $id === (int) $owner->id) {
-                continue;
-            }
-
-            $person = User::whereKey($id)->where('status', 'active')->first();
+            $person = self::activeStageReviewer($form, $stage, (int) $owner->id);
 
             if ($person) {
                 return $person;
@@ -907,6 +971,35 @@ class PcrWorkflow
         }
 
         return null;
+    }
+
+    /**
+     * The first active person who can fill this stage, other than the owner.
+     * A unit slot still walks to the parent when it is empty. A role stage,
+     * such as QA, is used only after every slot above the owner is empty.
+     */
+    private static function activeStageReviewer(PcrForm $form, array $stage, int $ownerId): ?User
+    {
+        $source = $stage['source'] ?? 'unit_slot';
+
+        if ($source === 'unit_slot') {
+            $id = $form->orgUnit?->reviewerIdForSlotInChain($stage['slot'] ?? '');
+        } elseif ($source === 'role') {
+            $id = User::query()
+                ->where('role', $stage['role'] ?? '')
+                ->where('status', 'active')
+                ->where('id', '!=', $ownerId)
+                ->orderBy('id')
+                ->value('id');
+        } else {
+            return null;
+        }
+
+        if (! $id || (int) $id === $ownerId) {
+            return null;
+        }
+
+        return User::whereKey($id)->where('status', 'active')->first();
     }
 
     /**
@@ -990,6 +1083,124 @@ class PcrWorkflow
     }
 
     /**
+     * People named on a line write the narrative on their own commitment.
+     * A blank one blocks submit on an IPCR and on the college OPCR.
+     *
+     * @return list<string>
+     */
+    public static function accountableNarrativeGaps(PcrForm $form): array
+    {
+        $periodId = $form->type === 'ipcr' && $form->rating_period_id
+            ? (int) $form->rating_period_id
+            : null;
+
+        $lines = $form->indicators()
+            ->whereNull('closed_at')
+            ->with([
+                'assignments.user:id,name',
+                'openChildren.accomplishments',
+                'openChildren.output.form.owner:id,name',
+            ])
+            ->get();
+
+        $gaps = [];
+
+        foreach ($lines as $line) {
+            $people = [];
+
+            foreach ($line->assignments as $assignment) {
+                if ($periodId && $assignment->rating_period_id && (int) $assignment->rating_period_id !== $periodId) {
+                    continue;
+                }
+
+                if (! $assignment->user) {
+                    continue;
+                }
+
+                $people[(int) $assignment->user_id] = $assignment->user->name;
+            }
+
+            $children = $line->openChildren->filter(function ($child) use ($periodId) {
+                if ($periodId && $child->rating_period_id && (int) $child->rating_period_id !== $periodId) {
+                    return false;
+                }
+
+                return (bool) $child->output?->form?->owner;
+            });
+
+            foreach ($children as $child) {
+                $owner = $child->output->form->owner;
+                $people[(int) $owner->id] = $owner->name;
+            }
+
+            if ($people === []) {
+                continue;
+            }
+
+            $target = self::lineLabel($line);
+
+            foreach ($people as $userId => $name) {
+                $theirs = $children->filter(
+                    fn ($child) => (int) $child->output->form->owner->id === (int) $userId
+                );
+
+                if ($theirs->isEmpty()) {
+                    $gaps[] = "{$name} still needs a narrative for “{$target}”.";
+
+                    continue;
+                }
+
+                foreach ($theirs as $child) {
+                    $records = $child->accomplishments;
+
+                    if ($child->rating_period_id) {
+                        $records = $records->where('rating_period_id', (int) $child->rating_period_id);
+                    }
+
+                    $hasNarrative = $records->contains(
+                        fn ($record) => ! Html::isBlank($record->actual_accomplishment)
+                    );
+
+                    if ($hasNarrative) {
+                        continue;
+                    }
+
+                    $label = self::lineLabel($child);
+                    $gaps[] = "{$name} still needs a narrative for “" . ($label === 'A target' ? $target : $label) . "”.";
+                }
+            }
+        }
+
+        return $gaps;
+    }
+
+    public static function accountableNarrativeMessage(PcrForm $form): ?string
+    {
+        $gaps = self::accountableNarrativeGaps($form);
+
+        if ($gaps === []) {
+            return null;
+        }
+
+        $shown = array_slice($gaps, 0, 3);
+        $rest  = count($gaps) - count($shown);
+        $message = 'Finish the write-up before submitting. ' . implode(' ', $shown);
+
+        if ($rest > 0) {
+            $message .= ' ' . $rest . ' more line' . ($rest === 1 ? ' is' : 's are') . ' still incomplete.';
+        }
+
+        return $message;
+    }
+
+    private static function lineLabel(PcrIndicator $line): string
+    {
+        $text = trim(Html::toText($line->description));
+
+        return $text === '' ? 'A target' : mb_strimwidth($text, 0, 60, '…');
+    }
+
+    /**
      * The sheet loads the owner with a short column list, which leaves role
      * empty. Drop that copy so the approver can be chosen from the real role.
      */
@@ -1011,17 +1222,15 @@ class PcrWorkflow
         return self::namedOnOpcr($form, $owner, true);
     }
 
-    /** Named on this year's OPCR for the form's period. Publish is optional. */
+    /**
+     * Named on this year's OPCR. The assignment covers every review period of
+     * that year, so a first-period naming still sends the second-period IPCR
+     * to the president. Publish is optional.
+     */
     private static function namedOnOpcr(PcrForm $form, User $owner, bool $publishedOnly = false): bool
     {
         return PcrTargetAssignment::query()
             ->where('user_id', $owner->id)
-            ->when($form->rating_period_id, function ($query) use ($form) {
-                $query->where(function ($inner) use ($form) {
-                    $inner->where('rating_period_id', $form->rating_period_id)
-                        ->orWhereNull('rating_period_id');
-                });
-            })
             ->whereHas('indicator.output.form', function ($query) use ($form, $publishedOnly) {
                 $query->where('type', 'opcr')
                     ->where('school_year_id', $form->school_year_id)

@@ -9,7 +9,6 @@ import {
     Drawer,
     Dropdown,
     Empty,
-    Input,
     Modal,
     Popconfirm,
     Row,
@@ -47,17 +46,14 @@ import {
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useParams, useSearchParams } from "react-router-dom";
 import dayjs from "dayjs";
-import relativeTime from "dayjs/plugin/relativeTime";
 import api from "~/utils/api";
 import { downloadFile } from "~/utils/download";
 import { ADJECTIVAL_COLORS, RATING_LEGEND, statusMeta } from "~/utils/constants";
-import { scoreOptions } from "~/utils/ratingScale";
+import { ratingRules, scoreOptions } from "~/utils/ratingScale";
 import { useAuth } from "~/hooks/useAuth";
 import PageHeader from "~/components/PageHeader";
 import { toPlainText } from "~/components/RichTextView";
 import AssignedTargets from "~/components/AssignedTargets";
-
-dayjs.extend(relativeTime);
 import CascadeModal from "~/components/CascadeModal";
 import TemplatePicker from "~/components/TemplatePicker";
 import OpcrSheet from "~/components/OpcrSheet";
@@ -119,15 +115,80 @@ function writeUpGap(name, hasNarrative, files) {
     return `${name} still needs a narrative and two files.`;
 }
 
+function lineLabel(line) {
+    const text = toPlainText(line?.description);
+
+    return text ? (text.length > 60 ? `${text.slice(0, 59)}…` : text) : "A target";
+}
+
+/**
+ * Someone named on the line writes the narrative on their own commitment.
+ * A blank one blocks submit on an IPCR and on the college OPCR.
+ */
+function accountableNarrativeGaps(form) {
+    const periodId = form?.type === "ipcr" ? form.rating_period_id : null;
+    const gaps = [];
+
+    for (const output of form?.outputs ?? []) {
+        for (const line of output.indicators ?? []) {
+            if (line.closed_at) continue;
+
+            const people = new Map();
+
+            for (const row of line.assignments ?? []) {
+                if (!row.user) continue;
+                if (periodId && row.rating_period_id && row.rating_period_id !== periodId) continue;
+
+                people.set(Number(row.user.id), row.user.name);
+            }
+
+            const children = (line.children ?? []).filter((child) => {
+                if (child.closed_at || !child.output?.form?.owner) return false;
+                if (periodId && child.rating_period_id && child.rating_period_id !== periodId) return false;
+
+                return true;
+            });
+
+            for (const child of children) {
+                people.set(Number(child.output.form.owner.id), child.output.form.owner.name);
+            }
+
+            if (people.size === 0) continue;
+
+            const target = lineLabel(line);
+
+            for (const [id, name] of people) {
+                const theirs = children.filter((child) => Number(child.output.form.owner.id) === id);
+
+                if (theirs.length === 0) {
+                    gaps.push(`${name} still needs a narrative for “${target}”.`);
+
+                    continue;
+                }
+
+                for (const child of theirs) {
+                    if (Number(child.recorded_count ?? 0) > 0) continue;
+
+                    const label = lineLabel(child);
+                    gaps.push(`${name} still needs a narrative for “${label === "A target" ? target : label}”.`);
+                }
+            }
+        }
+    }
+
+    return gaps;
+}
+
 /** A line the writer reports themselves is done only with a narrative and two files. */
 function writeUpGaps(form) {
     if (form?.type !== "ipcr") return [];
 
-    const gaps = [];
+    const gaps = accountableNarrativeGaps(form);
 
     for (const output of form.outputs ?? []) {
         for (const line of output.indicators ?? []) {
             if ((line.children ?? []).length || (line.assignments ?? []).length) continue;
+            if (line.closed_at && line.closed_reason === "target_replaced") continue;
 
             const periodId = line.rating_period_id;
             const records = (line.accomplishments ?? []).filter(
@@ -155,7 +216,75 @@ function writeUpGaps(form) {
     return gaps;
 }
 
+function countsTowardRating(line) {
+    if (line?.closed_at || line?.replacement_status === "pending") return false;
+
+    return !line?.needs_commitment_approval || Boolean(line?.line_approved_at);
+}
+
+/** A note when rating is early or the school year is already over. Null when December has arrived. */
+function ratingPeriodWarning(schoolYear) {
+    const start = schoolYear?.start_date;
+    const end = schoolYear?.end_date;
+
+    if (!start || !end) {
+        return "The rating period has not arrived. Rating opens in December.";
+    }
+
+    const startDate = dayjs(start).startOf("day");
+    const endDate = dayjs(end).endOf("day");
+    let opening = dayjs(`${startDate.year()}-12-01`).startOf("day");
+
+    if (opening.isBefore(startDate, "day")) {
+        opening = opening.add(1, "year");
+    }
+
+    const today = dayjs().startOf("day");
+
+    if (today.isBefore(opening, "day")) {
+        return "The rating period has not arrived. Rating opens in December.";
+    }
+
+    if (today.isAfter(endDate, "day")) {
+        return "This school year has ended.";
+    }
+
+    return null;
+}
+
+/** Office targets that are not yet at 100%. The president may still start rating. */
+function unfinishedOpcrWork(form) {
+    const names = [];
+
+    for (const output of form?.outputs ?? []) {
+        for (const line of output.indicators ?? []) {
+            if (!countsTowardRating(line)) continue;
+            if (line.progress_status === "completed" || Number(line.progress_pct ?? 0) >= 100) continue;
+
+            const text = toPlainText(line.description);
+            names.push(text ? (text.length > 60 ? `${text.slice(0, 59)}…` : text) : "A target");
+        }
+    }
+
+    return names;
+}
+
 const SOFT_ALERT_MS = 5000;
+
+function OpcrRateLegend({ user }) {
+    const bands = user?.workflow?.rating?.bands?.length ? user.workflow.rating.bands : RATING_LEGEND;
+
+    return (
+        <Space wrap>
+            {bands.map((band) => (
+                <Tag key={band.label} color={ADJECTIVAL_COLORS[band.label]}>
+                    {band.value} — {band.label}
+                    {band.range ? ` (${band.range})` : ""}
+                </Tag>
+            ))}
+        </Space>
+    );
+}
 
 function SelfRateLegend({ user }) {
     const bands = user?.workflow?.rating?.bands?.length ? user.workflow.rating.bands : RATING_LEGEND;
@@ -176,7 +305,7 @@ function SelfRateLegend({ user }) {
 }
 
 /**
- * Sticky (lock / appeal / returned): stay until closed.
+ * Sticky (lock / returned): stay until closed.
  * Soft (planning / waiting / approved): auto-hide after a few seconds, also closable.
  */
 function FormStatusAlerts({
@@ -204,7 +333,7 @@ function FormStatusAlerts({
 
     useEffect(() => {
         setHidden(new Set());
-    }, [form.id, form.status, periodLocked, planningOpen, form.appeal?.can_file]);
+    }, [form.id, form.status, periodLocked, planningOpen]);
 
     useEffect(() => {
         if (!softKey || !isOwner) return undefined;
@@ -258,22 +387,6 @@ function FormStatusAlerts({
 
     return (
         <>
-            {form.appeal?.can_file && !hidden.has("appeal_file") && (
-                <Alert
-                    type="info"
-                    {...alertProps("appeal_file")}
-                    message="This rating can be appealed"
-                    description={`Tell the President why it should be reviewed. The last day is ${dayjs(form.appeal.deadline).format("MMMM D, YYYY")}.`}
-                />
-            )}
-            {form.status === "appeal" && !hidden.has("appeal") && (
-                <Alert
-                    type="warning"
-                    {...alertProps("appeal")}
-                    message="This rating is under appeal"
-                    description={form.appeal?.reason || "The President has not decided yet."}
-                />
-            )}
             {planningOpen && softKey === "planning" && !hidden.has("planning") && (
                 <Alert
                     type="info"
@@ -355,10 +468,12 @@ function ExportMenu({ excelBusy, onPrint, onExcel }) {
     );
 }
 
-// An OPCR is planned and published first; it is rated later on the same document.
-const OPCR_CHAIN = ["draft", "qa_approval", "approved", "published", "qa_rating", "rated", "final"];
+// The president rates the published OPCR and closes it. QA approves the plan only.
+const OPCR_CHAIN = ["draft", "qa_approval", "approved", "published", "final"];
+// A form already sent to QA for rating keeps that older sequence.
+const OPCR_SENT_CHAIN = ["draft", "qa_approval", "approved", "published", "qa_rating", "rated", "final"];
 
-export default function FormEditorPage({ formId = null, periodBar = null, yearSelect = null, filters = null, scoreEdit = null, hideTitle = false, hideProgress = false, hideLockAlert = false, toolbarExtra = null, scoreLegend = null }) {
+export default function FormEditorPage({ formId = null, periodBar = null, yearSelect = null, filters = null, scoreEdit = null, hideTitle = false, hideProgress = false, hideLockAlert = false, toolbarExtra = null, scoreLegend = null, liveSummary = null }) {
     const { id: routeId } = useParams();
     const [searchParams] = useSearchParams();
     const focusLineId = Number(searchParams.get("line")) || null;
@@ -386,9 +501,6 @@ export default function FormEditorPage({ formId = null, periodBar = null, yearSe
     const queryClient = useQueryClient();
     const [periodId, setPeriodId] = useState(null);
     const [returnModal, setReturnModal] = useState(false);
-    const [appealOpen, setAppealOpen] = useState(false);
-    const [appealNote, setAppealNote] = useState("");
-    const [appealTo, setAppealTo] = useState("appeal");
     const [panelOpen, setPanelOpen] = useState(false);
     const [pdfOpen, setPdfOpen] = useState(false);
     const [excelBusy, setExcelBusy] = useState(false);
@@ -482,6 +594,8 @@ export default function FormEditorPage({ formId = null, periodBar = null, yearSe
     const [writeUpIssues, setWriteUpIssues] = useState(null);
     const [selfScores, setSelfScores] = useState({});
     const selfDirty = useRef(new Set());
+    const [opcrRatingOn, setOpcrRatingOn] = useState(false);
+    const [finalizing, setFinalizing] = useState(false);
     const [copyOpen, setCopyOpen] = useState(false);
     const [previousOpen, setPreviousOpen] = useState(false);
     const [cascadeOpen, setCascadeOpen] = useState(false);
@@ -522,6 +636,7 @@ export default function FormEditorPage({ formId = null, periodBar = null, yearSe
 
     useEffect(() => {
         selfDirty.current = new Set();
+        setOpcrRatingOn(false);
     }, [form?.id, form?.status, form?.rating_period_id]);
 
     useEffect(() => {
@@ -590,6 +705,42 @@ export default function FormEditorPage({ formId = null, periodBar = null, yearSe
     const activePeriodId =
         formPeriodId ?? periodId ?? periodFromNotice ?? periods.find((p) => p.is_active)?.id ?? periods[0]?.id;
 
+    useEffect(() => {
+        if (!opcrRatingOn || !form || form.type !== "opcr") return;
+
+        setSelfScores((prev) => {
+            const next = {};
+
+            (form.outputs ?? []).forEach((output) => {
+                (output.indicators ?? []).forEach((indicator) => {
+                    if (!countsTowardRating(indicator)) return;
+                    if (activePeriodId && indicator.rating_period_id && indicator.rating_period_id !== activePeriodId) {
+                        return;
+                    }
+
+                    if (selfDirty.current.has(indicator.id) && prev[indicator.id]) {
+                        next[indicator.id] = prev[indicator.id];
+
+                        return;
+                    }
+
+                    const existing = (indicator.ratings ?? []).find(
+                        (row) => !activePeriodId || row.rating_period_id === activePeriodId
+                    );
+
+                    next[indicator.id] = {
+                        q: existing?.q ?? null,
+                        e: existing?.e ?? null,
+                        t: existing?.t ?? null,
+                        remarks: existing?.remarks ?? "",
+                    };
+                });
+            });
+
+            return next;
+        });
+    }, [opcrRatingOn, form, activePeriodId]);
+
     const exportExcel = async () => {
         if (!form) return;
 
@@ -629,8 +780,6 @@ export default function FormEditorPage({ formId = null, periodBar = null, yearSe
         onSuccess: () => {
             message.success("Form updated.");
             setReturnModal(false);
-            setAppealOpen(false);
-            setAppealNote("");
             refresh();
             queryClient.invalidateQueries({ queryKey: ["review-queue"] });
             queryClient.invalidateQueries({ queryKey: ["qa-queue"] });
@@ -743,17 +892,18 @@ export default function FormEditorPage({ formId = null, periodBar = null, yearSe
 
     const opcrAction = !isOpcr
         ? null
-        : canTriggerRating && form.status === "returned" && returnedFromRating
-          ? { status: "qa_rating", label: "Send for rating", short: "For rating" }
-          : canCreateOpcr && ["draft", "returned"].includes(form.status)
-            ? { status: "qa_approval", label: "Send for approval", short: "Send" }
-            : canApproveOpcr && form.status === "qa_approval"
-              ? { status: "approved", label: "Approve targets" }
-              : canPublishOpcr && form.status === "approved"
-                ? { status: "published", label: "Publish" }
-                : null;
+        : canCreateOpcr && (form.status === "draft" || (form.status === "returned" && !returnedFromRating))
+          ? { status: "qa_approval", label: "Send for approval", short: "Send" }
+          : canApproveOpcr && form.status === "qa_approval"
+            ? { status: "approved", label: "Approve targets" }
+            : canPublishOpcr && form.status === "approved"
+              ? { status: "published", label: "Publish" }
+              : null;
 
-    const canSendForRating = isOpcr && canTriggerRating && form.status === "published";
+    const canStartOpcrRating =
+        isOpcr &&
+        canTriggerRating &&
+        (form.status === "published" || (form.status === "returned" && returnedFromRating));
     const canSendCommitments = canEditCommitment && !isOpcr;
     const canSubmitForRating =
         isOwner &&
@@ -777,7 +927,8 @@ export default function FormEditorPage({ formId = null, periodBar = null, yearSe
                 remarks: remarks || null,
             }];
         });
-    const selfScoreEdit = !scoreEdit && canSubmitForRating
+    const editingOwnScores = !scoreEdit && (canSubmitForRating || opcrRatingOn);
+    const selfScoreEdit = editingOwnScores
         ? {
             canEdit: true,
             scores: selfScores,
@@ -792,7 +943,128 @@ export default function FormEditorPage({ formId = null, periodBar = null, yearSe
         }
         : null;
     const sheetScoreEdit = scoreEdit ?? selfScoreEdit;
-    const sheetLegend = scoreLegend ?? (selfScoreEdit ? <SelfRateLegend user={user} /> : null);
+    const sheetLegend = scoreLegend ?? (
+        opcrRatingOn
+            ? <OpcrRateLegend user={user} />
+            : selfScoreEdit
+              ? <SelfRateLegend user={user} />
+              : null
+    );
+    const startOpcrRating = () => {
+        const narrativeGaps = accountableNarrativeGaps(form);
+
+        if (narrativeGaps.length) {
+            setWriteUpIssues(narrativeGaps);
+
+            return;
+        }
+
+        const reasons = [];
+        const periodNote = ratingPeriodWarning(form.school_year);
+        const gaps = unfinishedOpcrWork(form);
+
+        if (periodNote) reasons.push(periodNote);
+
+        if (gaps.length) {
+            const listed = gaps.slice(0, 5).join("; ");
+            const extra = gaps.length > 5 ? `, and ${gaps.length - 5} more` : "";
+            reasons.push(`Not all work is finished yet: ${listed}${extra}.`);
+        }
+
+        if (reasons.length === 0) {
+            setOpcrRatingOn(true);
+
+            return;
+        }
+
+        Modal.confirm({
+            title: "Start rating?",
+            content: (
+                <div>
+                    {reasons.map((reason) => (
+                        <p key={reason} style={{ marginBottom: 8 }}>{reason}</p>
+                    ))}
+                    <p style={{ marginBottom: 0 }}>You can still proceed.</p>
+                </div>
+            ),
+            okText: "Proceed",
+            cancelText: "Cancel",
+            onOk: () => setOpcrRatingOn(true),
+        });
+    };
+    const finalizeOpcrRating = async () => {
+        const narrativeGaps = accountableNarrativeGaps(form);
+
+        if (narrativeGaps.length) {
+            setWriteUpIssues(narrativeGaps);
+
+            return;
+        }
+
+        const dimensions = ratingRules(user).dimensions.map((dimension) => dimension.key);
+        const targets = (form.outputs ?? []).flatMap((output) =>
+            (output.indicators ?? []).filter((line) => {
+                if (!countsTowardRating(line)) return false;
+
+                return !line.rating_period_id || !activePeriodId || line.rating_period_id === activePeriodId;
+            })
+        );
+        const missing = targets.filter((line) => {
+            const value = selfScores[line.id] ?? selfScores[String(line.id)];
+
+            return dimensions.some((key) => value?.[key] == null || value[key] === "");
+        });
+
+        if (targets.length === 0 || missing.length > 0) {
+            Modal.warning({
+                title: "Rating is not finished",
+                content: targets.length === 0
+                    ? "There are no targets to rate."
+                    : `${missing.length} target${missing.length === 1 ? "" : "s"} still ${missing.length === 1 ? "has" : "have"} no rating. Rate every target before finalizing.`,
+            });
+
+            return;
+        }
+
+        if (!activePeriodId) {
+            Modal.warning({
+                title: "Rating is not finished",
+                content: "There is no rating period for this school year yet.",
+            });
+
+            return;
+        }
+
+        const ratings = targets.map((line) => {
+            const value = selfScores[line.id] ?? selfScores[String(line.id)] ?? {};
+
+            return {
+                indicator_id: line.id,
+                q: value.q ?? null,
+                e: value.e ?? null,
+                t: value.t ?? null,
+                remarks: String(value.remarks ?? "").trim() || null,
+            };
+        });
+
+        setFinalizing(true);
+
+        try {
+            await saveSelfRating.mutateAsync(ratings);
+            await api.post(`pcr-forms/${form.id}/finalize-rating`, {
+                rating_period_id: activePeriodId,
+            });
+            message.success("Rating finalized.");
+            setOpcrRatingOn(false);
+            refresh();
+            queryClient.invalidateQueries({ queryKey: ["review-queue"] });
+            queryClient.invalidateQueries({ queryKey: ["qa-queue"] });
+        } catch {
+            // The request interceptor already reports the server message.
+        } finally {
+            setFinalizing(false);
+        }
+    };
     // Score columns appear once rating has started, or while the owner is
     // optionally scoring their own IPCR before they submit it.
     const showScores = Boolean(sheetScoreEdit) || (
@@ -838,7 +1110,8 @@ export default function FormEditorPage({ formId = null, periodBar = null, yearSe
         0
     );
 
-    const summary = form.summaries?.find((s) => s.rating_period_id === activePeriodId);
+    const savedSummary = form.summaries?.find((s) => s.rating_period_id === activePeriodId);
+    const summary = liveSummary ?? savedSummary;
     const reviewSteps = form.review_steps ?? [];
     const ratingChain = reviewSteps.length
         ? reviewSteps.map((step) => step.status)
@@ -850,7 +1123,7 @@ export default function FormEditorPage({ formId = null, periodBar = null, yearSe
     const chain = form.status === "returned"
         ? ["returned"]
         : isOpcr
-          ? OPCR_CHAIN
+          ? (["qa_rating", "rated"].includes(form.status) ? OPCR_SENT_CHAIN : OPCR_CHAIN)
           : commitmentsApproved
             ? ["commitments_approved", ...ratingChain, "rated", "final"]
             : ["draft", "commitment_review"];
@@ -967,7 +1240,7 @@ export default function FormEditorPage({ formId = null, periodBar = null, yearSe
                             move.mutate({ status: "head_review" });
                         }}
                     >
-                        {isRater ? "Start rating" : "Submit for review"}
+                        {isRater ? "Send to the President" : "Submit for review"}
                     </Button>
                 )}
                 {opcrAction && (
@@ -1003,41 +1276,6 @@ export default function FormEditorPage({ formId = null, periodBar = null, yearSe
             </Space>
             <Space wrap={false} className="pms-form-actions" size={8}>
                 {typeof toolbarExtra === "function" ? toolbarExtra() : toolbarExtra}
-                {form.appeal?.can_file && isOwner && (
-                    <Button
-                        onClick={() => {
-                            setAppealTo("appeal");
-                            setAppealNote("");
-                            setAppealOpen(true);
-                        }}
-                    >
-                        Appeal
-                    </Button>
-                )}
-                {user.role === "president" && form.status === "appeal" && (
-                    <>
-                        <Button
-                            danger
-                            onClick={() => {
-                                setAppealTo("final");
-                                setAppealNote("");
-                                setAppealOpen(true);
-                            }}
-                        >
-                            Deny appeal
-                        </Button>
-                        <Button
-                            type="primary"
-                            onClick={() => {
-                                setAppealTo("qa_rating");
-                                setAppealNote("");
-                                setAppealOpen(true);
-                            }}
-                        >
-                            Uphold appeal
-                        </Button>
-                    </>
-                )}
                 {canDecideCommitments && (
                     <>
                         <Button danger onClick={() => setReturnModal(true)}>
@@ -1130,14 +1368,16 @@ export default function FormEditorPage({ formId = null, periodBar = null, yearSe
                         </Button>
                     </>
                 )}
-                {canSendForRating && (
-                    <Button
-                        type="primary"
-                        loading={move.isPending}
-                        onClick={() => move.mutate({ status: "qa_rating" })}
-                    >
-                        <span className="pms-btn-long">Send for rating</span>
-                        <span className="pms-btn-short">For rating</span>
+                {canStartOpcrRating && !opcrRatingOn && (
+                    <Button type="primary" onClick={startOpcrRating}>
+                        <span className="pms-btn-long">Start rating</span>
+                        <span className="pms-btn-short">Rate</span>
+                    </Button>
+                )}
+                {opcrRatingOn && (
+                    <Button type="primary" loading={finalizing} onClick={finalizeOpcrRating}>
+                        <span className="pms-btn-long">Finalize rating</span>
+                        <span className="pms-btn-short">Finalize</span>
                     </Button>
                 )}
             </Space>
@@ -1558,8 +1798,7 @@ export default function FormEditorPage({ formId = null, periodBar = null, yearSe
                 cancelButtonProps={{ style: { display: "none" } }}
             >
                 <Typography.Paragraph type="secondary">
-                    This form stays with you until every line has a narrative and two files. It is
-                    not sent for review yet.
+                    This form is not submitted yet. Finish the items below first.
                 </Typography.Paragraph>
                 <ul style={{ paddingLeft: 18, margin: 0 }}>
                     {(writeUpIssues ?? []).map((issue, index) => (
@@ -1672,33 +1911,6 @@ export default function FormEditorPage({ formId = null, periodBar = null, yearSe
                         <FormHistory formId={form.id} />
                     </Card>
             </Drawer>
-
-            <Modal
-                title={
-                    appealTo === "appeal"
-                        ? "Appeal this rating"
-                        : appealTo === "qa_rating"
-                          ? "Uphold the appeal"
-                          : "Deny the appeal"
-                }
-                open={appealOpen}
-                okText={appealTo === "appeal" ? "File appeal" : appealTo === "qa_rating" ? "Uphold" : "Deny"}
-                okButtonProps={{ danger: appealTo === "final", disabled: !appealNote.trim(), loading: move.isPending }}
-                onCancel={() => setAppealOpen(false)}
-                onOk={() => move.mutate({ status: appealTo, note: appealNote.trim() })}
-            >
-                <Input.TextArea
-                    rows={4}
-                    value={appealNote}
-                    maxLength={500}
-                    onChange={(event) => setAppealNote(event.target.value)}
-                    placeholder={
-                        appealTo === "appeal"
-                            ? "Why should this rating be reviewed?"
-                            : "Why are you upholding or denying it?"
-                    }
-                />
-            </Modal>
 
             <ReturnPlacesModal
                 open={returnModal}

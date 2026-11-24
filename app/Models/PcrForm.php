@@ -4,6 +4,7 @@ namespace App\Models;
 
 use App\Models\Concerns\BelongsToOrganization;
 use App\Models\Concerns\StoresFormReviewers;
+use App\Services\PcrWorkflow;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 
@@ -37,7 +38,7 @@ class PcrForm extends Model
         'draft', 'commitment_review', 'commitments_approved',
         'head_review', 'dean_review', 'director_review', 'vp_review',
         'qa_approval', 'approved', 'published',
-        'qa_rating', 'rated', 'final', 'appeal', 'returned',
+        'qa_rating', 'rated', 'final', 'returned',
     ];
 
     public const EDITABLE_STATUSES = ['draft', 'returned'];
@@ -60,6 +61,18 @@ class PcrForm extends Model
     public function owner()
     {
         return $this->belongsTo(User::class, 'user_id');
+    }
+
+    /**
+     * IPCRs of a deactivated account are left out of lists, counts, and
+     * reminders. The college OPCR stays, because it is not one person's form.
+     */
+    public function scopeForActiveAccounts(Builder $query): Builder
+    {
+        return $query->where(function (Builder $inner) {
+            $inner->where('type', '!=', 'ipcr')
+                ->orWhereHas('owner', fn (Builder $owner) => $owner->where('status', 'active'));
+        });
     }
 
     /** This person is named in the Accountable column of the form. */
@@ -128,7 +141,6 @@ class PcrForm extends Model
     {
         if (
             $this->status === 'commitment_review'
-            || $this->status === 'appeal'
             || ($this->type === 'opcr' && $this->status === 'qa_approval')
         ) {
             return "/review-queue?form={$this->id}";
@@ -174,6 +186,10 @@ class PcrForm extends Model
 
     public function getStatusLabelAttribute(): string
     {
+        if ($this->status === 'qa_rating' && PcrWorkflow::qaIpcrGoesToPresident($this)) {
+            return 'With the President';
+        }
+
         foreach (app(\App\Services\WorkflowSettings::class)->reviewStages() as $stage) {
             if (($stage['status'] ?? '') === $this->status && ! empty($stage['label'])) {
                 return $stage['label'];

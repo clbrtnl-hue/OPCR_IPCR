@@ -18,6 +18,10 @@ function plainText(html) {
         .trim();
 }
 
+function liveLine(line) {
+    return !line.closed_at && line.replacement_status !== "pending";
+}
+
 export default function CopyFromYear({ form, open, onClose }) {
     const queryClient = useQueryClient();
     const [chosen, setChosen] = useState(null);
@@ -43,7 +47,14 @@ export default function CopyFromYear({ form, open, onClose }) {
     const outputs = useMemo(() => {
         const rows = source?.outputs ?? [];
 
-        return [...rows].sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0) || a.id - b.id);
+        return [...rows]
+            .map((row) => ({
+                ...row,
+                indicators: (row.indicators ?? []).filter(liveLine),
+                hadLines: (row.indicators ?? []).length > 0,
+            }))
+            .filter((row) => row.indicators.length > 0 || !row.hadLines)
+            .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0) || a.id - b.id);
     }, [source]);
 
     const allOutputIds = useMemo(() => outputs.map((row) => row.id), [outputs]);

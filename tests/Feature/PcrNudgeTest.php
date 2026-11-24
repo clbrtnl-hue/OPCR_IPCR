@@ -372,7 +372,7 @@ class PcrNudgeTest extends PmsTestCase
             'rating_period_id' => $period->id,
         ];
 
-        foreach (['admin', 'president', 'qa', 'hr'] as $role) {
+        foreach (['admin', 'president', 'qa'] as $role) {
             Notification::query()->delete();
             $actor = User::factory()->create(['role' => $role, 'name' => "Actor {$role}"]);
             $this->actingAsUser($actor);

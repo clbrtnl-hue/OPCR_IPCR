@@ -14,7 +14,7 @@ use Illuminate\Support\Carbon;
  * Deadline reminders. Each one is sent once: seven days out, on the target
  * date, and again when the date has passed. A closing period is one notice
  * to whoever still has a draft or a form sitting in their queue. A form that
- * has been rated but not closed is one notice to QA, linking straight to it.
+ * has been rated is left alone.
  */
 class PcrReminderService
 {
@@ -25,7 +25,6 @@ class PcrReminderService
         return [
             'deadlines' => $this->deadlines(),
             'periods'   => $this->periods(),
-            'unclosed'  => $this->unclosed(),
         ];
     }
 
@@ -34,7 +33,7 @@ class PcrReminderService
         $sent = 0;
         $office = [];
 
-        $lines = PcrIndicator::query()
+        $lines = PcrIndicator::inForce()
             ->whereNotNull('target_date')
             ->where(function ($query) {
                 $query->whereNull('progress_status')
@@ -142,6 +141,7 @@ class PcrReminderService
                 : 'in ' . $left . ' ' . ($left === 1 ? 'day' : 'days');
 
             $forms = PcrForm::query()
+                ->forActiveAccounts()
                 ->with(['owner', 'orgUnit'])
                 ->where('rating_period_id', $period->id)
                 ->whereNotIn('status', self::QUIET)
@@ -195,44 +195,6 @@ class PcrReminderService
         return $sent;
     }
 
-    /** Rated, but not yet closed. HR closes it from Close ratings. */
-    private function unclosed(): int
-    {
-        $hrIds = User::query()
-            ->where('role', 'hr')
-            ->where('status', 'active')
-            ->pluck('id');
-
-        if ($hrIds->isEmpty()) {
-            return 0;
-        }
-
-        $forms = PcrForm::query()
-            ->with(['owner:id,name', 'orgUnit:id,name'])
-            ->where('status', 'rated')
-            ->get();
-
-        $sent = 0;
-
-        foreach ($forms as $form) {
-            $who = $form->owner?->name ?? $form->orgUnit?->name ?? 'this office';
-            $label = strtoupper($form->type);
-
-            foreach ($hrIds as $hrId) {
-                $sent += (int) Notification::remind(
-                    (int) $hrId,
-                    'unclosed',
-                    'A rated form still needs to be closed',
-                    "{$label} for {$who} has been rated. Close it from Close ratings.",
-                    $form->id,
-                    "/closing?form={$form->id}"
-                );
-            }
-        }
-
-        return $sent;
-    }
-
     private function isClosing(RatingPeriod $period, Carbon $today): bool
     {
         $closes = $period->closes_at?->copy()->startOfDay();
@@ -256,6 +218,12 @@ class PcrReminderService
         }
 
         $owner = $form->owner;
+
+        // A deactivated ratee cannot finish the form, so it is not handed to
+        // the office head as if it were still their draft.
+        if ($form->type === 'ipcr' && (! $owner || $owner->status !== 'active')) {
+            return null;
+        }
 
         if ($owner && $owner->status === 'active' && $owner->role !== 'president') {
             return (int) $owner->id;
@@ -290,8 +258,18 @@ class PcrReminderService
         $ids = $form->stageReviewers()
             ->where('stage', $form->status)
             ->pluck('reviewer_id')
+            ->filter()
             ->all();
 
-        return array_values(array_filter(array_map('intval', $ids)));
+        if ($ids === []) {
+            return [];
+        }
+
+        return User::query()
+            ->whereIn('id', $ids)
+            ->where('status', 'active')
+            ->pluck('id')
+            ->map(fn ($id) => (int) $id)
+            ->all();
     }
 }

@@ -77,6 +77,76 @@ class ReportInsightsTest extends PmsTestCase
         $this->assertSame(5, $data['at_risk'][0]['days_late']);
     }
 
+    public function test_a_replaced_commitment_is_left_out_of_the_counts(): void
+    {
+        ['president' => $president, 'year' => $year, 'ipcr' => $ipcr] = $this->college();
+
+        $outputId = PcrOutput::where('form_id', $ipcr->id)->value('id');
+        PcrIndicator::create([
+            'output_id'       => $outputId,
+            'description'     => '<p>This target was replaced.</p>',
+            'progress_status' => 'ongoing',
+            'progress_pct'    => 0,
+            'target_date'     => now()->subDays(9)->toDateString(),
+            'closed_at'       => now(),
+            'closed_reason'   => 'target_replaced',
+        ]);
+
+        $this->actingAsUser($president);
+
+        $data = $this->getJson("/api/reports/summary?school_year_id={$year->id}")
+            ->assertSuccessful()
+            ->json();
+
+        $this->assertSame(2, $data['totals']['commitments']);
+        $this->assertSame(1, $data['totals']['overdue']);
+        $this->assertSame(
+            ['Late line.'],
+            collect($data['at_risk'])->pluck('description')->all()
+        );
+    }
+
+    public function test_an_inactive_account_is_left_out_of_the_college_counts(): void
+    {
+        ['president' => $president, 'year' => $year, 'unit' => $unit, 'period' => $period] = $this->college();
+
+        $left = User::factory()->create([
+            'role' => 'employee', 'org_unit_id' => $unit->id, 'name' => 'Richard Gutierrez', 'status' => 'inactive',
+        ]);
+        $scored = User::factory()->create([
+            'role' => 'employee', 'org_unit_id' => $unit->id, 'status' => 'inactive',
+        ]);
+        $draft = $this->makeForm([
+            'org_unit_id' => $unit->id, 'user_id' => $left->id,
+            'school_year_id' => $year->id, 'rating_period_id' => $period->id, 'status' => 'draft',
+        ]);
+        $this->makeIndicator($draft, 'core', [
+            'description' => '<p>Left behind.</p>',
+            'progress_status' => 'ongoing',
+            'progress_pct' => 0,
+            'target_date' => now()->subDays(9)->toDateString(),
+        ]);
+        $rated = $this->makeForm([
+            'org_unit_id' => $unit->id, 'user_id' => $scored->id,
+            'school_year_id' => $year->id, 'rating_period_id' => $period->id, 'status' => 'rated',
+        ]);
+        PcrPeriodSummary::create([
+            'form_id' => $rated->id, 'rating_period_id' => $period->id,
+            'final_average' => 1.0, 'adjectival' => 'Poor',
+        ]);
+
+        $this->actingAsUser($president);
+
+        $data = $this->getJson("/api/reports/summary?school_year_id={$year->id}")->assertSuccessful()->json();
+
+        $this->assertSame(1, $data['totals']['ipcr']);
+        $this->assertSame(0, $data['by_status']['draft']);
+        $this->assertSame(4.6, $data['totals']['college_average']);
+        $this->assertSame(1, $data['totals']['overdue']);
+        $this->assertNotContains('Richard Gutierrez', array_column($data['people'], 'name'));
+        $this->assertNotContains('Left behind.', array_column($data['at_risk'], 'description'));
+    }
+
     public function test_a_delegated_line_is_only_counted_once(): void
     {
         ['president' => $president, 'year' => $year, 'unit' => $unit, 'period' => $period, 'done' => $done] = $this->college();

@@ -12,6 +12,15 @@ function draftOf(line, saved, scoreEdit) {
     return saved ?? {};
 }
 
+// Saved remarks are HTML. Typed remarks are plain text, and a trailing space
+// has to survive until the next word.
+function remarkDraft(value) {
+    if (!value) return "";
+    if (!/<\/?[a-z][^>]*>/i.test(value)) return value;
+
+    return toPlainText(value);
+}
+
 export function ScoreCells({ line, saved, scoreEdit }) {
     const { user } = useAuth();
     const dimensions = ratingRules(user).dimensions;
@@ -47,7 +56,7 @@ export function ScoreCells({ line, saved, scoreEdit }) {
                     {editing ? (
                         <Input.TextArea
                             rows={2}
-                            value={toPlainText(row?.remarks ?? "")}
+                            value={remarkDraft(row?.remarks ?? "")}
                             onChange={(event) => scoreEdit.onChange(line.id, "remarks", event.target.value)}
                         />
                     ) : (
@@ -119,7 +128,7 @@ export function ScoreFields({ line, saved, scoreEdit }) {
                 {editing ? (
                     <Input.TextArea
                         rows={2}
-                        value={remarks}
+                        value={remarkDraft(row?.remarks ?? "")}
                         onChange={(event) => scoreEdit.onChange(line.id, "remarks", event.target.value)}
                     />
                 ) : (

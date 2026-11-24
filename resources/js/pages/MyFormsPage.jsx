@@ -8,12 +8,12 @@ import { statusMeta } from "~/utils/constants";
 import { formIsWithReviewer } from "~/utils/formReviewer";
 import PageHeader from "~/components/PageHeader";
 import FormCards from "~/components/FormCards";
-import FormListFilters, { byStatusThenYear, matchesListKind } from "~/components/FormListFilters";
+import FormListFilters, { byActiveYear, byYearThenStatus, matchesListKind } from "~/components/FormListFilters";
 import ListPager, { tablePager, usePaged } from "~/components/ListPager";
 import { useAuth } from "~/hooks/useAuth";
 // import BulkIpcrModal from "~/components/BulkIpcrModal";
 
-const COLLEGE_FORM_ROLES = ["admin", "president", "hr", "qa"];
+const COLLEGE_FORM_ROLES = ["admin", "president", "qa"];
 
 const OWNER_NUDGE_STATUSES = new Set(["draft", "returned", "commitments_approved"]);
 const REVIEWER_NUDGE_STATUSES = new Set([
@@ -25,15 +25,6 @@ const REVIEWER_NUDGE_STATUSES = new Set([
     "qa_rating",
     "qa_approval",
 ]);
-
-function byYear(a, b) {
-    const year = String(b.school_year?.label ?? "").localeCompare(String(a.school_year?.label ?? ""), undefined, {
-        numeric: true,
-        sensitivity: "base",
-    });
-
-    return year || (a.rating_period?.seq ?? 0) - (b.rating_period?.seq ?? 0) || a.id - b.id;
-}
 
 export default function MyFormsPage() {
     const { user, can } = useAuth();
@@ -50,6 +41,7 @@ export default function MyFormsPage() {
     const [open, setOpen] = useState(false);
     const [formKind, setFormKind] = useState("all");
     const [statusFilter, setStatusFilter] = useState("all");
+    const [yearFilter, setYearFilter] = useState(null);
     // const [bulkOpen, setBulkOpen] = useState(false);
 
     const { data: forms = [], isLoading } = useQuery({
@@ -57,7 +49,7 @@ export default function MyFormsPage() {
         queryFn: () => api.get(collegeList ? "pcr-forms" : "pcr-forms?mine=1").then((r) => r.data),
     });
 
-    const { data: years = [] } = useQuery({
+    const { data: years = [], isLoading: yearsLoading } = useQuery({
         queryKey: ["school-years"],
         queryFn: () => api.get("school-years").then((r) => r.data),
     });
@@ -89,13 +81,19 @@ export default function MyFormsPage() {
         },
     });
 
-    const activeFormKind = formKind === "all" || forms.some((row) => row.type === formKind) ? formKind : "all";
-    const activeStatus =
-        statusFilter === "all" || forms.some((row) => row.status === statusFilter) ? statusFilter : "all";
-    const visibleForms = forms.filter((row) => matchesListKind(row, activeFormKind, activeStatus));
-    const shownForms = [...visibleForms].sort(collegeList ? byStatusThenYear : byYear);
-    const formPage = usePaged(shownForms, 10);
     const activeYear = years.find((y) => y.is_active);
+    const resolvedYear = yearsLoading ? "all" : (yearFilter ?? (activeYear ? String(activeYear.id) : "all"));
+    const yearRows = yearsLoading
+        ? []
+        : forms.filter((row) => matchesListKind(row, "all", "all", resolvedYear));
+    const activeFormKind = formKind === "all" || yearRows.some((row) => row.type === formKind) ? formKind : "all";
+    const activeStatus =
+        statusFilter === "all" || yearRows.some((row) => row.status === statusFilter) ? statusFilter : "all";
+    const visibleForms = yearRows.filter((row) => matchesListKind(row, activeFormKind, activeStatus));
+    const shownForms = [...visibleForms].sort((a, b) =>
+        collegeList ? byYearThenStatus(a, b, activeYear?.id) : byActiveYear(a, b, activeYear?.id)
+    );
+    const formPage = usePaged(shownForms, 10);
     const chosenType = Form.useWatch("type", form);
     const chosenYearId = Form.useWatch("school_year_id", form);
     const chosenYear = years.find((y) => y.id === chosenYearId);
@@ -132,6 +130,7 @@ export default function MyFormsPage() {
         {
             title: "School year",
             key: "year",
+            sorter: (a, b) => byActiveYear(a, b, activeYear?.id),
             render: (_, record) => record.school_year?.label,
         },
         {
@@ -157,9 +156,8 @@ export default function MyFormsPage() {
             title: "Status",
             dataIndex: "status",
             sorter: collegeList
-                ? (a, b) => byStatusThenYear(a, b)
+                ? (a, b) => byYearThenStatus(a, b, activeYear?.id)
                 : (a, b) => String(a.status).localeCompare(String(b.status)),
-            defaultSortOrder: collegeList ? "ascend" : undefined,
             render: (status, record) => {
                 const meta = statusMeta(status, record);
                 return <Tag color={meta.color}>{meta.label}</Tag>;
@@ -187,13 +185,13 @@ export default function MyFormsPage() {
                             <Popconfirm
                                 title={followUp.title}
                                 description={followUp.description}
-                                okText="Nudge"
+                                okText="Remind"
                                 cancelText="Cancel"
                                 disabled={followUp.locked || nudge.isPending}
                                 onConfirm={() => nudge.mutate(record.id)}
                             >
                                 <Button size="small" disabled={followUp.locked || nudge.isPending}>
-                                    Nudge
+                                    Remind
                                 </Button>
                             </Popconfirm>
                         )}
@@ -264,14 +262,17 @@ export default function MyFormsPage() {
             <Card className="pms-list-panel pms-list-fill">
                 {forms.length > 0 && (
                     <FormListFilters
-                        rows={forms}
+                        rows={yearRows}
                         formKind={activeFormKind}
                         onFormKind={setFormKind}
                         statusFilter={activeStatus}
                         onStatusFilter={setStatusFilter}
+                        years={years}
+                        yearFilter={resolvedYear}
+                        onYearFilter={setYearFilter}
                     />
                 )}
-                {shownForms.length === 0 && !isLoading ? (
+                {shownForms.length === 0 && !isLoading && !yearsLoading ? (
                     <Empty
                         description={
                             forms.length > 0
@@ -300,7 +301,7 @@ export default function MyFormsPage() {
                                                       <Popconfirm
                                                           title={followUp.title}
                                                           description={followUp.description}
-                                                          okText="Nudge"
+                                                          okText="Remind"
                                                           cancelText="Cancel"
                                                           disabled={followUp.locked || nudge.isPending}
                                                           onConfirm={() => nudge.mutate(record.id)}
@@ -310,7 +311,7 @@ export default function MyFormsPage() {
                                                               block
                                                               disabled={followUp.locked || nudge.isPending}
                                                           >
-                                                              Nudge
+                                                              Remind
                                                           </Button>
                                                       </Popconfirm>
                                                       {openBtn}
@@ -330,7 +331,7 @@ export default function MyFormsPage() {
                         <div className="pms-desktop-only">
                             <Table
                                 rowKey="id"
-                                loading={isLoading}
+                                loading={isLoading || yearsLoading}
                                 dataSource={shownForms}
                                 columns={columns}
                                 pagination={tablePager(10)}

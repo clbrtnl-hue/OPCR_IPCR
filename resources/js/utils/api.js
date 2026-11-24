@@ -39,12 +39,26 @@ api.interceptors.response.use(
     (response) => response,
     (error) => {
         const status = error?.response?.status;
+        const data = error?.response?.data;
 
         if (axios.isCancel(error) || error?.code === "ERR_CANCELED") {
             return Promise.reject(error);
         }
 
         if (isSignIn(error)) {
+            return Promise.reject(error);
+        }
+
+        if (
+            status === 403 &&
+            data?.message === "This account is inactive. Ask an administrator to reactivate it."
+        ) {
+            localStorage.removeItem(TOKEN_KEY);
+
+            if (!window.location.pathname.startsWith("/login")) {
+                window.location.href = "/login?reason=inactive";
+            }
+
             return Promise.reject(error);
         }
 

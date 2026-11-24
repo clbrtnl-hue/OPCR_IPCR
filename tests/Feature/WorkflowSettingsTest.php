@@ -235,13 +235,13 @@ class WorkflowSettingsTest extends PmsTestCase
     {
         ['office' => $office, 'year' => $year, 'faculty' => $faculty] = $this->college();
         $period = $this->makePeriod($year);
-        $hr = User::factory()->create(['role' => 'hr']);
+        $rater = User::factory()->create(['role' => 'vp']);
 
         app(WorkflowSettings::class)->put('review_stages', [
             ['status' => 'head_review', 'label' => 'With Head', 'source' => 'unit_slot',
              'slot' => 'head_user_id', 'skippable' => true],
-            ['status' => 'qa_rating', 'label' => 'With HR', 'source' => 'role',
-             'role' => 'hr', 'skippable' => false],
+            ['status' => 'qa_rating', 'label' => 'With VP', 'source' => 'role',
+             'role' => 'vp', 'skippable' => false],
         ]);
 
         $form = $this->makeForm([
@@ -259,7 +259,7 @@ class WorkflowSettingsTest extends PmsTestCase
         $this->actingAsUser($qa);
         $this->postJson('/api/pcr-ratings', $payload)->assertStatus(409);
 
-        $this->actingAsUser($hr);
+        $this->actingAsUser($rater);
         $this->postJson('/api/pcr-ratings', $payload)->assertOk();
     }
 

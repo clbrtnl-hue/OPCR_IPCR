@@ -1,7 +1,8 @@
 import React, { useState } from "react";
-import { Button, Image, Modal, Popconfirm, Space, Tooltip, Typography } from "antd";
+import { Button, Modal, Popconfirm, Space, Tooltip, Typography } from "antd";
 import {
     DeleteOutlined,
+    DownloadOutlined,
     FileExcelOutlined,
     FilePdfOutlined,
     FileUnknownOutlined,
@@ -33,9 +34,69 @@ const ICONS = {
     other: { Icon: FileUnknownOutlined, color: "#8c8c8c" },
 };
 
+export function evidenceUrl(file) {
+    return `/uploads/pcr/${file.file_path}`;
+}
+
+function downloadEvidence(file) {
+    const link = document.createElement("a");
+    link.href = evidenceUrl(file);
+    link.download = file.original_name || "evidence";
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+}
+
+export function EvidencePreview({ file, open, onClose }) {
+    if (!file) return null;
+
+    const url = evidenceUrl(file);
+    const kind = kindOf(file.mime, file.original_name ?? "");
+    const viewable = kind === "image" || kind === "pdf";
+    const { Icon, color } = ICONS[kind] ?? ICONS.other;
+
+    return (
+        <Modal
+            open={open}
+            onCancel={onClose}
+            width={viewable ? "min(960px, 92vw)" : 420}
+            title={file.original_name}
+            destroyOnClose
+            footer={
+                <Button icon={<DownloadOutlined />} onClick={() => downloadEvidence(file)}>
+                    Download
+                </Button>
+            }
+        >
+            {kind === "image" && (
+                <img
+                    src={url}
+                    alt={file.original_name}
+                    style={{ display: "block", maxWidth: "100%", maxHeight: "70vh", margin: "0 auto" }}
+                />
+            )}
+            {kind === "pdf" && (
+                <iframe
+                    src={url}
+                    title={file.original_name}
+                    style={{ width: "100%", height: "70vh", border: 0 }}
+                />
+            )}
+            {!viewable && (
+                <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                    <Icon style={{ fontSize: 36, color }} />
+                    <Typography.Paragraph type="secondary" style={{ margin: 0 }}>
+                        Download this file to open it.
+                    </Typography.Paragraph>
+                </div>
+            )}
+        </Modal>
+    );
+}
+
 export default function AttachmentTile({ file, canRemove, onRemove }) {
     const [preview, setPreview] = useState(false);
-    const url = `/uploads/pcr/${file.file_path}`;
+    const url = evidenceUrl(file);
     const kind = kindOf(file.mime, file.original_name ?? "");
 
     const frame = {
@@ -63,28 +124,24 @@ export default function AttachmentTile({ file, canRemove, onRemove }) {
 
     return (
         <div style={frame}>
-            {kind === "image" ? (
-                <div style={face}>
-                    <Image
+            <div style={face} onClick={() => setPreview(true)}>
+                {kind === "image" ? (
+                    <img
                         src={url}
                         alt={file.original_name}
-                        width="100%"
-                        height={84}
-                        style={{ objectFit: "cover" }}
-                        preview={{ src: url }}
+                        style={{ width: "100%", height: 84, objectFit: "cover" }}
                     />
-                </div>
-            ) : (
-                <div
-                    style={face}
-                    onClick={() => (kind === "pdf" ? setPreview(true) : window.open(url, "_blank"))}
-                >
+                ) : (
                     <Icon style={{ fontSize: 34, color }} />
-                </div>
-            )}
+                )}
+            </div>
 
             <Tooltip title={file.original_name}>
-                <Typography.Text ellipsis style={{ fontSize: 12 }}>
+                <Typography.Text
+                    ellipsis
+                    style={{ fontSize: 12, cursor: "pointer" }}
+                    onClick={() => setPreview(true)}
+                >
                     {file.original_name}
                 </Typography.Text>
             </Tooltip>
@@ -103,21 +160,7 @@ export default function AttachmentTile({ file, canRemove, onRemove }) {
                 )}
             </Space>
 
-            {kind === "pdf" && (
-                <Modal
-                    open={preview}
-                    onCancel={() => setPreview(false)}
-                    footer={null}
-                    width="80vw"
-                    title={file.original_name}
-                >
-                    <iframe
-                        src={url}
-                        title={file.original_name}
-                        style={{ width: "100%", height: "70vh", border: 0 }}
-                    />
-                </Modal>
-            )}
+            <EvidencePreview file={file} open={preview} onClose={() => setPreview(false)} />
         </div>
     );
 }

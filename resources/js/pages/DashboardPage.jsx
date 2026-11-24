@@ -13,6 +13,7 @@ import { useNavigate } from "react-router-dom";
 import dayjs from "dayjs";
 import api from "~/utils/api";
 import { ADJECTIVAL_COLORS, VIZ } from "~/utils/constants";
+import { formYearId } from "~/components/FormListFilters";
 import { useAuth } from "~/hooks/useAuth";
 import InsightsBoard from "~/components/InsightsBoard";
 import PlayBoard, { paceTitle } from "~/components/PlayBoard";
@@ -113,16 +114,20 @@ export default function DashboardPage() {
             api
                 .get(isAdmin ? "pcr-forms?oversight=review" : "pcr-forms?queue=1")
                 .then((r) => r.data),
-        enabled: !isAdmin && can("program_head", "vp", "qa", "hr"),
+        enabled: !isAdmin && can("program_head", "vp", "qa"),
     });
 
     const activeYear = years.find((y) => y.is_active);
     const activePeriod = activeYear?.periods?.find((p) => p.is_active);
     const shownYear = years.find((y) => y.id === yearId) ?? activeYear;
-    const leadsTheCollege = ["admin", "president", "qa", "hr"].includes(user?.role);
+    const leadsTheCollege = ["admin", "president", "qa"].includes(user?.role);
     const playsOwnGame = ["program_head", "vp", "employee"].includes(user?.role);
     const reviewsOwnQueue = ["program_head", "vp"].includes(user?.role);
     const roleSeesTeam = ["program_head", "vp"].includes(user?.role);
+
+    const waitingCount = shownYear
+        ? queue.filter((form) => formYearId(form) === Number(shownYear.id)).length
+        : 0;
 
     const periods = [...(shownYear?.periods ?? [])].sort((a, b) => a.seq - b.seq);
     const shownPeriodId = periods.some((p) => p.id === periodId) ? periodId : null;
@@ -185,7 +190,7 @@ export default function DashboardPage() {
     );
     const myForms = mySummary?.forms;
     const myWork = mySummary?.commitments;
-    const reviews = can("program_head", "vp", "qa", "hr");
+    const reviews = can("program_head", "vp", "qa");
 
     const title = user?.prefix?.trim() ?? "";
     const givenName = user?.first_name?.trim() || "";
@@ -356,11 +361,11 @@ export default function DashboardPage() {
                             ? {
                                   key: "queue",
                                   title: "Your review queue is clear",
-                                  detail: queue.length
-                                      ? `${queue.length} form${queue.length === 1 ? "" : "s"} waiting on you`
+                                  detail: waitingCount
+                                      ? `${waitingCount} form${waitingCount === 1 ? "" : "s"} waiting on you`
                                       : "Nothing is sitting at your step",
-                                  done: queue.length === 0,
-                                  pct: queue.length === 0 ? 100 : 0,
+                                  done: waitingCount === 0,
+                                  pct: waitingCount === 0 ? 100 : 0,
                                   href: "/review-queue",
                               }
                             : {
@@ -428,9 +433,9 @@ export default function DashboardPage() {
                     <StatTile
                         label={isAdmin ? "In review" : "Waiting for me to review"}
                         icon={<TeamOutlined />}
-                        accent={queue.length > 0 ? VIZ.warning : "#1e3a72"}
-                        value={queue.length}
-                        tone={queue.length > 0 ? VIZ.warning : undefined}
+                        accent={waitingCount > 0 ? VIZ.warning : "#1e3a72"}
+                        value={waitingCount}
+                        tone={waitingCount > 0 ? VIZ.warning : undefined}
                         onClick={() =>
                             navigate(user?.role === "qa" ? "/review-queue?tab=rating" : "/review-queue")
                         }

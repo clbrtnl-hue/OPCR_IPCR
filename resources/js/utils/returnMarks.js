@@ -72,13 +72,18 @@ export function returnPlaces(form, kind = "approval") {
 }
 
 /**
- * After the writer resubmits, marks stay open for the next reviewer — but the
- * note should read as a prior ask, not as an open correction on a returned form.
+ * After the writer resubmits, the mark keeps the approver's note and adds the
+ * words that were on the cell when it was sent back. Older marks have no
+ * snapshot, so they keep the earlier wording.
  */
-export function formatReturnNote(note, { resubmitted = false } = {}) {
+export function formatReturnNote(note, { resubmitted = false, previous = null } = {}) {
     if (!note) return null;
+    if (!resubmitted) return note;
+    if (previous == null) return `Resubmitted — previously: ${note}`;
 
-    return resubmitted ? `Resubmitted — previously: ${note}` : note;
+    const earlier = String(previous).trim() || "None";
+
+    return `Resubmitted — previously: ${earlier}\n${note}`;
 }
 
 /** Open marks with display wording for the form's current status. */
@@ -87,7 +92,7 @@ export function displayReturnMarks(marks, status) {
 
     return (marks ?? []).map((mark) => ({
         ...mark,
-        note: formatReturnNote(mark.note, { resubmitted }),
+        note: formatReturnNote(mark.note, { resubmitted, previous: mark.previous_value }),
     }));
 }
 

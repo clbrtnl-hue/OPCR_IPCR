@@ -6,8 +6,8 @@ use App\Models\User;
 use Tests\PmsTestCase;
 
 /**
- * Human Resource reads the whole college and the personal record, and acts
- * only on the forms that name them — the staff of the HR office.
+ * The HRMO head is a unit head. They read and act on their own office,
+ * and not on the rest of the college.
  */
 class HrAccessTest extends PmsTestCase
 {
@@ -18,7 +18,7 @@ class HrAccessTest extends PmsTestCase
         $college = $this->makeUnit(['name' => 'Opol Community College', 'code' => 'OCC', 'type' => 'college']);
         $year    = $this->makeSchoolYear();
         $vp      = User::factory()->create(['role' => 'vp', 'org_unit_id' => $college->id]);
-        $hr      = User::factory()->create(['role' => 'hr']);
+        $hr      = User::factory()->create(['role' => 'program_head']);
         $hrmo    = $this->makeUnit([
             'name'         => 'Human Resource Management Office',
             'code'         => 'AFS-HRMO',
@@ -68,7 +68,7 @@ class HrAccessTest extends PmsTestCase
 
         $this->assertTrue($all->contains($own->id));
         $this->assertTrue($all->contains($staffForm->id));
-        $this->assertTrue($all->contains($other->id));
+        $this->assertFalse($all->contains($other->id));
 
         $queue = collect($this->getJson('/api/pcr-forms?queue=1')->assertOk()->json())->pluck('id');
 
@@ -76,7 +76,36 @@ class HrAccessTest extends PmsTestCase
         $this->assertFalse($queue->contains($other->id));
         $this->assertFalse($queue->contains($own->id));
 
-        $this->getJson("/api/pcr-forms/{$other->id}")->assertOk();
+        $this->getJson("/api/pcr-forms/{$other->id}")->assertStatus(403);
+    }
+
+    public function test_an_inactive_account_drops_out_of_the_hr_list_and_the_review_queue(): void
+    {
+        ['hr' => $hr, 'year' => $year, 'other' => $other] = $this->office();
+
+        $left = User::factory()->create([
+            'role'        => 'employee',
+            'org_unit_id' => $other->org_unit_id,
+            'name'        => 'Richard Gutierrez',
+            'status'      => 'inactive',
+        ]);
+        $draft = $this->makeForm([
+            'school_year_id'   => $year->id,
+            'org_unit_id'      => $other->org_unit_id,
+            'user_id'          => $left->id,
+            'status'           => 'head_review',
+            'head_reviewer_id' => $hr->id,
+        ]);
+
+        $this->actingAsUser($hr);
+
+        $all = collect($this->getJson('/api/pcr-forms')->assertOk()->json())->pluck('id');
+        $queue = collect($this->getJson('/api/pcr-forms?queue=1')->assertOk()->json())->pluck('id');
+
+        $this->assertFalse($all->contains($draft->id));
+        $this->assertFalse($queue->contains($draft->id));
+        $this->assertFalse($all->contains($other->id));
+        $this->getJson("/api/pcr-forms/{$draft->id}")->assertOk();
     }
 
     public function test_the_hr_head_sees_the_office_roster(): void
@@ -105,9 +134,9 @@ class HrAccessTest extends PmsTestCase
         $unit = $this->makeUnit();
         User::factory()->create(['role' => 'employee', 'org_unit_id' => $unit->id, 'name' => 'Staff One']);
 
-        $this->actingAsRole('hr');
+        $this->actingAsRole('program_head');
 
-        // Campus follow-up stays on Forms → All; My Team needs a led/watched office.
+        // My Team needs a led or watched office.
         $this->getJson('/api/my-team')
             ->assertOk()
             ->assertJsonPath('members', [])
@@ -133,7 +162,7 @@ class HrAccessTest extends PmsTestCase
         $this->getJson('/api/reports/summary?school_year_id=' . $year->id)->assertOk();
         $this->getJson("/api/people/{$faculty->id}")
             ->assertOk()
-            ->assertJsonPath('may_view_sheet', true);
+            ->assertJsonPath('may_view_sheet', false);
     }
 
     public function test_the_hr_head_can_rate_a_staff_form_and_not_another_office(): void

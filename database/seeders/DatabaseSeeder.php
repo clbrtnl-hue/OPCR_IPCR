@@ -137,7 +137,7 @@ class DatabaseSeeder extends Seeder
             ['canay', 'Dr.', 'Wenie Rose', 'D.', 'Canay', null, null, 'vpaa@occ.edu.ph', 'vp', 'Vice President for Academic Affairs and Services', 'aas'],
             ['gurrea', 'Dr.', 'Alma', 'T.', 'Gurrea', null, null, 'vpial@occ.edu.ph', 'vp', 'Vice President for International Affairs and Linkages', 'ils'],
             ['vacalares', 'Mr.', 'Sophomore', null, 'Vacalares', null, null, 'vpaf@occ.edu.ph', 'vp', 'Vice President for Administration and Finance', 'afs'],
-            ['hrmo', null, 'HRMO', null, 'Head', null, null, 'hr@occ.edu.ph', 'hr', 'Head, Human Resource Management Office', 'hrmo'],
+            ['hrmo', null, 'HRMO', null, 'Head', null, null, 'hr@occ.edu.ph', 'program_head', 'Head, Human Resource Management Office', 'hrmo'],
             ['hrstaff', null, 'HRMO', null, 'Staff', null, null, 'hr.staff@occ.edu.ph', 'employee', 'Staff, Human Resource Management Office', 'hrmo'],
             ['pinto', 'Mr.', 'Ronnel', null, 'Pinto', null, null, 'vprpe@occ.edu.ph', 'vp', 'Vice President for Research, Publication, and Extension', 'rpces'],
             ['baculio', 'Mr.', 'Keith Lou', null, 'Baculio', null, null, 'vpsas@occ.edu.ph', 'vp', 'Vice President for Student Affairs and Services', 'sas'],

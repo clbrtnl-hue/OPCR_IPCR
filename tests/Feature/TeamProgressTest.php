@@ -126,6 +126,41 @@ class TeamProgressTest extends PmsTestCase
             ->assertJsonPath('rows.0.commitments', 1);
     }
 
+    public function test_a_replaced_commitment_is_not_counted_on_the_team(): void
+    {
+        $this->makeOrganization();
+        $year = $this->makeSchoolYear();
+        $period = $this->makePeriod($year, 1);
+        $head = User::factory()->create(['role' => 'program_head']);
+        $unit = $this->makeUnit(['head_user_id' => $head->id]);
+        $staff = User::factory()->create(['role' => 'employee', 'org_unit_id' => $unit->id]);
+
+        $form = $this->makeForm([
+            'user_id' => $staff->id, 'org_unit_id' => $unit->id,
+            'school_year_id' => $year->id, 'rating_period_id' => $period->id,
+        ]);
+        $live = $this->makeIndicator($form, 'core', [
+            'progress_pct' => 80, 'progress_status' => 'ongoing',
+            'rating_period_id' => $period->id,
+        ]);
+        PcrIndicator::create([
+            'output_id'       => $live->output_id,
+            'description'     => 'The commitment that was replaced.',
+            'rating_period_id'=> $period->id,
+            'progress_pct'    => 0,
+            'progress_status' => 'not_started',
+            'closed_at'       => now(),
+            'closed_reason'   => 'target_replaced',
+        ]);
+
+        $this->actingAsUser($head);
+
+        $this->getJson("/api/my-team/progress?school_year_id={$year->id}&rating_period_id={$period->id}")
+            ->assertOk()
+            ->assertJsonPath('rows.0.progress_pct', 80)
+            ->assertJsonPath('rows.0.commitments', 1);
+    }
+
     public function test_a_vp_sees_each_office_under_them_rolled_up(): void
     {
         $this->makeOrganization();

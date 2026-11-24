@@ -15,7 +15,7 @@ import {
 } from "antd";
 import { ExpandOutlined, MoreOutlined, PlusOutlined } from "@ant-design/icons";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import api from "~/utils/api";
+import api, { errorText } from "~/utils/api";
 import PageHeader from "~/components/PageHeader";
 import UserAvatar from "~/components/UserAvatar";
 import { usePerson } from "~/hooks/usePerson";
@@ -26,42 +26,147 @@ function byName(a, b) {
     return a.name.localeCompare(b.name, undefined, { sensitivity: "base" });
 }
 
-const POSTER_ORDER = {
-    SAS: 1,
-    AAS: 2,
-    AFS: 3,
-    RPCES: 4,
-    ILS: 5,
-    OP: 6,
-    "OP-CICT": 1,
-    "OP-QAAO": 2,
-    "OP-PCO": 3,
-    "OP-CHRE": 4,
-    "AAS-ASD": 1,
-    "AAS-ASV": 2,
-    "AAS-HEI": 1,
-    REG: 1,
-    "AAS-TESDA": 2,
-    "REG-AE": 1,
-    "REG-RA": 2,
-    "REG-GC": 3,
-    "AAS-CTE": 1,
-    "AAS-BSBA": 2,
-    "AAS-BSIT": 3,
-    "AAS-CCJ": 4,
-    "AAS-GenEd": 5,
-    "AAS-PE": 6,
-    "SAS-SSS": 1,
-    "SAS-SDS": 2,
-    "SAS-ISPS": 3,
-    "SAS-SEC": 4,
-};
-
 function byOrg(a, b) {
-    const left = POSTER_ORDER[a.code] ?? 100;
-    const right = POSTER_ORDER[b.code] ?? 100;
+    const left = Number(a.sort_order ?? 0);
+    const right = Number(b.sort_order ?? 0);
     if (left !== right) return left - right;
     return byName(a, b);
+}
+
+function personOn(unit, slot) {
+    if (!unit) return null;
+    if (slot === "dean_user_id") return unit.dean?.name ? unit.dean : null;
+    if (slot === "vp_user_id") return unit.vp?.name ? unit.vp : null;
+    const row = (unit.reviewers ?? []).find((item) => item.slot === slot && item.user?.name);
+    return row?.user ?? null;
+}
+
+function inheritedReviewer(units, parentId, slot) {
+    const byId = new Map(units.map((unit) => [unit.id, unit]));
+    const seen = new Set();
+    let currentId = parentId ?? null;
+
+    while (currentId && !seen.has(currentId)) {
+        seen.add(currentId);
+        const unit = byId.get(currentId);
+        if (!unit) return null;
+        const person = personOn(unit, slot);
+        if (person) return { person, unit };
+        currentId = unit.parent_id ?? null;
+    }
+
+    return null;
+}
+
+function applyPlace(units, unitId, drop) {
+    const next = units.map((unit) => ({ ...unit }));
+    const moving = next.find((unit) => unit.id === unitId);
+    if (!moving) return units;
+
+    const oldParent = moving.parent_id ?? null;
+    const parentId = drop.parentId ?? null;
+    moving.parent_id = parentId;
+
+    const renumber = (groupParent, includeMoving) => {
+        const siblings = next
+            .filter((unit) => (unit.parent_id ?? null) === groupParent && unit.id !== unitId)
+            .sort(byOrg);
+
+        if (includeMoving) {
+            const index = drop.beforeId == null
+                ? siblings.length
+                : siblings.findIndex((unit) => unit.id === drop.beforeId);
+            siblings.splice(index < 0 ? siblings.length : index, 0, moving);
+        }
+
+        siblings.forEach((unit, index) => {
+            unit.sort_order = index + 1;
+        });
+    };
+
+    renumber(parentId, true);
+    if (oldParent !== parentId) renumber(oldParent, false);
+    return next;
+}
+
+function samePlace(units, unitId, drop) {
+    const unit = units.find((item) => item.id === unitId);
+    if (!unit || !drop) return true;
+
+    const parentId = drop.parentId ?? null;
+    if ((unit.parent_id ?? null) !== parentId) return false;
+
+    const currentIds = units
+        .filter((item) => (item.parent_id ?? null) === parentId)
+        .sort(byOrg)
+        .map((item) => item.id);
+    const ids = currentIds.filter((id) => id !== unitId);
+    const index = drop.beforeId == null ? ids.length : ids.indexOf(drop.beforeId);
+    if (index < 0) return false;
+    ids.splice(index, 0, unitId);
+
+    return ids.length === currentIds.length && ids.every((id, position) => id === currentIds[position]);
+}
+
+function resolveDrop(clientX, clientY, dragId, units, tree) {
+    const hit = document.elementsFromPoint(clientX, clientY)
+        .map((element) => element.closest?.("[data-unit-id]"))
+        .find((element) => element && !element.closest?.(".pms-org-drag-ghost"));
+
+    if (!hit) return null;
+
+    const targetId = Number(hit.dataset.unitId);
+    if (!targetId || targetId === dragId) return null;
+
+    const current = findUnit(tree, dragId);
+    if (!current || descendantIds(current).includes(targetId)) return null;
+
+    const target = units.find((unit) => unit.id === targetId);
+    if (!target) return null;
+
+    const box = hit.querySelector(".pms-org-banner") ?? hit;
+    const rect = box.getBoundingClientRect();
+    const depth = depthOf(tree, targetId);
+    const horizontal = depth <= 2;
+    const axis = horizontal
+        ? (clientX - rect.left) / rect.width
+        : (clientY - rect.top) / rect.height;
+    const parentId = target.parent_id ?? null;
+
+    if (axis >= 0 && axis < 0.34) {
+        return { mode: "before", targetId, parentId, beforeId: targetId };
+    }
+
+    if (axis > 0.66 && axis <= 1) {
+        const siblings = units
+            .filter((unit) => (unit.parent_id ?? null) === parentId && unit.id !== dragId)
+            .sort(byOrg);
+        const index = siblings.findIndex((unit) => unit.id === targetId);
+        const next = siblings[index + 1];
+        return { mode: "after", targetId, parentId, beforeId: next?.id ?? null };
+    }
+
+    return { mode: "into", targetId, parentId: targetId, beforeId: null };
+}
+
+function dropCaption(drop, units) {
+    if (!drop) return "Drop on a unit";
+    const target = units.find((unit) => unit.id === drop.targetId);
+    const name = target?.name ?? "this unit";
+    if (drop.mode === "before") return `Before ${name}`;
+    if (drop.mode === "after") return `After ${name}`;
+    return `Under ${name}`;
+}
+
+function depthOf(nodes, id, depth = 0) {
+    for (const node of nodes) {
+        if (node.id === id) return depth;
+        if (node.children) {
+            const nested = depthOf(node.children, id, depth + 1);
+            if (nested != null) return nested;
+        }
+    }
+    return null;
 }
 
 function nestUnits(units) {
@@ -226,7 +331,7 @@ function UnitActions({ node, onAdd, onDelete }) {
     );
 }
 
-function UnitNode({ node, depth, rank = "head", found = false, onEdit, onAdd, onDelete }) {
+function UnitNode({ node, depth, rank = "head", found = false, onEdit, onAdd, onDelete, dragId, drop, onUnitPointerDown, suppressOpen }) {
     const { openPerson } = usePerson();
     const openUnit = () => onEdit(node);
     const banner = depth === 0 ? "root"
@@ -263,11 +368,22 @@ function UnitNode({ node, depth, rank = "head", found = false, onEdit, onAdd, on
     return (
         <div
             data-unit-id={node.id}
-            className={`pms-org-node${found ? " is-found" : ""}${namedUnit && !showCard ? " is-name" : ""}${flankRight.length || flankLeft.length ? " has-flank" : ""}${depth > 0 && flankRight.length ? " has-side" : ""}`}
+            className={`pms-org-node${found ? " is-found" : ""}${namedUnit && !showCard ? " is-name" : ""}${flankRight.length || flankLeft.length ? " has-flank" : ""}${depth > 0 && flankRight.length ? " has-side" : ""}${dragId === node.id ? " is-dragging" : ""}${drop?.targetId === node.id ? ` is-drop-${drop.mode}` : ""}`}
         >
             {banner && (
                 <div className="pms-org-banner-wrap">
-                    <button type="button" className={`pms-org-banner is-${banner}`} onClick={openUnit}>
+                    <button
+                        type="button"
+                        className={`pms-org-banner is-${banner}`}
+                        onPointerDown={(event) => onUnitPointerDown?.(event, node)}
+                        onClick={() => {
+                            if (suppressOpen?.current) {
+                                suppressOpen.current = false;
+                                return;
+                            }
+                            openUnit();
+                        }}
+                    >
                         {node.name}
                     </button>
                     {actions}
@@ -357,7 +473,7 @@ function UnitNode({ node, depth, rank = "head", found = false, onEdit, onAdd, on
     );
 }
 
-const OrgViewport = forwardRef(function OrgViewport({ children }, ref) {
+const OrgViewport = forwardRef(function OrgViewport({ children, placing = false }, ref) {
     const viewport = useRef(null);
     const tree = useRef(null);
     const scaleRef = useRef(1);
@@ -476,9 +592,9 @@ const OrgViewport = forwardRef(function OrgViewport({ children }, ref) {
 
     return (
         <div className="pms-org-frame">
-            <p className="pms-org-zoom-hint">Mouse wheel zooms. Drag to move around.</p>
+            <p className="pms-org-zoom-hint">Drag a unit name to move it. Drop it on a unit to place it underneath, or on the edge to change the order. Mouse wheel zooms. Drag empty space to look around.</p>
             <div
-                className={`pms-org-chart${grabbing ? " is-grabbing" : ""}`}
+                className={`pms-org-chart${grabbing ? " is-grabbing" : ""}${placing ? " is-placing" : ""}`}
                 ref={viewport}
                 onPointerDown={onPointerDown}
                 onPointerMove={onPointerMove}
@@ -502,7 +618,7 @@ function shownDirector(node, depth) {
     return Boolean(person?.id && director?.id && person.id === director.id);
 }
 
-function OrgNode({ node, depth = 0, personAbove = false, foundId, onEdit, onAdd, onDelete }) {
+function OrgNode({ node, depth = 0, personAbove = false, foundId, onEdit, onAdd, onDelete, dragId, drop, onUnitPointerDown, suppressOpen }) {
     const children = node.children ?? [];
     const childClass = depth < 2 ? "pms-org-tree" : "pms-org-stack";
     const rank = depth === 0 ? "president" : depth === 1 && leadPerson(node, depth)?.name ? "vp" : shownDirector(node, depth) || !personAbove ? "head" : "child";
@@ -510,7 +626,19 @@ function OrgNode({ node, depth = 0, personAbove = false, foundId, onEdit, onAdd,
 
     return (
         <li>
-            <UnitNode node={node} depth={depth} rank={rank} found={foundId != null && Number(foundId) === Number(node.id)} onEdit={onEdit} onAdd={onAdd} onDelete={onDelete} />
+            <UnitNode
+                node={node}
+                depth={depth}
+                rank={rank}
+                found={foundId != null && Number(foundId) === Number(node.id)}
+                onEdit={onEdit}
+                onAdd={onAdd}
+                onDelete={onDelete}
+                dragId={dragId}
+                drop={drop}
+                onUnitPointerDown={onUnitPointerDown}
+                suppressOpen={suppressOpen}
+            />
             {children.length > 0 && (
                 <ul className={childClass}>
                     {children.map((child) => (
@@ -523,6 +651,10 @@ function OrgNode({ node, depth = 0, personAbove = false, foundId, onEdit, onAdd,
                             onEdit={onEdit}
                             onAdd={onAdd}
                             onDelete={onDelete}
+                            dragId={dragId}
+                            drop={drop}
+                            onUnitPointerDown={onUnitPointerDown}
+                            suppressOpen={suppressOpen}
                         />
                     ))}
                 </ul>
@@ -576,7 +708,7 @@ function UnitPeople({ unit }) {
     );
 }
 
-function OrgTree({ nodes, foundId, onEdit, onAdd, onDelete }) {
+function OrgTree({ nodes, foundId, onEdit, onAdd, onDelete, dragId, drop, onUnitPointerDown, suppressOpen }) {
     return (
         <ul className="pms-org-tree">
             {nodes.map((node) => (
@@ -588,9 +720,26 @@ function OrgTree({ nodes, foundId, onEdit, onAdd, onDelete }) {
                     onEdit={onEdit}
                     onAdd={onAdd}
                     onDelete={onDelete}
+                    dragId={dragId}
+                    drop={drop}
+                    onUnitPointerDown={onUnitPointerDown}
+                    suppressOpen={suppressOpen}
                 />
             ))}
         </ul>
+    );
+}
+
+function ReviewerNote({ units, slot, watch, children }) {
+    const parentId = Form.useWatch("parent_id");
+    const named = Form.useWatch(watch ?? slot);
+    const inherited = named ? null : inheritedReviewer(units, parentId, slot);
+
+    return (
+        <>
+            {children}
+            {inherited ? ` Uses ${inherited.person.name} from ${inherited.unit.name} while this stays empty.` : ""}
+        </>
     );
 }
 
@@ -654,6 +803,12 @@ export default function OrgUnitsPage() {
     const [picked, setPicked] = useState(null);
     const mainChart = useRef(null);
     const wideChart = useRef(null);
+    const dragRef = useRef(null);
+    const suppressOpen = useRef(false);
+    const stopDrag = useRef(null);
+    const [drag, setDrag] = useState(null);
+
+    useEffect(() => () => stopDrag.current?.(), []);
 
     const { data: units = [], isLoading } = useQuery({
         queryKey: ["org-units"],
@@ -734,6 +889,71 @@ export default function OrgUnitsPage() {
         },
     });
 
+    const place = useMutation({
+        mutationFn: ({ id, parentId, beforeId }) => api.post(`org-units/${id}/place`, {
+            parent_id: parentId,
+            before_id: beforeId,
+        }),
+        onMutate: async ({ id, parentId, beforeId }) => {
+            await queryClient.cancelQueries({ queryKey: ["org-units"] });
+            const previous = queryClient.getQueryData(["org-units"]);
+            queryClient.setQueryData(["org-units"], (current = []) => applyPlace(current, id, { parentId, beforeId }));
+            return { previous };
+        },
+        onError: (error, _values, context) => {
+            if (context?.previous) queryClient.setQueryData(["org-units"], context.previous);
+            message.error(errorText(error));
+        },
+        onSettled: () => queryClient.invalidateQueries({ queryKey: ["org-units"] }),
+    });
+
+    const onUnitPointerDown = (event, node) => {
+        if (event.button !== 0) return;
+        const startX = event.clientX;
+        const startY = event.clientY;
+        let active = false;
+
+        const move = (ev) => {
+            if (!active && Math.hypot(ev.clientX - startX, ev.clientY - startY) < 8) return;
+            active = true;
+            ev.preventDefault();
+            const next = {
+                id: node.id,
+                name: node.name,
+                x: ev.clientX,
+                y: ev.clientY,
+                drop: resolveDrop(ev.clientX, ev.clientY, node.id, units, tree),
+            };
+            dragRef.current = next;
+            setDrag(next);
+        };
+
+        const stop = () => {
+            window.removeEventListener("pointermove", move);
+            window.removeEventListener("pointerup", up);
+            stopDrag.current = null;
+        };
+
+        const up = () => {
+            stop();
+            const current = dragRef.current;
+            dragRef.current = null;
+            setDrag(null);
+            if (!active) return;
+            suppressOpen.current = true;
+            if (!current?.drop || samePlace(units, node.id, current.drop)) return;
+            place.mutate({
+                id: node.id,
+                parentId: current.drop.parentId,
+                beforeId: current.drop.beforeId,
+            });
+        };
+
+        stopDrag.current = stop;
+        window.addEventListener("pointermove", move);
+        window.addEventListener("pointerup", up);
+    };
+
     const openDrawer = (record, parentId = null) => {
         setEditing(record ?? null);
         setOpen(true);
@@ -782,13 +1002,17 @@ export default function OrgUnitsPage() {
             <Empty description="No units yet." />
         </div>
     ) : (
-        <OrgViewport ref={chartRef}>
+        <OrgViewport ref={chartRef} placing={Boolean(drag)}>
             <OrgTree
                 nodes={tree}
                 foundId={foundId}
                 onEdit={(node) => openDrawer(node)}
                 onAdd={(parentId) => openDrawer(null, parentId)}
                 onDelete={askDelete}
+                dragId={drag?.id ?? null}
+                drop={drag?.drop ?? null}
+                onUnitPointerDown={onUnitPointerDown}
+                suppressOpen={suppressOpen}
             />
         </OrgViewport>
     );
@@ -797,7 +1021,7 @@ export default function OrgUnitsPage() {
         <>
             <PageHeader
                 title="Hierarchy"
-                subtitle="Set who reviews whom. A form walks the steps in Setup → Workflow. An empty Head is skipped. An empty Dean, VP, or extra step uses the parent unit."
+                subtitle="Drag a unit name to move it. An empty Head is skipped. An empty Dean, VP, or extra step uses the parent unit."
                 extra={
                     <>
                         {finder}
@@ -906,7 +1130,11 @@ export default function OrgUnitsPage() {
                         <Form.Item
                             name="dean_user_id"
                             label="Dean"
-                            extra="Reviews after the head and before the director."
+                            extra={(
+                                <ReviewerNote units={units} slot="dean_user_id">
+                                    Reviews after the head and before the director.
+                                </ReviewerNote>
+                            )}
                         >
                             <Select
                                 allowClear
@@ -919,7 +1147,11 @@ export default function OrgUnitsPage() {
                         <Form.Item
                             name="vp_user_id"
                             label="Reports to VP"
-                            extra="Reviews after the director."
+                            extra={(
+                                <ReviewerNote units={units} slot="vp_user_id">
+                                    Reviews after the director.
+                                </ReviewerNote>
+                            )}
                         >
                             <Select
                                 allowClear
@@ -934,7 +1166,11 @@ export default function OrgUnitsPage() {
                                 key={stage.slot}
                                 name={["reviewers", stage.slot]}
                                 label={String(stage.label || "Step").replace(/^With /i, "")}
-                                extra="Leave empty to use the parent unit."
+                                extra={(
+                                    <ReviewerNote units={units} slot={stage.slot} watch={["reviewers", stage.slot]}>
+                                        Leave empty to use the parent unit.
+                                    </ReviewerNote>
+                                )}
                             >
                                 <Select
                                     allowClear
@@ -981,6 +1217,13 @@ export default function OrgUnitsPage() {
                     </section>
                 </Form>
             </Drawer>
+            {drag && createPortal(
+                <div className="pms-org-drag-ghost" style={{ left: drag.x + 14, top: drag.y + 14 }}>
+                    <strong>{drag.name}</strong>
+                    <span>{dropCaption(drag.drop, units)}</span>
+                </div>,
+                document.body,
+            )}
         </>
     );
 }

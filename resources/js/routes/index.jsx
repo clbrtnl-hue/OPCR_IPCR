@@ -17,7 +17,6 @@ import AttendancePage from "~/pages/AttendancePage";
 import FormEditorPage from "~/pages/FormEditorPage";
 import ReviewQueuePage from "~/pages/ReviewQueuePage";
 import ReportsPage from "~/pages/ReportsPage";
-import ClosingPage from "~/pages/ClosingPage";
 import PrintFormPage from "~/pages/PrintFormPage";
 import AuditLogPage from "~/pages/admin/AuditLogPage";
 import ProfilePage from "~/pages/ProfilePage";
@@ -68,7 +67,7 @@ export default function AppRoutes() {
                                 <Route
                                     path="/my-ipcr"
                                     element={
-                                        <Protected roles={["employee", "program_head", "vp", "qa", "hr"]}>
+                                        <Protected roles={["employee", "program_head", "vp", "qa"]}>
                                             <MyIpcrPage />
                                         </Protected>
                                     }
@@ -77,7 +76,7 @@ export default function AppRoutes() {
                                 <Route
                                     path="/attendance"
                                     element={
-                                        <Protected roles={["admin", "qa", "program_head", "hr", "employee"]}>
+                                        <Protected roles={["admin", "qa", "program_head", "employee", "vp", "president"]}>
                                             <AttendancePage />
                                         </Protected>
                                     }
@@ -87,7 +86,7 @@ export default function AppRoutes() {
                                 <Route
                                     path="/review-queue"
                                     element={
-                                        <Protected roles={["employee", "program_head", "vp", "qa", "president", "hr"]}>
+                                        <Protected roles={["employee", "program_head", "vp", "qa", "president"]}>
                                             <ReviewQueuePage />
                                         </Protected>
                                     }
@@ -95,17 +94,9 @@ export default function AppRoutes() {
                                 <Route path="/rating" element={<Navigate to="/review-queue?tab=rating" replace />} />
                                 <Route path="/notifications" element={<NotificationsPage />} />
                                 <Route
-                                    path="/closing"
-                                    element={
-                                        <Protected roles={["hr"]}>
-                                            <ClosingPage />
-                                        </Protected>
-                                    }
-                                />
-                                <Route
                                     path="/reports"
                                     element={
-                                        <Protected roles={["admin", "president", "qa", "hr", "program_head", "vp"]}>
+                                        <Protected roles={["admin", "president", "qa", "program_head", "vp"]}>
                                             <ReportsPage />
                                         </Protected>
                                     }

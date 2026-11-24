@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\ActivityLog;
 use App\Models\User;
+use App\Services\InactiveAccount;
 use App\Services\WorkflowSettings;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
@@ -25,7 +26,7 @@ class AuthController extends Controller
         }
 
         if ($user->status !== 'active') {
-            return response()->json(['message' => 'This account is inactive. Ask an administrator to reactivate it.'], 403);
+            return response()->json(['message' => InactiveAccount::MESSAGE], 403);
         }
 
         $token = $user->createToken('occ-pms')->accessToken;

@@ -50,31 +50,68 @@ class AttendanceRate extends Model
      * Store the daily percentage and the activities percentage for one person.
      * Leave and excused stay in the record and stay out of the percentage.
      */
+    /**
+     * Daily attendance plus every activity category, including calendar events.
+     *
+     * @return array<string, array<string, int|null>>
+     */
+    public static function bundle(int $userId, int $periodId): array
+    {
+        $rates = array_merge(
+            ['daily' => AttendanceDay::rateFor($userId, $periodId)],
+            AttendanceMeeting::ratesFor($userId, $periodId),
+        );
+
+        foreach (CalendarEventMark::ratesFor($userId, $periodId) as $key => $rate) {
+            if ($key === 'daily') {
+                continue;
+            }
+
+            $rates[$key] = isset($rates[$key])
+                ? AttendanceMeeting::combineRates($rates[$key], $rate)
+                : $rate;
+        }
+
+        return $rates;
+    }
+
     public static function remember(int $userId, int $periodId): void
     {
-        $daily = AttendanceDay::rateFor($userId, $periodId);
+        $rates = static::bundle($userId, $periodId);
+        $daily = $rates['daily'];
 
         static::store($userId, $periodId, 'daily', [
             'present' => $daily['present'],
             'absent'  => $daily['absent'],
-            'excused' => $daily['leave'],
+            'excused' => $daily['leave'] ?? 0,
             'counted' => $daily['counted'],
             'pct'     => $daily['pct'],
         ]);
 
-        $marks = AttendanceMeetingMark::query()
-            ->where('user_id', $userId)
-            ->whereHas('meeting', fn ($query) => $query->where('rating_period_id', $periodId))
-            ->pluck('status')
-            ->all();
+        $present = 0;
+        $absent = 0;
+        $excused = 0;
 
-        $activities = AttendanceMeeting::columnRate($marks);
+        foreach ($rates as $key => $rate) {
+            if ($key === 'daily') {
+                continue;
+            }
 
-        static::store($userId, $periodId, 'activities', $activities);
-
-        foreach (AttendanceMeeting::ratesFor($userId, $periodId) as $category => $rate) {
-            static::store($userId, $periodId, $category, $rate);
+            $present += (int) ($rate['present'] ?? 0);
+            $absent += (int) ($rate['absent'] ?? 0);
+            $excused += (int) ($rate['excused'] ?? 0);
+            static::store($userId, $periodId, (string) $key, $rate);
         }
+
+        $counted = $present + $absent;
+
+        static::store($userId, $periodId, 'activities', [
+            'present' => $present,
+            'absent'  => $absent,
+            'excused' => $excused,
+            'counted' => $counted,
+            'pct'     => $counted > 0 ? (int) round($present / $counted * 100) : null,
+        ]);
     }
 
     /**
@@ -130,7 +167,10 @@ class AttendanceRate extends Model
 
         $rows = static::query()
             ->where('rating_period_id', $periodId)
-            ->whereIn('scope', array_keys(AttendanceMeeting::CATEGORIES))
+            ->where(function ($query) {
+                $query->whereIn('scope', array_keys(AttendanceMeeting::CATEGORIES))
+                    ->orWhere('scope', 'like', 'c%');
+            })
             ->get();
 
         foreach ($rows as $rate) {

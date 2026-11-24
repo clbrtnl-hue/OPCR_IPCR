@@ -34,6 +34,7 @@ import RichTextView, { toPlainText } from "~/components/RichTextView";
 import DeliveredBy from "~/components/DeliveredBy";
 import ProgressCell from "~/components/ProgressCell";
 import { ScoreFields } from "~/components/SheetScoreCells";
+import AttendancePct from "~/components/AttendancePct";
 
 export default function IndicatorRow({
     indicator,
@@ -47,6 +48,8 @@ export default function IndicatorRow({
     remarksOpen = false,
     linkLabel = null,
     scoreEdit = null,
+    form = null,
+    attendanceOutput = null,
 }) {
     const queryClient = useQueryClient();
     const accomplishment = indicator.accomplishments?.find(
@@ -228,14 +231,6 @@ export default function IndicatorRow({
                 </Typography.Text>
             )}
 
-            {scoreEdit && (
-                <ScoreFields
-                    line={indicator}
-                    saved={(indicator.ratings ?? []).find((row) => row.rating_period_id === periodId)}
-                    scoreEdit={scoreEdit}
-                />
-            )}
-
             {!isOpcr && indicator.parent && (
                 <Alert
                     type="info"
@@ -346,6 +341,17 @@ export default function IndicatorRow({
                         />
                     )}
                 </>
+            )}
+
+            {scoreEdit && (
+                <div style={{ marginTop: 16 }}>
+                    <AttendancePct form={form} output={attendanceOutput} periodId={periodId} />
+                    <ScoreFields
+                        line={indicator}
+                        saved={(indicator.ratings ?? []).find((row) => row.rating_period_id === periodId)}
+                        scoreEdit={scoreEdit}
+                    />
+                </div>
             )}
 
             <Modal

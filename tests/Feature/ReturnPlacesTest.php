@@ -86,6 +86,8 @@ class ReturnPlacesTest extends PmsTestCase
 
         $this->assertSame(['title', 'target_date'], array_column($marks, 'field'));
         $this->assertSame('Name the program.', $marks[0]['note']);
+        $this->assertSame('Research', $marks[0]['previous_value']);
+        $this->assertSame('', $marks[1]['previous_value']);
     }
 
     public function test_an_opcr_approval_return_can_mark_budget_and_accountable(): void
@@ -212,6 +214,9 @@ class ReturnPlacesTest extends PmsTestCase
             'school_year_id' => $year->id, 'status' => 'published',
         ]);
 
+        $original = $line->description;
+        $line->update(['description' => 'A tighter target for the year.']);
+
         $this->actingAsUser($owner);
         $this->postJson("/api/pcr-forms/{$form->id}/status", [
             'status' => 'commitment_review',
@@ -219,8 +224,9 @@ class ReturnPlacesTest extends PmsTestCase
 
         $marks = $this->getJson("/api/pcr-forms/{$form->id}")->assertOk()->json('return_marks');
         $this->assertSame(['description'], array_column($marks, 'field'));
-        // API keeps the original note; the UI prefixes it once the form is no longer returned.
+        // The note stays the approver's ask. The snapshot stays the owner's old wording.
         $this->assertSame(['Tighten the target.'], array_column($marks, 'note'));
+        $this->assertSame([$original], array_column($marks, 'previous_value'));
 
         $this->actingAsUser($approver);
         $marks = $this->getJson("/api/pcr-forms/{$form->id}")->assertOk()->json('return_marks');

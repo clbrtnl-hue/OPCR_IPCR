@@ -114,7 +114,8 @@ class AttendanceTest extends PmsTestCase
 
         $this->actingAsUser($staff);
 
-        $this->getJson('/api/attendance')->assertOk()->assertJsonPath('units', []);
+        $sheet = $this->getJson('/api/attendance')->assertOk()->assertJsonPath('readonly', true);
+        $this->assertEquals([$staff->id], collect($sheet->json('members'))->pluck('id')->all());
 
         $this->putJson('/api/attendance/days', [
             'rating_period_id' => $period->id,
@@ -325,6 +326,16 @@ class AttendanceTest extends PmsTestCase
         $this->assertSame('training', AttendanceMeeting::categoryForTitle('Attendance to School Meetings and Trainings'));
         $this->assertSame('lgu', AttendanceMeeting::categoryForTitle('LGU Outreach'));
         $this->assertSame('meeting', AttendanceMeeting::categoryForTitle('Attendance to meetings'));
+        $this->assertSame('daily', AttendanceMeeting::categoryForTitle('Submission of Bundy Card'));
+        $this->assertSame('daily', AttendanceMeeting::categoryForTitle('Timekeeping'));
+        $this->assertSame('convocation', AttendanceMeeting::categoryForTitle('Flag retreat'));
+        $this->assertSame('training', AttendanceMeeting::categoryForTitle('Webinar on research'));
+        $this->assertSame('training', AttendanceMeeting::categoryForTitle('Capability-building activity'));
+        $this->assertSame('lgu', AttendanceMeeting::categoryForTitle('Barangay activities'));
+        $this->assertSame('lgu', AttendanceMeeting::categoryForTitle('Attendance to local government activities'));
+        $this->assertSame('school', AttendanceMeeting::categoryForTitle('Campus activities'));
+        $this->assertSame('school', AttendanceMeeting::categoryForTitle('Foundation day'));
+        $this->assertSame('meeting', AttendanceMeeting::categoryForTitle('EXECOM'));
         $this->assertNull(AttendanceMeeting::categoryForTitle('Maintenance of Classroom / Committee Chairmanship'));
         $this->assertNull(AttendanceMeeting::categoryForTitle(''));
     }
@@ -404,14 +415,11 @@ class AttendanceTest extends PmsTestCase
 
         $sheet = $this->getJson("/api/attendance?rating_period_id={$period->id}&org_unit_id={$college->id}")
             ->assertOk()
-            ->assertJsonPath('watching', true)
-            ->assertJsonPath('readonly', true)
-            ->assertJsonPath('selected_unit_id', $college->id);
+            ->assertJsonPath('watching', false)
+            ->assertJsonPath('readonly', false);
 
-        $this->assertContains($faculty->id, collect($sheet->json('members'))->pluck('id')->all());
-        $this->assertNotContains($staff->id, collect($sheet->json('members'))->pluck('id')->all());
-        $this->assertSame('present', $sheet->json('daily')[$faculty->id][$monday->toDateString()]);
-        $sheet->assertJsonPath('meetings.0.title', 'Faculty meeting');
+        $this->assertNotContains($faculty->id, collect($sheet->json('members'))->pluck('id')->all());
+        $this->assertContains($staff->id, collect($sheet->json('members'))->pluck('id')->all());
 
         $this->putJson('/api/attendance/days', [
             'rating_period_id' => $period->id,
@@ -478,7 +486,7 @@ class AttendanceTest extends PmsTestCase
             'closes_at' => $monday->copy()->addDays(6)->toDateString(),
         ]);
 
-        $hr = User::factory()->create(['role' => 'hr']);
+        $hr = User::factory()->create(['role' => 'program_head']);
         $office = $this->makeUnit([
             'name'         => 'Human Resource Management Office',
             'code'         => 'AFS-HRMO',

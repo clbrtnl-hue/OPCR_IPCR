@@ -16,7 +16,6 @@ const IPCR_DESTINATIONS = [
     "vp_review",
     "qa_rating",
     "rated",
-    "appeal",
 ];
 
 const OPCR_DESTINATIONS = [

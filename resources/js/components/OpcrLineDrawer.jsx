@@ -17,6 +17,7 @@ import RichText from "~/components/RichText";
 import RichTextView from "~/components/RichTextView";
 import AccomplishmentView, { AttachmentGallery } from "~/components/AccomplishmentView";
 import { ScoreFields } from "~/components/SheetScoreCells";
+import AttendancePct from "~/components/AttendancePct";
 
 /**
  * Office-level actual accomplishments live on this OPCR line. They are what QA
@@ -93,11 +94,6 @@ export default function OpcrLineDrawer({
     return (
         <>
             <RichTextView html={line.description} />
-            {scoreEdit && (
-                <div style={{ marginTop: 16 }}>
-                    <ScoreFields line={line} saved={rating} scoreEdit={scoreEdit} />
-                </div>
-            )}
 
             <Space wrap size={8} style={{ marginTop: 12 }}>
                 {line.delay && line.delay.state !== "no_date" && (
@@ -209,6 +205,13 @@ export default function OpcrLineDrawer({
                         />
                     )}
                 </>
+            )}
+
+            {scoreEdit && (
+                <div style={{ marginTop: 16 }}>
+                    <AttendancePct form={form} output={output} periodId={periodId} />
+                    <ScoreFields line={line} saved={rating} scoreEdit={scoreEdit} />
+                </div>
             )}
 
             <Divider orientation="left" orientationMargin={0}>

@@ -91,11 +91,12 @@ class OrgUnit extends Model
     /**
      * Who reviews a form in this unit. An empty Dean, VP, or extra step uses
      * the parent. Head does not: each unit's head is its own, or the step is
-     * skipped.
+     * skipped. A deactivated account is an empty slot, so the chain keeps
+     * walking instead of stopping on somebody who cannot sign in.
      */
     public function reviewerIdForSlotInChain(string $slot): ?int
     {
-        $named = $this->reviewerIdForSlot($slot);
+        $named = $this->activeReviewerIdForSlot($slot);
 
         if ($named || $slot === 'head_user_id' || $slot === '') {
             return $named;
@@ -120,7 +121,7 @@ class OrgUnit extends Model
                 break;
             }
 
-            $named = $current->reviewerIdForSlot($slot);
+            $named = $current->activeReviewerIdForSlot($slot);
 
             if ($named) {
                 return $named;
@@ -128,6 +129,20 @@ class OrgUnit extends Model
         }
 
         return null;
+    }
+
+    /** The person named in this slot, when that account can still sign in. */
+    private function activeReviewerIdForSlot(string $slot): ?int
+    {
+        $named = $this->reviewerIdForSlot($slot);
+
+        if (! $named) {
+            return null;
+        }
+
+        $active = User::query()->whereKey($named)->where('status', 'active')->exists();
+
+        return $active ? $named : null;
     }
 
     /**
@@ -153,6 +168,56 @@ class OrgUnit extends Model
             ->all();
 
         return static::subtreeIds($roots);
+    }
+
+    /**
+     * Heads of this unit and of the offices above it. A person in a program
+     * is a subordinate of the dean who leads the college.
+     *
+     * @return array<int, int>
+     */
+    public static function leaderIdsForMember(?int $orgUnitId): array
+    {
+        if (! $orgUnitId) {
+            return [];
+        }
+
+        $ancestors = [];
+        $id = $orgUnitId;
+        $guard = 0;
+
+        while ($id && $guard < 30) {
+            $ancestors[] = (int) $id;
+            $id = static::query()->whereKey($id)->value('parent_id');
+            $guard++;
+        }
+
+        return OrgUnitReviewer::query()
+            ->whereIn('org_unit_id', $ancestors)
+            ->where('slot', 'not like', 'chart_display%')
+            ->pluck('user_id')
+            ->map(fn ($userId) => (int) $userId)
+            ->unique()
+            ->values()
+            ->all();
+    }
+
+    /**
+     * Active people in the offices this person leads, not the person themselves.
+     */
+    public static function subordinates(int $userId): ?\Illuminate\Database\Eloquent\Builder
+    {
+        $offices = static::overseenIds($userId);
+
+        if ($offices === []) {
+            return null;
+        }
+
+        return User::query()
+            ->where('status', 'active')
+            ->whereIn('org_unit_id', $offices)
+            ->where('id', '!=', $userId)
+            ->whereNotIn('role', ['admin', 'vp', 'president']);
     }
 
     /**

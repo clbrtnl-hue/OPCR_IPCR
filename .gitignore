@@ -7,6 +7,7 @@
 /storage/framework/passport-keys.lock
 /storage/framework/passport-client.ready
 /vendor
+/database/backups
 .env
 .env.backup
 .phpunit.result.cache

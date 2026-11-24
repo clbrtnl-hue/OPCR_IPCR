@@ -68,23 +68,34 @@ class PcrIndicator extends Model
         return $this->children()->whereNull('closed_at');
     }
 
+    /** A replaced line stays stored. It is no longer the commitment in force. */
+    public function isInForce(): bool
+    {
+        return ! $this->closed_at && $this->replacement_status !== 'pending';
+    }
+
     /** Closed lines, pending replacements, and unapproved restarts are not scored. */
     public function countsTowardRating(): bool
     {
-        if ($this->closed_at || $this->replacement_status === 'pending') {
+        if (! $this->isInForce()) {
             return false;
         }
 
         return ! $this->needs_commitment_approval || (bool) $this->line_approved_at;
     }
 
-    public function scopeRateable($query)
+    public function scopeInForce($query)
     {
         return $query->whereNull('closed_at')
             ->where(function ($inner) {
                 $inner->whereNull('replacement_status')
                     ->orWhere('replacement_status', '!=', 'pending');
-            })
+            });
+    }
+
+    public function scopeRateable($query)
+    {
+        return $query->inForce()
             ->where(function ($inner) {
                 $inner->where('needs_commitment_approval', false)
                     ->orWhereNotNull('line_approved_at');

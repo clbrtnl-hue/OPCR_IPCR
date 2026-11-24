@@ -12,8 +12,8 @@ use Tests\PmsTestCase;
 /**
  * Who reviews a form comes from the ratee's place in the hierarchy, not from a
  * fixed role sequence. Faculty go head -> VP -> QA; a program head skips the
- * head stage; a VP goes to QA. QA rates their own IPCR and their staff, and
- * those forms are not sent to the president.
+ * head stage; a VP goes to QA. QA's own IPCR is rated by the president.
+ * QA still rates their staff, and those forms are not sent to the president.
  */
 class PcrReviewChainTest extends PmsTestCase
 {
@@ -379,7 +379,7 @@ class PcrReviewChainTest extends PmsTestCase
             'rating_period_id' => $period->id,
         ])->assertOk();
 
-        $this->assertSame('rated', $form->fresh()->status);
+        $this->assertSame('final', $form->fresh()->status);
         $this->assertDatabaseHas('pcr_ratings', ['indicator_id' => $indicator->id, 'q' => 4]);
     }
 
@@ -416,11 +416,12 @@ class PcrReviewChainTest extends PmsTestCase
         ]);
     }
 
-    public function test_qa_rates_their_own_ipcr_and_does_not_send_it_to_the_president(): void
+    public function test_the_president_rates_qas_own_ipcr(): void
     {
         ['office' => $office, 'year' => $year, 'period' => $period, 'president' => $president] = $this->college();
 
-        $qa = User::factory()->create(['role' => 'qa', 'org_unit_id' => $office->id]);
+        $qa      = User::factory()->create(['role' => 'qa', 'org_unit_id' => $office->id]);
+        $otherQa = User::factory()->create(['role' => 'qa', 'org_unit_id' => $office->id]);
         $office->update(['head_user_id' => $qa->id, 'vp_user_id' => $president->id]);
 
         $form = $this->makeForm([
@@ -430,16 +431,61 @@ class PcrReviewChainTest extends PmsTestCase
 
         $fresh = $form->fresh();
         $this->assertSame('qa_rating', $fresh->status);
+        $this->assertSame('With the President', $fresh->status_label);
         $this->assertNull($fresh->vp_reviewer_id);
         $this->assertNull($fresh->head_reviewer_id);
 
         $this->actingAsUser($president);
-        $this->postJson('/api/pcr-ratings', [
+        $step = collect($this->getJson("/api/pcr-forms/{$form->id}")->assertOk()->json('review_steps'))
+            ->firstWhere('status', 'qa_rating');
+        $this->assertSame('With the President', $step['label']);
+        $this->assertSame($president->id, $step['reviewer_id']);
+
+        $this->assertDatabaseHas('notifications', [
+            'user_id' => $president->id,
+            'form_id' => $form->id,
+            'type'    => 'rating',
+            'link'    => "/review-queue?tab=rating&form={$form->id}",
+        ]);
+        $this->assertDatabaseMissing('notifications', [
+            'user_id' => $qa->id,
+            'form_id' => $form->id,
+            'type'    => 'rating',
+        ]);
+
+        $indicator = $form->indicators()->first()->id;
+        $ratings   = [
             'form_id' => $form->id,
             'rating_period_id' => $period->id,
-            'ratings' => [['indicator_id' => $form->indicators()->first()->id, 'q' => 5, 'e' => 5, 't' => 5]],
-        ])->assertStatus(409);
-        $this->assertSame([], $this->getJson('/api/pcr-forms?queue=1')->assertSuccessful()->json());
+            'ratings' => [['indicator_id' => $indicator, 'q' => 5, 'e' => 5, 't' => 5]],
+        ];
+
+        foreach ([$qa, $otherQa] as $rater) {
+            $this->actingAsUser($rater);
+            $this->assertNotContains(
+                $form->id,
+                array_column($this->getJson('/api/pcr-forms?queue=1')->assertSuccessful()->json(), 'id')
+            );
+            $this->postJson('/api/pcr-ratings', $ratings)->assertStatus(409);
+        }
+
+        $this->actingAsUser($president);
+        $queued = $this->getJson('/api/pcr-forms?queue=1')->assertSuccessful()->json();
+        $this->assertContains($form->id, array_column($queued, 'id'));
+        $this->assertSame(
+            'With the President',
+            collect($queued)->firstWhere('id', $form->id)['status_label']
+        );
+
+        $this->postJson('/api/pcr-ratings', $ratings)->assertOk();
+        $this->postJson("/api/pcr-forms/{$form->id}/finalize-rating", [
+            'rating_period_id' => $period->id,
+        ])->assertOk();
+        $this->assertSame('final', $form->fresh()->status);
+        $this->assertNotContains(
+            $form->id,
+            array_column($this->getJson('/api/pcr-forms?queue=1')->assertSuccessful()->json(), 'id')
+        );
     }
 
     public function test_qa_rates_their_staff_and_finalizes_without_the_president(): void
@@ -472,7 +518,7 @@ class PcrReviewChainTest extends PmsTestCase
             'rating_period_id' => $period->id,
         ])->assertOk();
 
-        $this->assertSame('rated', $form->fresh()->status);
+        $this->assertSame('final', $form->fresh()->status);
 
         $this->actingAsUser($president);
         $this->assertSame([], $this->getJson('/api/pcr-forms?queue=1')->assertSuccessful()->json());
@@ -779,7 +825,7 @@ class PcrReviewChainTest extends PmsTestCase
         ])->assertOk();
 
         $fresh = $form->fresh();
-        $this->assertSame('rated', $fresh->status);
+        $this->assertSame('final', $fresh->status);
         $this->assertSame($qa->id, (int) $fresh->rated_by);
         $this->assertSame($qa->name, $fresh->rated_by_name);
         $this->assertDatabaseHas('pcr_ratings', [
@@ -790,7 +836,7 @@ class PcrReviewChainTest extends PmsTestCase
 
         $this->actingAsUser($faculty);
         $kept = collect($this->getJson("/api/pcr-forms/{$form->id}/history")->assertOk()->json('events'))
-            ->first(fn ($event) => ($event['to'] ?? null) === 'rated');
+            ->first(fn ($event) => ($event['to'] ?? null) === 'final');
 
         $this->assertStringContainsString('Kept the rating already on the form.', $kept['detail']);
         $this->assertArrayNotHasKey('scores', $kept);
@@ -831,7 +877,7 @@ class PcrReviewChainTest extends PmsTestCase
         ])->assertOk();
 
         $fresh = $form->fresh();
-        $this->assertSame('rated', $fresh->status);
+        $this->assertSame('final', $fresh->status);
         $this->assertSame($qa->name, $fresh->rated_by_name);
         $this->assertDatabaseHas('pcr_ratings', [
             'indicator_id' => $indicator->id,
@@ -841,7 +887,7 @@ class PcrReviewChainTest extends PmsTestCase
 
         $this->actingAsUser($faculty);
         $replaced = collect($this->getJson("/api/pcr-forms/{$form->id}/history")->assertOk()->json('events'))
-            ->first(fn ($event) => ($event['from'] ?? null) === 'qa_rating' && ($event['to'] ?? null) === 'rated');
+            ->first(fn ($event) => ($event['from'] ?? null) === 'qa_rating' && ($event['to'] ?? null) === 'final');
 
         $this->assertSame(4, $replaced['scores'][0]['q']);
         $this->assertSame('Adjusted.', $replaced['scores'][0]['remarks']);
@@ -862,5 +908,87 @@ class PcrReviewChainTest extends PmsTestCase
             ->first(fn ($event) => ($event['from'] ?? null) === 'commitments_approved');
 
         $this->assertArrayNotHasKey('scores', $sent);
+    }
+
+    public function test_a_deactivated_vp_still_named_on_the_unit_is_skipped(): void
+    {
+        ['office' => $office, 'year' => $year, 'head' => $head, 'vp' => $vp] = $this->college();
+
+        $vp->update(['status' => 'inactive']);
+
+        $form = $this->makeForm([
+            'org_unit_id' => $office->id, 'school_year_id' => $year->id, 'user_id' => $head->id,
+        ]);
+
+        $this->submit($head, $form)->assertSuccessful();
+
+        $fresh = $form->fresh();
+        $this->assertSame('qa_rating', $fresh->status);
+        $this->assertNull($fresh->vp_reviewer_id);
+    }
+
+    public function test_a_deactivated_vp_falls_through_to_an_active_parent_vp(): void
+    {
+        ['college' => $college, 'office' => $office, 'year' => $year, 'head' => $head, 'vp' => $vp] = $this->college();
+
+        $parent = User::factory()->create(['role' => 'vp', 'name' => 'Parent VP']);
+        $vp->update(['status' => 'inactive']);
+        $college->update(['vp_user_id' => $parent->id]);
+
+        $form = $this->makeForm([
+            'org_unit_id' => $office->id, 'school_year_id' => $year->id, 'user_id' => $head->id,
+        ]);
+
+        $this->submit($head, $form)->assertSuccessful();
+
+        $fresh = $form->fresh();
+        $this->assertSame('vp_review', $fresh->status);
+        $this->assertSame($parent->id, (int) $fresh->vp_reviewer_id);
+    }
+
+    public function test_a_form_left_with_a_deactivated_vp_moves_on_when_opened(): void
+    {
+        ['office' => $office, 'year' => $year, 'head' => $head, 'vp' => $vp] = $this->college();
+
+        $qa = User::factory()->create(['role' => 'qa', 'name' => 'QA Director']);
+        $form = $this->makeForm([
+            'org_unit_id'      => $office->id,
+            'school_year_id'   => $year->id,
+            'user_id'          => $head->id,
+            'status'           => 'vp_review',
+            'vp_reviewer_id'   => $vp->id,
+        ]);
+
+        $vp->update(['status' => 'inactive']);
+
+        $this->actingAsUser($head);
+        $this->getJson("/api/pcr-forms/{$form->id}")
+            ->assertOk()
+            ->assertJsonPath('status', 'qa_rating');
+
+        $fresh = $form->fresh();
+        $this->assertSame('qa_rating', $fresh->status);
+        $this->assertNull($fresh->vp_reviewer_id);
+        $this->assertDatabaseHas('pcr_status_logs', [
+            'form_id'     => $form->id,
+            'from_status' => 'vp_review',
+            'to_status'   => 'qa_rating',
+            'note'        => 'Moved on because the reviewer account is inactive.',
+        ]);
+
+        $this->actingAsUser($qa);
+        $this->assertContains(
+            $form->id,
+            array_column($this->getJson('/api/pcr-forms?queue=1')->assertOk()->json(), 'id')
+        );
+
+        $this->actingAsUser($head);
+        $this->getJson("/api/pcr-forms/{$form->id}")->assertOk();
+        $this->assertSame(
+            1,
+            \App\Models\PcrStatusLog::where('form_id', $form->id)
+                ->where('note', 'Moved on because the reviewer account is inactive.')
+                ->count()
+        );
     }
 }

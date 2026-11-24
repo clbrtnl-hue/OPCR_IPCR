@@ -6,7 +6,8 @@ import api from "~/utils/api";
 import { useAuth } from "~/hooks/useAuth";
 import { useOrganization } from "~/hooks/useOrganization";
 import { APPROVAL_QUEUE_STATUSES, ROLE_LABELS } from "~/utils/constants";
-import { formIsWithReviewer } from "~/utils/formReviewer";
+import { formIsWithReviewer, qaIpcrWithPresident } from "~/utils/formReviewer";
+import { formYearId } from "~/components/FormListFilters";
 import UserAvatar from "~/components/UserAvatar";
 import NotificationBell from "~/components/NotificationBell";
 import NotificationToasts from "~/components/NotificationToasts";
@@ -24,15 +25,13 @@ const ITEMS = {
     forms: { key: "/my-forms", icon: <NavIcon name="forms" />, label: "Forms" },
     myTeam: { key: "/my-team", icon: <NavIcon name="team" />, label: "My Team" },
     attendance: { key: "/attendance", icon: <NavIcon name="attendance" />, label: "Attendance" },
+    calendar: { key: "/attendance", icon: <NavIcon name="attendance" />, label: "Calendar" },
     collegeOpcr: { key: "/college-opcr", icon: <NavIcon name="college" />, label: "College OPCR" },
     reviewQueue: { key: "/review-queue", icon: <NavIcon name="review" />, label: "Review Queue" },
     reports: { key: "/reports", icon: <NavIcon name="reports" />, label: "Reports" },
-    closing: { key: "/closing", icon: <NavIcon name="review" />, label: "Close ratings" },
     users: { key: "/admin/users", icon: <NavIcon name="accounts" />, label: "Accounts" },
-
     orgUnits: { key: "/admin/org-units", icon: <NavIcon name="hierarchy" />, label: "Hierarchy" },
     schoolYears: { key: "/admin/school-years", icon: <NavIcon name="calendar" />, label: "School Years" },
-
     workflow: { key: "/admin/workflow", icon: <NavIcon name="workflow" />, label: "Workflow" },
     audit: { key: "/admin/audit", icon: <NavIcon name="audit" />, label: "Audit Trail" },
     notifications: { key: "/notifications", icon: <NavIcon name="bell" />, label: "Notifications" },
@@ -42,7 +41,7 @@ const withPersonal = (menu) => [...menu, ITEMS.notifications];
 
 const samePerson = (left, right) => Number(left) === Number(right);
 
-function menuFor(role, showCollegeOpcr, showTeam, showRating, showAttendance) {
+function menuFor(role, showCollegeOpcr, showTeam, showRating, showAttendance, showCalendar) {
     const menu = [...(MENUS[role] ?? MENUS.employee)];
 
     if (showRating && !menu.some((item) => item.key === "/review-queue")) {
@@ -62,11 +61,11 @@ function menuFor(role, showCollegeOpcr, showTeam, showRating, showAttendance) {
         menu.splice(insertAt, 0, ITEMS.myTeam);
     }
 
-    if (showAttendance && !menu.some((item) => item.key === "/attendance")) {
+    if ((showAttendance || showCalendar) && !menu.some((item) => item.key === "/attendance")) {
         const teamAt = menu.findIndex((item) => item.key === "/my-team");
         const ipcrAt = menu.findIndex((item) => item.key === "/my-ipcr");
         const insertAt = teamAt >= 0 ? teamAt + 1 : ipcrAt >= 0 ? ipcrAt + 1 : 1;
-        menu.splice(insertAt, 0, ITEMS.attendance);
+        menu.splice(insertAt, 0, showCalendar ? ITEMS.calendar : ITEMS.attendance);
     }
 
     return withPersonal(menu);
@@ -90,7 +89,6 @@ const MENUS = {
     qa: [ITEMS.dashboard, ITEMS.collegeOpcr, ITEMS.myIpcr, ITEMS.forms, ITEMS.myTeam, ITEMS.reviewQueue, ITEMS.reports],
     vp: [ITEMS.dashboard, ITEMS.myIpcr, ITEMS.myForms, ITEMS.myTeam, ITEMS.reviewQueue, ITEMS.reports],
     program_head: [ITEMS.dashboard, ITEMS.myIpcr, ITEMS.myForms, ITEMS.myTeam, ITEMS.reviewQueue, ITEMS.reports],
-    hr: [ITEMS.dashboard, ITEMS.myIpcr, ITEMS.collegeOpcr, ITEMS.forms, ITEMS.reviewQueue, ITEMS.closing, ITEMS.reports],
     employee: [ITEMS.dashboard, ITEMS.myIpcr, ITEMS.myForms],
 };
 
@@ -140,20 +138,21 @@ export default function AppLayout({ children }) {
     const seesQueueBadge =
         Boolean(user) &&
         user.role !== "admin" &&
-        (["president", "qa", "vp", "program_head", "hr"].includes(user.role) || isRater);
+        (["president", "qa", "vp", "program_head"].includes(user.role) || isRater);
     const { data: waiting = [] } = useQuery({
         queryKey: ["review-queue", "mine", user?.id],
         queryFn: () => api.get("pcr-forms?queue=1").then((r) => r.data),
         enabled: seesQueueBadge,
     });
-    const queueCount =
-        user?.role === "president"
-            ? (Array.isArray(waiting) ? waiting : []).filter(
-                  (form) => APPROVAL_QUEUE_STATUSES.includes(form.status) || form.status === "appeal"
-              ).length
-            : Array.isArray(waiting)
-              ? waiting.length
-              : 0;
+    const queueCount = Array.isArray(waiting) && activeYear
+        ? waiting.filter((form) => {
+              if (formYearId(form) !== Number(activeYear.id)) return false;
+
+              return user?.role === "president"
+                  ? APPROVAL_QUEUE_STATUSES.includes(form.status) || qaIpcrWithPresident(form)
+                  : true;
+          }).length
+        : 0;
     const seesCollegeOpcr = Boolean(user);
     const leadsATeam = ["program_head", "vp", "qa"].includes(user?.role);
     const canFollowUp = Boolean(user?.capabilities?.follow_up);
@@ -171,11 +170,8 @@ export default function AppLayout({ children }) {
     const seesTeam =
         user?.role !== "admin" &&
         (canFollowUp || leadsATeam || watchedUnits.length > 0 || ledUnits.length > 0);
-    const seesAttendance =
-        user?.role !== "admin" &&
-        user?.role !== "vp" &&
-        user?.role !== "president" &&
-        (user?.role === "hr" || ledUnits.length > 0);
+    const seesCalendar = ["admin", "president", "vp"].includes(user?.role);
+    const seesAttendance = Boolean(user) && !seesCalendar;
     const openFormId = location.pathname.match(/^\/forms\/(\d+)/)?.[1] ?? null;
     const { data: openForm } = useQuery({
         queryKey: ["pcr-form", openFormId],
@@ -184,7 +180,7 @@ export default function AppLayout({ children }) {
     });
 
     const items = useMemo(() => {
-        const menu = menuFor(user?.role, seesCollegeOpcr, seesTeam, isRater, seesAttendance);
+        const menu = menuFor(user?.role, seesCollegeOpcr, seesTeam, isRater, seesAttendance, seesCalendar);
 
         return menu.map((item) => {
             if (item.key === "/notifications") {
@@ -215,7 +211,7 @@ export default function AppLayout({ children }) {
 
             return item;
         });
-    }, [user?.role, unread, queueCount, collapsed, seesCollegeOpcr, seesTeam, seesAttendance, isRater]);
+    }, [user?.role, unread, queueCount, collapsed, seesCollegeOpcr, seesTeam, seesAttendance, seesCalendar, isRater]);
 
     const selectedKey = useMemo(() => {
         const path = location.pathname;
@@ -312,7 +308,7 @@ export default function AppLayout({ children }) {
         badge: queueCount,
     };
     const alerts = { key: "/notifications", icon: <NavIcon name="bell" />, label: "Alerts", badge: unread };
-    const seesReview = ["admin", "qa", "vp", "program_head", "president", "hr"].includes(user?.role) || isRater;
+    const seesReview = ["admin", "qa", "vp", "program_head", "president"].includes(user?.role) || isRater;
 
     const tabs =
         user?.role === "admin" || user?.role === "president"

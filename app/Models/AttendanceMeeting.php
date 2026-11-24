@@ -23,12 +23,12 @@ class AttendanceMeeting extends Model
      * titles stay null (no suggested attendance score).
      */
     private const TITLE_RULES = [
-        'daily'       => ['dtr', 'daily attendance', 'daily time record', 'time record'],
-        'convocation' => ['convocation', 'flag rais', 'flag ceremon', 'flag ceremony'],
-        'training'    => ['training', 'seminar', 'symposia', 'symposium', 'workshop'],
-        'lgu'         => ['lgu', 'outreach'],
-        'school'      => ['school activit', 'departmental', 'institutional'],
-        'meeting'     => ['meeting', 'mancom'],
+        'daily'       => ['dtr', 'daily attendance', 'daily time record', 'daily time', 'time record', 'timekeeping', 'time keeping', 'bundy'],
+        'convocation' => ['convocation', 'flag rais', 'flag ceremon', 'flag ceremony', 'flag retreat'],
+        'training'    => ['training', 'seminar', 'symposia', 'symposium', 'workshop', 'webinar', 'capability building', 'capability-building', 'in-service', 'retooling'],
+        'lgu'         => ['lgu', 'outreach', 'barangay', 'municipal activit', 'local government'],
+        'school'      => ['school activit', 'departmental', 'institutional', 'campus activit', 'college activit', 'foundation day'],
+        'meeting'     => ['meeting', 'mancom', 'execom'],
     ];
 
     protected $table = 'attendance_meetings';
@@ -126,6 +126,27 @@ class AttendanceMeeting extends Model
         $present = count(array_filter($statuses, fn ($status) => $status === 'present'));
         $absent  = count(array_filter($statuses, fn ($status) => $status === 'absent'));
         $excused = count(array_filter($statuses, fn ($status) => $status === 'excused'));
+        $counted = $present + $absent;
+
+        return [
+            'present' => $present,
+            'absent'  => $absent,
+            'excused' => $excused,
+            'counted' => $counted,
+            'pct'     => $counted > 0 ? (int) round($present / $counted * 100) : null,
+        ];
+    }
+
+    /**
+     * @param  array{present?: int, absent?: int, excused?: int}  $left
+     * @param  array{present?: int, absent?: int, excused?: int}  $right
+     * @return array{present: int, absent: int, excused: int, counted: int, pct: int|null}
+     */
+    public static function combineRates(array $left, array $right): array
+    {
+        $present = (int) ($left['present'] ?? 0) + (int) ($right['present'] ?? 0);
+        $absent  = (int) ($left['absent'] ?? 0) + (int) ($right['absent'] ?? 0);
+        $excused = (int) ($left['excused'] ?? 0) + (int) ($right['excused'] ?? 0);
         $counted = $present + $absent;
 
         return [

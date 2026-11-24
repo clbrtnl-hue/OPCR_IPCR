@@ -180,21 +180,29 @@ class PcrRatingController extends Controller
             return response()->json(['message' => 'This form is not waiting for a rating.'], 409);
         }
 
+        if ($form->type === 'opcr' && $message = PcrWorkflow::accountableNarrativeMessage($form)) {
+            return response()->json(['message' => $message], 422);
+        }
+
         if ($form->rating_period_id && (int) $form->rating_period_id !== (int) $period->id) {
             return response()->json([
                 'message' => 'This IPCR covers a different review period.',
             ], 422);
         }
 
-        $summary = $this->computeSummary($form, $period);
+        $missing = $this->unratedTargetCount($form, $period);
 
-        if ($summary['rated_indicators'] < $summary['total_indicators']) {
-            $missing = $summary['total_indicators'] - $summary['rated_indicators'];
+        if ($missing > 0) {
+            $still = $missing === 1
+                ? '1 target still has no rating.'
+                : "{$missing} targets still have no rating.";
 
             return response()->json([
-                'message' => "{$missing} indicator(s) still have no rating. Rate every line before finalizing.",
+                'message' => "{$still} Rate every target before finalizing.",
             ], 422);
         }
+
+        $summary = $this->computeSummary($form, $period);
 
         // Keep leaves the scores already on the form. The person who closes
         // the rating in the system stays the one who finalized it.
@@ -222,13 +230,13 @@ class PcrRatingController extends Controller
             $fromStatus = $form->status;
 
             $form->update([
-                'status'        => 'rated',
+                'status'        => 'final',
                 'rated_by'      => $user->id,
                 'rated_by_name' => $user->name,
                 'rated_at'      => now(),
             ]);
 
-            $log = PcrStatusLog::record($form->id, $fromStatus, 'rated', $note);
+            $log = PcrStatusLog::record($form->id, $fromStatus, 'final', $note);
 
             if ($log && ! $keep) {
                 $scores = PcrFormController::ratingSnapshot($form);
@@ -251,7 +259,7 @@ class PcrRatingController extends Controller
         Notification::sendMany(
             [$form->user_id, $form->orgUnit?->head_user_id, $form->orgUnit?->dean_user_id, $form->orgUnit?->vp_user_id],
             'rated',
-            strtoupper($form->type) . ' rating is out',
+            strtoupper($form->type) . ' rating is final',
             "{$period->label}: {$summary['final_average']} — {$summary['adjectival']}",
             $form->id
         );
@@ -272,7 +280,7 @@ class PcrRatingController extends Controller
         $user = $request->user();
         $periodFilter = $request->query('rating_period_id');
         $sectionOrder = ['strategic' => 0, 'core' => 1, 'support' => 2];
-        $seesAll = in_array($user->role, ['admin', 'qa', 'hr', 'president'], true)
+        $seesAll = in_array($user->role, ['admin', 'qa', 'president'], true)
             || PcrWorkflow::isRater($user);
         $limited = in_array($user->role, ['program_head', 'vp'], true) && ! $seesAll;
 
@@ -505,6 +513,7 @@ class PcrRatingController extends Controller
                 'owner'            => $form->owner?->name,
                 'org_unit'         => $form->orgUnit?->name,
                 'rating_period_id' => $form->rating_period_id,
+                'school_year_id'   => $form->school_year_id,
                 'school_year'      => $form->schoolYear?->label,
                 'periods'          => $form->schoolYear?->periods
                     ?->sortBy('seq')
@@ -546,6 +555,31 @@ class PcrRatingController extends Controller
             ->pluck('id')
             ->map(fn ($id) => (int) $id)
             ->all();
+    }
+
+    /** Targets that still lack a score on every active dimension. */
+    private function unratedTargetCount(PcrForm $form, RatingPeriod $period): int
+    {
+        $ids = $this->rateableIds($form);
+
+        if ($ids === []) {
+            return 0;
+        }
+
+        $keys = app(WorkflowSettings::class)->ratingDimensionKeys();
+
+        $rated = PcrRating::query()
+            ->whereIn('indicator_id', $ids)
+            ->where('rating_period_id', $period->id)
+            ->tap(function ($query) use ($keys) {
+                foreach ($keys as $dimension) {
+                    $query->whereNotNull($dimension);
+                }
+            })
+            ->pluck('indicator_id')
+            ->unique();
+
+        return count($ids) - $rated->count();
     }
 
     private function rateableIds(PcrForm $form): array
