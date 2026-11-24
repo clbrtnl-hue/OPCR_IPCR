@@ -16,6 +16,7 @@ import ProgressCell from "~/components/ProgressCell";
 import RichText from "~/components/RichText";
 import RichTextView from "~/components/RichTextView";
 import AccomplishmentView, { AttachmentGallery } from "~/components/AccomplishmentView";
+import { ScoreFields } from "~/components/SheetScoreCells";
 
 /**
  * Office-level actual accomplishments live on this OPCR line. They are what QA
@@ -29,6 +30,7 @@ export default function OpcrLineDrawer({
     canAssign = false,
     canRecordProgress = false,
     showAccomplishments = true,
+    scoreEdit = null,
 }) {
     const queryClient = useQueryClient();
     const rating = (line.ratings ?? []).find((r) => r.rating_period_id === periodId);
@@ -91,6 +93,11 @@ export default function OpcrLineDrawer({
     return (
         <>
             <RichTextView html={line.description} />
+            {scoreEdit && (
+                <div style={{ marginTop: 16 }}>
+                    <ScoreFields line={line} saved={rating} scoreEdit={scoreEdit} />
+                </div>
+            )}
 
             <Space wrap size={8} style={{ marginTop: 12 }}>
                 {line.delay && line.delay.state !== "no_date" && (
@@ -135,7 +142,7 @@ export default function OpcrLineDrawer({
                 />
             </div>
 
-            {rating?.a != null && (
+            {rating?.a != null && !scoreEdit && (
                 <Space wrap size={6} style={{ marginTop: 12 }}>
                     <Tag>Q {rating.q ?? "—"}</Tag>
                     <Tag>E {rating.e ?? "—"}</Tag>

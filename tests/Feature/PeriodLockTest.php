@@ -197,16 +197,20 @@ class PeriodLockTest extends PmsTestCase
 
         $this->actingAsUser($president);
 
-        $this->postJson('/api/pcr-accomplishments', [
-            'indicator_id'          => $indicator->id,
-            'rating_period_id'      => $first->id,
-            'actual_accomplishment' => 'Still the college year.',
-        ])->assertSuccessful();
-
+        // Commitments are written while the OPCR is a draft, then it is published.
         $this->postJson('/api/pcr-indicators', [
             'id'          => $indicator->id,
             'output_id'   => $indicator->output_id,
             'description' => 'Still the college year.',
+        ])->assertSuccessful();
+
+        $form->update(['status' => 'published']);
+
+        // One locked semester leaves the college year open, so the OPCR still takes work.
+        $this->postJson('/api/pcr-accomplishments', [
+            'indicator_id'          => $indicator->id,
+            'rating_period_id'      => $first->id,
+            'actual_accomplishment' => 'Still the college year.',
         ])->assertSuccessful();
     }
 

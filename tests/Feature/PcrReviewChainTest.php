@@ -721,4 +721,146 @@ class PcrReviewChainTest extends PmsTestCase
         $this->postJson("/api/pcr-forms/{$form->id}/status", ['status' => 'qa_rating'])->assertSuccessful();
         $this->assertSame('vp_review', $form->fresh()->status);
     }
+
+    public function test_the_owner_may_optionally_self_rate_before_review(): void
+    {
+        ['office' => $office, 'year' => $year, 'period' => $period, 'faculty' => $faculty, 'head' => $head, 'vp' => $vp] = $this->college();
+
+        $qa = User::factory()->create(['role' => 'qa']);
+        $form = $this->makeForm([
+            'org_unit_id' => $office->id, 'school_year_id' => $year->id, 'user_id' => $faculty->id,
+        ]);
+        $indicator = $this->documentLine($this->makeIndicator($form, 'support'));
+
+        $this->actingAsUser($faculty);
+        $this->postJson('/api/pcr-ratings', [
+            'form_id' => $form->id, 'rating_period_id' => $period->id,
+            'ratings' => [['indicator_id' => $indicator->id, 'q' => 5, 'e' => 5, 't' => 5, 'remarks' => 'My own read.']],
+        ])->assertStatus(409);
+
+        $this->approveCommitments($form);
+
+        $this->actingAsUser($head);
+        $this->postJson('/api/pcr-ratings', [
+            'form_id' => $form->id, 'rating_period_id' => $period->id,
+            'ratings' => [['indicator_id' => $indicator->id, 'q' => 1, 'e' => 1, 't' => 1]],
+        ])->assertStatus(409);
+
+        $this->actingAsUser($faculty);
+        $this->postJson('/api/pcr-ratings', [
+            'form_id' => $form->id, 'rating_period_id' => $period->id,
+            'ratings' => [['indicator_id' => $indicator->id, 'q' => 5, 'e' => 4, 't' => 3, 'remarks' => 'My own read.']],
+        ])->assertOk();
+        $this->postJson("/api/pcr-forms/{$form->id}/status", ['status' => 'head_review'])->assertSuccessful();
+
+        $events = collect($this->getJson("/api/pcr-forms/{$form->id}/history")->assertOk()->json('events'));
+        $own = $events->first(fn ($event) => ($event['from'] ?? null) === 'commitments_approved');
+
+        $this->assertSame($faculty->name, $own['actor']);
+        $this->assertSame(5, $own['scores'][0]['q']);
+        $this->assertSame(4, $own['scores'][0]['e']);
+        $this->assertSame('My own read.', $own['scores'][0]['remarks']);
+
+        $this->actingAsUser($head);
+        $this->postJson("/api/pcr-forms/{$form->id}/status", ['status' => 'vp_review'])->assertSuccessful();
+        $this->assertSame(5, PcrRating::where('indicator_id', $indicator->id)->value('q'));
+
+        $this->actingAsUser($vp);
+        $this->postJson('/api/pcr-ratings', [
+            'form_id' => $form->id, 'rating_period_id' => $period->id,
+            'ratings' => [['indicator_id' => $indicator->id, 'q' => 3, 'e' => 3, 't' => 3]],
+        ])->assertOk();
+        $this->postJson("/api/pcr-forms/{$form->id}/status", ['status' => 'qa_rating'])->assertSuccessful();
+
+        $this->actingAsUser($qa);
+        $this->postJson("/api/pcr-forms/{$form->id}/finalize-rating", [
+            'rating_period_id' => $period->id,
+            'keep'             => true,
+        ])->assertOk();
+
+        $fresh = $form->fresh();
+        $this->assertSame('rated', $fresh->status);
+        $this->assertSame($qa->id, (int) $fresh->rated_by);
+        $this->assertSame($qa->name, $fresh->rated_by_name);
+        $this->assertDatabaseHas('pcr_ratings', [
+            'indicator_id' => $indicator->id,
+            'q'            => 3,
+            'rated_by'     => $vp->id,
+        ]);
+
+        $this->actingAsUser($faculty);
+        $kept = collect($this->getJson("/api/pcr-forms/{$form->id}/history")->assertOk()->json('events'))
+            ->first(fn ($event) => ($event['to'] ?? null) === 'rated');
+
+        $this->assertStringContainsString('Kept the rating already on the form.', $kept['detail']);
+        $this->assertArrayNotHasKey('scores', $kept);
+    }
+
+    public function test_qa_may_replace_the_rating_that_reaches_them(): void
+    {
+        ['office' => $office, 'year' => $year, 'period' => $period, 'faculty' => $faculty, 'head' => $head, 'vp' => $vp] = $this->college();
+
+        $qa = User::factory()->create(['role' => 'qa']);
+        $form = $this->makeForm([
+            'org_unit_id' => $office->id, 'school_year_id' => $year->id, 'user_id' => $faculty->id,
+        ]);
+        $this->submit($faculty, $form);
+        $indicator = $form->indicators()->first();
+
+        $this->actingAsUser($head);
+        $this->postJson('/api/pcr-ratings', [
+            'form_id' => $form->id, 'rating_period_id' => $period->id,
+            'ratings' => [['indicator_id' => $indicator->id, 'q' => 5, 'e' => 5, 't' => 5]],
+        ])->assertOk();
+        $this->postJson("/api/pcr-forms/{$form->id}/status", ['status' => 'vp_review'])->assertSuccessful();
+
+        $this->actingAsUser($vp);
+        $this->postJson('/api/pcr-ratings', [
+            'form_id' => $form->id, 'rating_period_id' => $period->id,
+            'ratings' => [['indicator_id' => $indicator->id, 'q' => 3, 'e' => 3, 't' => 3]],
+        ])->assertOk();
+        $this->postJson("/api/pcr-forms/{$form->id}/status", ['status' => 'qa_rating'])->assertSuccessful();
+
+        $this->actingAsUser($qa);
+        $this->postJson('/api/pcr-ratings', [
+            'form_id' => $form->id, 'rating_period_id' => $period->id,
+            'ratings' => [['indicator_id' => $indicator->id, 'q' => 4, 'e' => 4, 't' => 4, 'remarks' => 'Adjusted.']],
+        ])->assertOk();
+        $this->postJson("/api/pcr-forms/{$form->id}/finalize-rating", [
+            'rating_period_id' => $period->id,
+        ])->assertOk();
+
+        $fresh = $form->fresh();
+        $this->assertSame('rated', $fresh->status);
+        $this->assertSame($qa->name, $fresh->rated_by_name);
+        $this->assertDatabaseHas('pcr_ratings', [
+            'indicator_id' => $indicator->id,
+            'q'            => 4,
+            'rated_by'     => $qa->id,
+        ]);
+
+        $this->actingAsUser($faculty);
+        $replaced = collect($this->getJson("/api/pcr-forms/{$form->id}/history")->assertOk()->json('events'))
+            ->first(fn ($event) => ($event['from'] ?? null) === 'qa_rating' && ($event['to'] ?? null) === 'rated');
+
+        $this->assertSame(4, $replaced['scores'][0]['q']);
+        $this->assertSame('Adjusted.', $replaced['scores'][0]['remarks']);
+        $this->assertSame($qa->name, $replaced['actor']);
+    }
+
+    public function test_submitting_without_a_self_rating_logs_no_scores(): void
+    {
+        ['office' => $office, 'year' => $year, 'faculty' => $faculty] = $this->college();
+
+        $form = $this->makeForm([
+            'org_unit_id' => $office->id, 'school_year_id' => $year->id, 'user_id' => $faculty->id,
+        ]);
+        $this->submit($faculty, $form)->assertSuccessful();
+
+        $this->actingAsUser($faculty);
+        $sent = collect($this->getJson("/api/pcr-forms/{$form->id}/history")->assertOk()->json('events'))
+            ->first(fn ($event) => ($event['from'] ?? null) === 'commitments_approved');
+
+        $this->assertArrayNotHasKey('scores', $sent);
+    }
 }

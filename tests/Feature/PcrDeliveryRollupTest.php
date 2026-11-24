@@ -105,7 +105,7 @@ class PcrDeliveryRollupTest extends PmsTestCase
 
     public function test_the_rollup_follows_who_can_open_the_opcr(): void
     {
-        ['target' => $target, 'faculty' => $faculty] = $this->college();
+        ['target' => $target, 'faculty' => $faculty, 'opcr' => $opcr] = $this->college();
 
         $admin = $this->actingAsRole('admin');
         $this->service()->assignIndicator($target, $faculty, $admin);
@@ -113,7 +113,15 @@ class PcrDeliveryRollupTest extends PmsTestCase
 
         $this->actingAsUser($stranger);
 
+        // A published college OPCR is view-only for everyone, so the roll-up is readable.
+        $this->getJson("/api/pcr-indicators/{$target->id}/rollup")->assertOk();
+
+        // A draft stays with the people who already open it.
+        $opcr->update(['status' => 'draft']);
+
         $this->getJson("/api/pcr-indicators/{$target->id}/rollup")->assertStatus(403);
+
+        $opcr->update(['status' => 'published']);
 
         // Named on the target, so the OPCR and this roll-up are theirs to read.
         $this->actingAsUser($faculty);

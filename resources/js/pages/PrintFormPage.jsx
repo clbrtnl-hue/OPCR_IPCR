@@ -452,9 +452,7 @@ export default function PrintFormPage() {
                         <div>
                             <div className="pms-print-siglabel">Final Rating by</div>
                             <div className="pms-signature-line">
-                                <strong>
-                                    {form.rated_by_name || form.vp_reviewer?.name || "\u00a0"}
-                                </strong>
+                                <strong>{officeHead?.name || "\u00a0"}</strong>
                                 <div>Head of Office</div>
                             </div>
                         </div>

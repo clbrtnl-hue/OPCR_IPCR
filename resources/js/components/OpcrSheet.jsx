@@ -3,6 +3,9 @@ import {
     Badge,
     Button,
     Drawer,
+    Input,
+    Modal,
+    Select,
     Popconfirm,
     Space,
     Tag,
@@ -35,6 +38,7 @@ import CommentThread from "~/components/CommentThread";
 import { ADJECTIVAL_COLORS, DELAY_META, NARRATIVE_MAX, SECTION_LABELS } from "~/utils/constants";
 import { returnMark } from "~/utils/returnMarks";
 import { ratingRules } from "~/utils/ratingScale";
+import { ScoreCells, ScoreHeaders } from "~/components/SheetScoreCells";
 import { useAuth } from "~/hooks/useAuth";
 
 const SECTIONS = ["strategic", "core", "support"];
@@ -60,7 +64,7 @@ function siblingsOf(outputs, output) {
  * rather than opening a dialog for every line — the paper form is the mental
  * model, so the screen should not fight it.
  */
-export default function OpcrSheet({ form, periodId, canEdit, canAssign, canRecordProgress, showScores = false, showAccomplishments = true, summary, focusLineId = null, focusOutputId = null, openFocusedLine = true, returnMarks = [], onExpand }) {
+export default function OpcrSheet({ form, periodId, canEdit, canAssign, canRecordProgress, showScores = false, showProgress = true, scoreEdit = null, scoreLegend = null, showAccomplishments = true, summary, focusLineId = null, focusOutputId = null, openFocusedLine = true, returnMarks = [], onExpand, onReplaceUi = null }) {
     const { user } = useAuth();
     const dimensions = ratingRules(user).dimensions;
     const queryClient = useQueryClient();
@@ -68,6 +72,10 @@ export default function OpcrSheet({ form, periodId, canEdit, canAssign, canRecor
     const [justAdded, setJustAdded] = useState(null);   // { kind, id }
     const [openLineId, setOpenLineId] = useState(null);
     const [commentLineId, setCommentLineId] = useState(null);
+    const [editing, setEditing] = useState(false);
+    const [drafts, setDrafts] = useState({});
+    const [sendBackOpen, setSendBackOpen] = useState(false);
+    const [sendBackNote, setSendBackNote] = useState("");
     const focusedLine = useRef(null);
     const focusedOutput = useRef(null);
     const { openPerson } = usePerson();
@@ -97,11 +105,41 @@ export default function OpcrSheet({ form, periodId, canEdit, canAssign, canRecor
     }, [commentLineId, form.outputs]);
 
     const refresh = () => queryClient.invalidateQueries({ queryKey: ["pcr-form", String(form.id)] });
+    const opcrRules = user?.workflow?.opcr ?? {
+        publisher_roles: ["president"],
+        approver_roles: ["qa"],
+    };
+    const canReplace = form.status === "published" && (opcrRules.publisher_roles ?? []).includes(user?.role);
+    const canDecideReplacement = (opcrRules.approver_roles ?? []).includes(user?.role);
+
+    const propose = useMutation({
+        mutationFn: (lines) => api.post("target-replacements/batch", { lines }),
+        onSuccess: () => {
+            message.success("Sent to QA. Highlighted cells stay as they are until they approve.");
+            setEditing(false);
+            setDrafts({});
+            refresh();
+        },
+    });
+
+    const decideReplacement = useMutation({
+        mutationFn: ({ approve, note }) =>
+            api.post(`pcr-forms/${form.id}/target-replacements`, {
+                approve,
+                ...(note ? { note } : {}),
+            }),
+        onSuccess: (_data, { approve }) => {
+            message.success(approve ? "Changes approved." : "Changes sent back.");
+            setSendBackOpen(false);
+            setSendBackNote("");
+            refresh();
+        },
+    });
 
     const { data: people = [] } = useQuery({
         queryKey: ["assignable-users"],
         queryFn: () => api.get("assignable-users").then((r) => r.data),
-        enabled: Boolean(assigning),
+        enabled: Boolean(assigning || editing),
         staleTime: 5 * 60 * 1000,
     });
 
@@ -350,7 +388,10 @@ export default function OpcrSheet({ form, periodId, canEdit, canAssign, canRecor
                 .map((o) => ({
                     ...o,
                     lines: (o.indicators ?? []).filter(
-                        (i) => !i.rating_period_id || i.rating_period_id === periodId
+                        (i) =>
+                            (!i.rating_period_id || i.rating_period_id === periodId) &&
+                            i.replacement_status !== "pending" &&
+                            !i.closed_at
                     ),
                 }));
         });
@@ -411,7 +452,120 @@ export default function OpcrSheet({ form, periodId, canEdit, canAssign, canRecor
     }, [openLineId, form.outputs]);
 
     const columnCount =
-        6 + (showAccomplishments ? 1 : 0) + (showScores ? dimensions.length + 1 : 0);
+        6 - (showProgress ? 0 : 1) + (showAccomplishments ? 1 : 0) + (showScores ? dimensions.length + 1 + (scoreEdit ? 1 : 0) : 0);
+    const tailSpan = columnCount - (scoreEdit ? 5 : 4);
+    const idsOf = (line) =>
+        (line.assignments ?? [])
+            .map((row) => row.user_id)
+            .filter(Boolean)
+            .sort((a, b) => a - b);
+    const baseOf = (line) => ({
+        description: toPlainText(line.description),
+        target_date: line.target_date ? String(line.target_date).slice(0, 10) : "",
+        allotted_budget: line.allotted_budget == null ? "" : String(line.allotted_budget),
+        user_ids: idsOf(line),
+    });
+    const viewOf = (line) => ({ ...baseOf(line), ...drafts[line.id] });
+    const sameList = (left, right) =>
+        left.join(",") === [...right].sort((a, b) => a - b).join(",");
+    const fieldChanged = (line, field) => {
+        const base = baseOf(line);
+        const view = viewOf(line);
+
+        return field === "user_ids"
+            ? !sameList(base.user_ids, view.user_ids ?? [])
+            : String(base[field] ?? "") !== String(view[field] ?? "");
+    };
+    const proposalChanged = (line, proposal, field) => {
+        if (!proposal) return false;
+        if (field === "description") {
+            return toPlainText(proposal.description) !== toPlainText(line.description);
+        }
+        if (field === "target_date") {
+            return String(proposal.target_date ?? "").slice(0, 10) !== String(line.target_date ?? "").slice(0, 10);
+        }
+        if (field === "allotted_budget") {
+            return Number(proposal.allotted_budget ?? 0) !== Number(line.allotted_budget ?? 0);
+        }
+
+        return !sameList(idsOf(line), idsOf(proposal));
+    };
+    const keepDraft = (line, patch) => {
+        setDrafts((current) => ({
+            ...current,
+            [line.id]: { ...baseOf(line), ...current[line.id], ...patch },
+        }));
+    };
+    const liveLines = (form.outputs ?? []).flatMap((output) =>
+        (output.indicators ?? []).filter((line) => line.replacement_status !== "pending" && !line.closed_at)
+    );
+    const changedLines = liveLines.filter((line) =>
+        ["description", "target_date", "allotted_budget", "user_ids"].some((field) => fieldChanged(line, field))
+    );
+    const pendingCount = (form.outputs ?? [])
+        .flatMap((output) => output.indicators ?? [])
+        .filter((line) => line.replacement_status === "pending").length;
+    const replaceRun = useRef({});
+
+    replaceRun.current = {
+        start: () => {
+            setEditing(true);
+            setDrafts({});
+        },
+        cancel: () => {
+            setEditing(false);
+            setDrafts({});
+        },
+        send: () =>
+            propose.mutate(
+                changedLines.map((line) => {
+                    const view = viewOf(line);
+
+                    return {
+                        indicator_id: line.id,
+                        description: view.description,
+                        target_date: view.target_date || null,
+                        allotted_budget: view.allotted_budget === "" ? null : view.allotted_budget,
+                        user_ids: view.user_ids,
+                    };
+                })
+            ),
+        approve: () => decideReplacement.mutate({ approve: true }),
+        reject: () => {
+            setSendBackNote("");
+            setSendBackOpen(true);
+        },
+    };
+
+    useEffect(() => {
+        if (!onReplaceUi) return undefined;
+
+        return () => onReplaceUi(null);
+    }, [onReplaceUi]);
+
+    useEffect(() => {
+        if (!onReplaceUi) return;
+
+        onReplaceUi({
+            showReplace: canReplace && !editing && pendingCount === 0,
+            editing,
+            changedCount: changedLines.length,
+            proposePending: propose.isPending,
+            showDecide: canDecideReplacement && pendingCount > 0,
+            decidePending: decideReplacement.isPending,
+            run: (name) => replaceRun.current[name]?.(),
+        });
+    }, [
+        onReplaceUi,
+        canReplace,
+        canDecideReplacement,
+        editing,
+        pendingCount,
+        changedLines.length,
+        propose.isPending,
+        decideReplacement.isPending,
+    ]);
+
     const rows = [];
 
     SECTIONS.forEach((section) => {
@@ -606,6 +760,46 @@ export default function OpcrSheet({ form, periodId, canEdit, canAssign, canRecor
                     indicatorId: line.id,
                     field: "evidence",
                 });
+                const proposal = (output.indicators ?? []).find(
+                    (item) => item.replaces_indicator_id === line.id && item.replacement_status === "pending"
+                );
+                const view = viewOf(line);
+                const descChanged = editing
+                    ? fieldChanged(line, "description")
+                    : proposalChanged(line, proposal, "description");
+                const dateChanged = editing
+                    ? fieldChanged(line, "target_date")
+                    : proposalChanged(line, proposal, "target_date");
+                const budgetChanged = editing
+                    ? fieldChanged(line, "allotted_budget")
+                    : proposalChanged(line, proposal, "allotted_budget");
+                const peopleChanged = editing
+                    ? fieldChanged(line, "user_ids")
+                    : proposalChanged(line, proposal, "user_ids");
+                const descValue = editing
+                    ? view.description
+                    : descChanged
+                      ? toPlainText(proposal.description)
+                      : toPlainText(line.description);
+                const dateValue = editing
+                    ? view.target_date
+                    : dateChanged
+                      ? String(proposal.target_date).slice(0, 10)
+                      : line.target_date;
+                const budgetValue = editing
+                    ? view.allotted_budget
+                    : budgetChanged
+                      ? proposal.allotted_budget
+                      : line.allotted_budget;
+                const earlier = (changed, text) =>
+                    proposal && !editing && changed ? (
+                        <Typography.Text
+                            type="secondary"
+                            style={{ display: "block", marginTop: 4, fontSize: 12, whiteSpace: "pre-wrap" }}
+                        >
+                            Previous: {text || "None"}
+                        </Typography.Text>
+                    ) : null;
 
                 rows.push(
                     <tr
@@ -615,10 +809,10 @@ export default function OpcrSheet({ form, periodId, canEdit, canAssign, canRecor
                     >
                         {lineIndex === 0 && outputCell}
 
-                        <td>
+                        <td className={descChanged ? "pms-flag" : undefined}>
                             <SheetCell
-                                value={toPlainText(line.description)}
-                                disabled={!canEdit}
+                                value={descValue}
+                                disabled={!canEdit && !editing}
                                 placeholder="Target + measure + timeframe"
                                 maxLength={NARRATIVE_MAX}
                                 mark={returnMark(returnMarks, {
@@ -626,11 +820,14 @@ export default function OpcrSheet({ form, periodId, canEdit, canAssign, canRecor
                                     field: "description",
                                 })}
                                 onCommit={(description) =>
-                                    patchLine(line, output.id, {
-                                        description: description ?? "",
-                                    })
+                                    editing
+                                        ? keepDraft(line, { description: description ?? "" })
+                                        : patchLine(line, output.id, {
+                                              description: description ?? "",
+                                          })
                                 }
                             />
+                            {earlier(descChanged, toPlainText(line.description))}
                             {canEdit && (
                                 <Space size={2} className="pms-sheet-rowtools">
                                     <Tooltip title="Move up">
@@ -673,20 +870,38 @@ export default function OpcrSheet({ form, periodId, canEdit, canAssign, canRecor
                                     </Popconfirm>
                                 </Space>
                             )}
+                            {line.closed_at && (
+                                <Tag color="default" style={{ marginTop: 4 }}>
+                                    Replaced
+                                </Tag>
+                            )}
+                            {proposal && (
+                                <Tag color="gold" style={{ marginTop: 4 }}>
+                                    Waiting for QA
+                                </Tag>
+                            )}
                         </td>
 
-                        <td>
+                        <td className={dateChanged ? "pms-flag" : undefined}>
                             <SheetCell
                                 type="date"
-                                value={line.target_date}
-                                disabled={!canEdit}
+                                value={dateValue}
+                                disabled={!canEdit && !editing}
                                 placeholder="No date"
                                 mark={returnMark(returnMarks, {
                                     indicatorId: line.id,
                                     field: "target_date",
                                 })}
-                                onCommit={(target_date) => patchLine(line, output.id, { target_date })}
+                                onCommit={(target_date) =>
+                                    editing
+                                        ? keepDraft(line, { target_date: target_date ? String(target_date).slice(0, 10) : "" })
+                                        : patchLine(line, output.id, { target_date })
+                                }
                             />
+                            {earlier(
+                                dateChanged,
+                                line.target_date ? String(line.target_date).slice(0, 10) : ""
+                            )}
                             {line.delay && line.delay.state !== "no_date" && (
                                 <Tag
                                     color={DELAY_META[line.delay.state]?.color}
@@ -697,6 +912,7 @@ export default function OpcrSheet({ form, periodId, canEdit, canAssign, canRecor
                             )}
                         </td>
 
+                        {showProgress && (
                         <td className="pms-sheet-progress">
                             <ProgressCell
                                 status={line.progress_status ?? "not_started"}
@@ -710,22 +926,65 @@ export default function OpcrSheet({ form, periodId, canEdit, canAssign, canRecor
                                 }
                             />
                         </td>
+                        )}
 
-                        <td className="pms-sheet-money">
+                        <td className={budgetChanged ? "pms-sheet-money pms-flag" : "pms-sheet-money"}>
                             <SheetCell
                                 type="number"
                                 align="right"
-                                value={line.allotted_budget}
-                                disabled={!canEdit}
+                                value={budgetValue}
+                                disabled={!canEdit && !editing}
                                 mark={returnMark(returnMarks, {
                                     indicatorId: line.id,
                                     field: "allotted_budget",
                                 })}
-                                onCommit={(allotted_budget) => patchLine(line, output.id, { allotted_budget })}
+                                onCommit={(allotted_budget) =>
+                                    editing
+                                        ? keepDraft(line, {
+                                              allotted_budget:
+                                                  allotted_budget == null || allotted_budget === ""
+                                                      ? ""
+                                                      : String(allotted_budget),
+                                          })
+                                        : patchLine(line, output.id, { allotted_budget })
+                                }
                             />
+                            {earlier(
+                                budgetChanged,
+                                line.allotted_budget == null || line.allotted_budget === ""
+                                    ? ""
+                                    : String(line.allotted_budget)
+                            )}
                         </td>
 
-                        <td className={accountableMark ? "pms-flag" : undefined}>
+                        <td className={accountableMark || peopleChanged ? "pms-flag" : undefined}>
+                            {editing && (
+                                <Select
+                                    mode="multiple"
+                                    size="small"
+                                    style={{ width: "100%", marginBottom: 6 }}
+                                    placeholder="Accountable"
+                                    value={view.user_ids}
+                                    options={people.map((person) => ({ value: person.id, label: person.name }))}
+                                    onChange={(user_ids) => keepDraft(line, { user_ids })}
+                                />
+                            )}
+                            {!editing && peopleChanged && proposal && (
+                                <span>
+                                    {(proposal.assignments ?? [])
+                                        .map((row) => row.user?.name)
+                                        .filter(Boolean)
+                                        .join(", ") || "Nobody"}
+                                </span>
+                            )}
+                            {earlier(
+                                peopleChanged,
+                                accountableFor(line)
+                                    .map((person) => person.name)
+                                    .filter(Boolean)
+                                    .join(", ")
+                            )}
+                            {!editing && !(peopleChanged && proposal) && (
                             <Space size={4} wrap>
                                 {accountableFor(line).map((person) => {
                                     const withdrawId = person.assignmentId ?? person.childId;
@@ -771,6 +1030,7 @@ export default function OpcrSheet({ form, periodId, canEdit, canAssign, canRecor
                                     <span className="pms-cell-empty">Not yet assigned</span>
                                 )}
                             </Space>
+                            )}
                             {accountableMark && <div className="pms-cell-mark">{accountableMark}</div>}
                         </td>
 
@@ -847,18 +1107,7 @@ export default function OpcrSheet({ form, periodId, canEdit, canAssign, canRecor
                             </td>
                         )}
 
-                        {showScores && (
-                            <>
-                                {dimensions.map((dimension) => (
-                                    <td key={dimension.key} className="pms-sheet-score">
-                                        {rating?.[dimension.key] ?? ""}
-                                    </td>
-                                ))}
-                                <td className="pms-sheet-score">
-                                    {rating?.a != null ? Number(rating.a).toFixed(2) : ""}
-                                </td>
-                            </>
-                        )}
+                        {showScores && <ScoreCells line={line} saved={rating} scoreEdit={scoreEdit} />}
                     </tr>
                 );
             });
@@ -869,6 +1118,7 @@ export default function OpcrSheet({ form, periodId, canEdit, canAssign, canRecor
             rows.push(
                 <tr key={`summary-${section}`} className="pms-sheet-summary">
                     <td colSpan={3}>AVERAGE RATING — {SECTION_LABELS[section]}</td>
+                    {showProgress && (
                     <td className="pms-sheet-progress">
                         {sectionProgress && (
                             <ProgressCell
@@ -877,6 +1127,7 @@ export default function OpcrSheet({ form, periodId, canEdit, canAssign, canRecor
                             />
                         )}
                     </td>
+                    )}
                     <td className="pms-sheet-money">
                         {sectionBudget > 0 ? `₱${sectionBudget.toLocaleString()}` : ""}
                     </td>
@@ -885,6 +1136,7 @@ export default function OpcrSheet({ form, periodId, canEdit, canAssign, canRecor
                     <td className="pms-sheet-score">
                         {sectionAverage != null ? Number(sectionAverage).toFixed(2) : ""}
                     </td>
+                    {scoreEdit && <td />}
                 </tr>
             );
         }
@@ -908,9 +1160,11 @@ export default function OpcrSheet({ form, periodId, canEdit, canAssign, canRecor
         rows.push(
             <tr key="grand-total" className="pms-sheet-total">
                 <td colSpan={3}>TOTAL OVERALL RATING</td>
+                {showProgress && (
                 <td className="pms-sheet-progress">
                     {overall && <ProgressCell status={overall.status} pct={overall.pct} />}
                 </td>
+                )}
                 <td className="pms-sheet-money">
                     {totalBudget > 0 ? `₱${totalBudget.toLocaleString()}` : ""}
                 </td>
@@ -921,10 +1175,11 @@ export default function OpcrSheet({ form, periodId, canEdit, canAssign, canRecor
                         ? Number(summary.final_average).toFixed(2)
                         : ""}
                 </td>
+                {scoreEdit && <td />}
             </tr>,
             <tr key="adjectival" className="pms-sheet-total">
                 <td colSpan={3}>ADJECTIVAL RATING</td>
-                <td colSpan={columnCount - 4} />
+                <td colSpan={tailSpan} />
                 <td className="pms-sheet-score">
                     {summary?.adjectival ? (
                         <Tag color={ADJECTIVAL_COLORS[summary.adjectival]} style={{ margin: 0 }}>
@@ -934,6 +1189,7 @@ export default function OpcrSheet({ form, periodId, canEdit, canAssign, canRecor
                         ""
                     )}
                 </td>
+                {scoreEdit && <td />}
             </tr>
         );
     }
@@ -944,6 +1200,72 @@ export default function OpcrSheet({ form, periodId, canEdit, canAssign, canRecor
 
     return (
         <>
+            {!onReplaceUi && (canReplace || (canDecideReplacement && pendingCount > 0)) && (
+                <Space style={{ marginBottom: 12 }} wrap>
+                    {canReplace && !editing && pendingCount === 0 && (
+                        <Button onClick={() => { setEditing(true); setDrafts({}); }}>Replace</Button>
+                    )}
+                    {editing && (
+                        <>
+                            <Typography.Text type="secondary">
+                                Edit the cells you want. Highlighted ones will be sent.
+                            </Typography.Text>
+                            <Button
+                                onClick={() => {
+                                    setEditing(false);
+                                    setDrafts({});
+                                }}
+                            >
+                                Cancel
+                            </Button>
+                            <Button
+                                type="primary"
+                                disabled={changedLines.length === 0}
+                                loading={propose.isPending}
+                                onClick={() =>
+                                    propose.mutate(
+                                        changedLines.map((line) => {
+                                            const view = viewOf(line);
+
+                                            return {
+                                                indicator_id: line.id,
+                                                description: view.description,
+                                                target_date: view.target_date || null,
+                                                allotted_budget:
+                                                    view.allotted_budget === "" ? null : view.allotted_budget,
+                                                user_ids: view.user_ids,
+                                            };
+                                        })
+                                    )
+                                }
+                            >
+                                Send to QA{changedLines.length ? ` (${changedLines.length})` : ""}
+                            </Button>
+                        </>
+                    )}
+                    {canDecideReplacement && pendingCount > 0 && (
+                        <>
+                            <Button
+                                type="primary"
+                                loading={decideReplacement.isPending}
+                                onClick={() => decideReplacement.mutate({ approve: true })}
+                            >
+                                Approve changes
+                            </Button>
+                            <Button
+                                loading={decideReplacement.isPending}
+                                onClick={() => {
+                                    setSendBackNote("");
+                                    setSendBackOpen(true);
+                                }}
+                            >
+                                Send back
+                            </Button>
+                        </>
+                    )}
+                </Space>
+            )}
+
             {unlinkedCount > 0 && (
                 <div className="pms-unlinked">
                     {unlinkedCount} assigned OPCR target{unlinkedCount === 1 ? "" : "s"} have no linked IPCR
@@ -978,27 +1300,22 @@ export default function OpcrSheet({ form, periodId, canEdit, canAssign, canRecor
                                 <div className="pms-sheet-subhead">(Target + Measure)</div>
                             </th>
                             <th style={{ width: 110 }}>Target Date</th>
-                            <th style={{ width: 140 }}>Progress</th>
+                            {showProgress && <th style={{ width: 140 }}>Progress</th>}
                             <th style={{ width: 110 }}>Alloted Budget</th>
                             <th style={{ width: 190 }}>Individual / Accountable</th>
                             {showAccomplishments && (
                                 <th style={{ width: 210 }}>Actual Accomplishments</th>
                             )}
-                            {showScores && (
-                                <>
-                                    {dimensions.map((dimension) => (
-                                        <th key={dimension.key} style={{ width: 38 }} title={dimension.label}>
-                                            {dimension.short}
-                                        </th>
-                                    ))}
-                                    <th style={{ width: 46 }} title="Average">A</th>
-                                </>
-                            )}
+                            {showScores && <ScoreHeaders scoreEdit={scoreEdit} />}
                         </tr>
                     </thead>
                     <tbody>{rows}</tbody>
                 </table>
             </div>
+
+            {scoreLegend ? (
+                <div style={{ marginTop: 12 }}>{typeof scoreLegend === "function" ? scoreLegend() : scoreLegend}</div>
+            ) : null}
 
             {canEdit && (
                 <Typography.Text className="pms-sheet-hint" type="secondary" style={{ fontSize: 12 }}>
@@ -1036,6 +1353,7 @@ export default function OpcrSheet({ form, periodId, canEdit, canAssign, canRecor
                         canAssign={canAssign}
                         canRecordProgress={canRecordProgress}
                         showAccomplishments={showAccomplishments}
+                        scoreEdit={scoreEdit}
                     />
                 )}
             </Drawer>
@@ -1050,6 +1368,27 @@ export default function OpcrSheet({ form, periodId, canEdit, canAssign, canRecor
                 onClose={() => setAssigning(null)}
                 onAssign={(ids) => assign.mutate(ids)}
             />
+
+            <Modal
+                title="Send these changes back"
+                open={sendBackOpen}
+                okText="Send back"
+                confirmLoading={decideReplacement.isPending}
+                okButtonProps={{ disabled: !sendBackNote.trim() }}
+                onOk={() =>
+                    decideReplacement.mutate({ approve: false, note: sendBackNote.trim() })
+                }
+                onCancel={() => setSendBackOpen(false)}
+                destroyOnClose
+            >
+                <Input.TextArea
+                    rows={3}
+                    value={sendBackNote}
+                    maxLength={500}
+                    placeholder="Why are you sending this back?"
+                    onChange={(event) => setSendBackNote(event.target.value)}
+                />
+            </Modal>
         </>
     );
 }

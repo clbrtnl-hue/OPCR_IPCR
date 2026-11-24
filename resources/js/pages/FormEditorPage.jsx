@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
     Alert,
     Button,
@@ -50,7 +50,8 @@ import dayjs from "dayjs";
 import relativeTime from "dayjs/plugin/relativeTime";
 import api from "~/utils/api";
 import { downloadFile } from "~/utils/download";
-import { ADJECTIVAL_COLORS, statusMeta } from "~/utils/constants";
+import { ADJECTIVAL_COLORS, RATING_LEGEND, statusMeta } from "~/utils/constants";
+import { scoreOptions } from "~/utils/ratingScale";
 import { useAuth } from "~/hooks/useAuth";
 import PageHeader from "~/components/PageHeader";
 import { toPlainText } from "~/components/RichTextView";
@@ -156,6 +157,24 @@ function writeUpGaps(form) {
 
 const SOFT_ALERT_MS = 5000;
 
+function SelfRateLegend({ user }) {
+    const bands = user?.workflow?.rating?.bands?.length ? user.workflow.rating.bands : RATING_LEGEND;
+
+    return (
+        <Space wrap>
+            <Typography.Text type="secondary">
+                Self-rating is optional. The next reviewer sees these scores and can replace them.
+            </Typography.Text>
+            {bands.map((band) => (
+                <Tag key={band.label} color={ADJECTIVAL_COLORS[band.label]}>
+                    {band.value} — {band.label}
+                    {band.range ? ` (${band.range})` : ""}
+                </Tag>
+            ))}
+        </Space>
+    );
+}
+
 /**
  * Sticky (lock / appeal / returned): stay until closed.
  * Soft (planning / waiting / approved): auto-hide after a few seconds, also closable.
@@ -165,6 +184,7 @@ function FormStatusAlerts({
     isOwner,
     isOpcr,
     periodLocked,
+    hideLockAlert = false,
     viewedPeriod,
     planningOpen,
     approverLabel,
@@ -215,7 +235,7 @@ function FormStatusAlerts({
     });
 
     if (periodLocked) {
-        if (hidden.has("locked")) return null;
+        if (hideLockAlert || hidden.has("locked")) return null;
         return (
             <Alert
                 type="warning"
@@ -281,7 +301,7 @@ function FormStatusAlerts({
                     type="success"
                     {...alertProps("commitments_approved")}
                     message="Commitments approved"
-                    description="You can hand work to your team and record tasks. Submit for review once every line has a narrative and two files."
+                    description="You can hand work to your team and record tasks. Submit for review once every line has a narrative and two files. Self-rating is optional."
                 />
             )}
             {form.status === "returned" && !hidden.has("returned") && (
@@ -302,7 +322,9 @@ function FormStatusAlerts({
                         ) : isOpcr && returnedFromRating ? (
                             "Targets and success indicators stay as they are. Update the actual accomplishment and the evidence, then send it back for rating."
                         ) : (
-                            "Read the feedback below, make the corrections, then submit it again."
+                            form.commitment_approved_at
+                                ? "Read the feedback below, make the corrections, then submit it again. Self-rating is optional."
+                                : "Read the feedback below, make the corrections, then submit it again."
                         )
                     }
                 />
@@ -336,7 +358,7 @@ function ExportMenu({ excelBusy, onPrint, onExcel }) {
 // An OPCR is planned and published first; it is rated later on the same document.
 const OPCR_CHAIN = ["draft", "qa_approval", "approved", "published", "qa_rating", "rated", "final"];
 
-export default function FormEditorPage({ formId = null, periodBar = null, yearSelect = null, filters = null }) {
+export default function FormEditorPage({ formId = null, periodBar = null, yearSelect = null, filters = null, scoreEdit = null, hideTitle = false, hideProgress = false, hideLockAlert = false, toolbarExtra = null, scoreLegend = null }) {
     const { id: routeId } = useParams();
     const [searchParams] = useSearchParams();
     const focusLineId = Number(searchParams.get("line")) || null;
@@ -371,6 +393,80 @@ export default function FormEditorPage({ formId = null, periodBar = null, yearSe
     const [pdfOpen, setPdfOpen] = useState(false);
     const [excelBusy, setExcelBusy] = useState(false);
     const [sheetFull, setSheetFull] = useState(false);
+    const replaceRun = useRef(() => {});
+    const [replaceUi, setReplaceUi] = useState(null);
+    const restartRun = useRef(() => {});
+    const [restartUi, setRestartUi] = useState(null);
+    const onRestartUi = useCallback((ui) => {
+        if (!ui) {
+            restartRun.current = () => {};
+            setRestartUi(null);
+
+            return;
+        }
+
+        restartRun.current = ui.run;
+        setRestartUi((prev) => {
+            const next = {
+                showSend: ui.showSend,
+                count: ui.count,
+                ready: ui.ready,
+                sendPending: ui.sendPending,
+                showDecide: ui.showDecide,
+                waiting: ui.waiting,
+                decidePending: ui.decidePending,
+            };
+
+            if (
+                prev &&
+                prev.showSend === next.showSend &&
+                prev.count === next.count &&
+                prev.ready === next.ready &&
+                prev.sendPending === next.sendPending &&
+                prev.showDecide === next.showDecide &&
+                prev.waiting === next.waiting &&
+                prev.decidePending === next.decidePending
+            ) {
+                return prev;
+            }
+
+            return next;
+        });
+    }, []);
+    const onReplaceUi = useCallback((ui) => {
+        if (!ui) {
+            replaceRun.current = () => {};
+            setReplaceUi(null);
+
+            return;
+        }
+
+        replaceRun.current = ui.run;
+        setReplaceUi((prev) => {
+            const next = {
+                showReplace: ui.showReplace,
+                editing: ui.editing,
+                changedCount: ui.changedCount,
+                proposePending: ui.proposePending,
+                showDecide: ui.showDecide,
+                decidePending: ui.decidePending,
+            };
+
+            if (
+                prev &&
+                prev.showReplace === next.showReplace &&
+                prev.editing === next.editing &&
+                prev.changedCount === next.changedCount &&
+                prev.proposePending === next.proposePending &&
+                prev.showDecide === next.showDecide &&
+                prev.decidePending === next.decidePending
+            ) {
+                return prev;
+            }
+
+            return next;
+        });
+    }, []);
     const [phoneChain, setPhoneChain] = useState(
         () => typeof window !== "undefined" && window.matchMedia("(max-width: 991px)").matches
     );
@@ -384,6 +480,8 @@ export default function FormEditorPage({ formId = null, periodBar = null, yearSe
     const [checking, setChecking] = useState(false);
     const [issues, setIssues] = useState(null);
     const [writeUpIssues, setWriteUpIssues] = useState(null);
+    const [selfScores, setSelfScores] = useState({});
+    const selfDirty = useRef(new Set());
     const [copyOpen, setCopyOpen] = useState(false);
     const [previousOpen, setPreviousOpen] = useState(false);
     const [cascadeOpen, setCascadeOpen] = useState(false);
@@ -421,6 +519,50 @@ export default function FormEditorPage({ formId = null, periodBar = null, yearSe
             setPanelOpen(true);
         }
     }, [focusRemarks, focusLineId, form?.id]);
+
+    useEffect(() => {
+        selfDirty.current = new Set();
+    }, [form?.id, form?.status, form?.rating_period_id]);
+
+    useEffect(() => {
+        if (!form || scoreEdit) return;
+        if (form.type !== "ipcr" || Number(form.user_id) !== Number(user?.id)) return;
+        if (!form.commitment_approved_at) return;
+        if (!["commitments_approved", "returned"].includes(form.status)) return;
+
+        const periodForScores = form.rating_period_id;
+
+        setSelfScores((prev) => {
+            const next = {};
+
+            (form.outputs ?? []).forEach((output) => {
+                (output.indicators ?? []).forEach((indicator) => {
+                    if (periodForScores && indicator.rating_period_id && indicator.rating_period_id !== periodForScores) {
+                        return;
+                    }
+
+                    if (selfDirty.current.has(indicator.id) && prev[indicator.id]) {
+                        next[indicator.id] = prev[indicator.id];
+
+                        return;
+                    }
+
+                    const existing = (indicator.ratings ?? []).find(
+                        (row) => !periodForScores || row.rating_period_id === periodForScores
+                    );
+
+                    next[indicator.id] = {
+                        q: existing?.q ?? null,
+                        e: existing?.e ?? null,
+                        t: existing?.t ?? null,
+                        remarks: existing?.remarks ?? "",
+                    };
+                });
+            });
+
+            return next;
+        });
+    }, [form, user?.id, scoreEdit]);
 
     useEffect(() => {
         if (!focusTargetsKey || !form || focusedTarget.current === focusTargetsKey) return;
@@ -467,6 +609,19 @@ export default function FormEditorPage({ formId = null, periodBar = null, yearSe
     };
 
     const refresh = () => queryClient.invalidateQueries({ queryKey: ["pcr-form", id] });
+
+    const saveSelfRating = useMutation({
+        mutationFn: (ratings) =>
+            api.post("pcr-ratings", {
+                form_id: form.id,
+                rating_period_id: form.rating_period_id ?? activePeriodId,
+                ratings,
+            }),
+        onSuccess: () => {
+            selfDirty.current = new Set();
+            queryClient.invalidateQueries({ queryKey: ["pcr-form", id] });
+        },
+    });
 
     const move = useMutation({
         mutationFn: ({ status, note, fixes }) =>
@@ -582,13 +737,6 @@ export default function FormEditorPage({ formId = null, periodBar = null, yearSe
     const canPublishOpcr = holds(opcrRules.publisher_roles);
     const canTriggerRating = holds(opcrRules.rating_trigger_roles);
 
-    // Scores stay visible once rating has started. They are entered in the
-    // Rating tab, so the sheet only shows the numbers already saved.
-    const showScores = (
-        isOpcr
-            ? ["qa_rating", "rated", "final"]
-            : ["head_review", "dean_review", "director_review", "vp_review", "qa_rating", "rated", "final"]
-    ).includes(form.status);
     // Actual accomplishments stay hidden while the plan is still being written
     // or approved. IPCR waits on commitment approval; OPCR waits on publish.
     const showAccomplishments = isOpcr ? opcrDeliveryOpen : workOpen;
@@ -613,10 +761,66 @@ export default function FormEditorPage({ formId = null, periodBar = null, yearSe
         !periodLocked &&
         commitmentsApproved &&
         ["commitments_approved", "returned"].includes(form.status);
+    const selfRateRows = () =>
+        Object.entries(selfScores).flatMap(([indicatorId, value]) => {
+            const hasScore = ["q", "e", "t"].some((key) => value?.[key] != null && value[key] !== "");
+            const remarks = String(value?.remarks ?? "").trim();
+            const touched = selfDirty.current.has(Number(indicatorId));
+
+            if (!hasScore && remarks === "" && !touched) return [];
+
+            return [{
+                indicator_id: Number(indicatorId),
+                q: value?.q ?? null,
+                e: value?.e ?? null,
+                t: value?.t ?? null,
+                remarks: remarks || null,
+            }];
+        });
+    const selfScoreEdit = !scoreEdit && canSubmitForRating
+        ? {
+            canEdit: true,
+            scores: selfScores,
+            choices: scoreOptions(user),
+            onChange: (indicatorId, field, value) => {
+                selfDirty.current.add(Number(indicatorId));
+                setSelfScores((prev) => ({
+                    ...prev,
+                    [indicatorId]: { ...(prev[indicatorId] ?? {}), [field]: value },
+                }));
+            },
+        }
+        : null;
+    const sheetScoreEdit = scoreEdit ?? selfScoreEdit;
+    const sheetLegend = scoreLegend ?? (selfScoreEdit ? <SelfRateLegend user={user} /> : null);
+    // Score columns appear once rating has started, or while the owner is
+    // optionally scoring their own IPCR before they submit it.
+    const showScores = Boolean(sheetScoreEdit) || (
+        isOpcr
+            ? ["qa_rating", "rated", "final"]
+            : ["head_review", "dean_review", "director_review", "vp_review", "qa_rating", "rated", "final"]
+    ).includes(form.status);
     const canDecideCommitments =
         !isOpcr &&
         form.status === "commitment_review" &&
         samePerson(form.commitment_approver?.id, user.id);
+    // Plain value, not a hook: this sits after the loading return.
+    const vpLinkByTarget = (() => {
+        if (!canDecideCommitments) return null;
+
+        const targets = form.assigned_targets ?? [];
+        const hasOffice = targets.some((target) => target.source === "opcr");
+        const fromVp = targets.filter((target) => target.source && target.source !== "opcr");
+
+        if (!hasOffice || fromVp.length === 0) return null;
+
+        return Object.fromEntries(
+            fromVp.map((target) => [
+                String(target.id),
+                target.assigned_by_name ? `From ${target.assigned_by_name}` : "VP commitment",
+            ])
+        );
+    })();
     // Step progress is for the account owner only — reviewers keep the status tag.
     const seesSteps = isOwner;
     const approverLabel = form.commitment_approver?.label || "approval";
@@ -723,17 +927,41 @@ export default function FormEditorPage({ formId = null, periodBar = null, yearSe
                         <span className="pms-btn-short">Send</span>
                     </Button>
                 )}
+                {selfScoreEdit && (
+                    <Button
+                        loading={saveSelfRating.isPending}
+                        disabled={selfRateRows().length === 0}
+                        onClick={() => {
+                            saveSelfRating.mutate(selfRateRows(), {
+                                onSuccess: () => message.success("Self-rating saved."),
+                            });
+                        }}
+                    >
+                        <span className="pms-btn-long">Save self-rating</span>
+                        <span className="pms-btn-short">Save rating</span>
+                    </Button>
+                )}
                 {canSubmitForRating && (
                     <Button
                         type="primary"
-                        loading={move.isPending}
-                        onClick={() => {
+                        loading={move.isPending || saveSelfRating.isPending}
+                        onClick={async () => {
                             const gaps = writeUpGaps(form);
 
                             if (gaps.length) {
                                 setWriteUpIssues(gaps);
 
                                 return;
+                            }
+
+                            const ratings = selfScoreEdit ? selfRateRows() : [];
+
+                            if (ratings.length) {
+                                try {
+                                    await saveSelfRating.mutateAsync(ratings);
+                                } catch {
+                                    return;
+                                }
                             }
 
                             move.mutate({ status: "head_review" });
@@ -774,6 +1002,7 @@ export default function FormEditorPage({ formId = null, periodBar = null, yearSe
                 )}
             </Space>
             <Space wrap={false} className="pms-form-actions" size={8}>
+                {typeof toolbarExtra === "function" ? toolbarExtra() : toolbarExtra}
                 {form.appeal?.can_file && isOwner && (
                     <Button
                         onClick={() => {
@@ -831,6 +1060,76 @@ export default function FormEditorPage({ formId = null, periodBar = null, yearSe
                         Return
                     </Button>
                 )}
+                {replaceUi?.showReplace && (
+                    <Button onClick={() => replaceRun.current("start")}>Replace</Button>
+                )}
+                {replaceUi?.editing && (
+                    <>
+                        <Typography.Text type="secondary">
+                            Edit the cells you want. Highlighted ones will be sent.
+                        </Typography.Text>
+                        <Button onClick={() => replaceRun.current("cancel")}>Cancel</Button>
+                        <Button
+                            type="primary"
+                            disabled={!replaceUi.changedCount}
+                            loading={replaceUi.proposePending}
+                            onClick={() => replaceRun.current("send")}
+                        >
+                            Send to QA{replaceUi.changedCount ? ` (${replaceUi.changedCount})` : ""}
+                        </Button>
+                    </>
+                )}
+                {replaceUi?.showDecide && (
+                    <>
+                        <Button
+                            type="primary"
+                            loading={replaceUi.decidePending}
+                            onClick={() => replaceRun.current("approve")}
+                        >
+                            Approve changes
+                        </Button>
+                        <Button
+                            loading={replaceUi.decidePending}
+                            onClick={() => replaceRun.current("reject")}
+                        >
+                            Send back
+                        </Button>
+                    </>
+                )}
+                {restartUi?.showSend && (
+                    <>
+                        <Button
+                            type="primary"
+                            disabled={!restartUi.ready}
+                            loading={restartUi.sendPending}
+                            onClick={() => restartRun.current("send")}
+                        >
+                            Send for approval{restartUi.count ? ` (${restartUi.count})` : ""}
+                        </Button>
+                        {!restartUi.ready && (
+                            <Typography.Text type="secondary">
+                                Write every new commitment first.
+                            </Typography.Text>
+                        )}
+                    </>
+                )}
+                {restartUi?.showDecide && (
+                    <>
+                        <Button
+                            type="primary"
+                            loading={restartUi.decidePending}
+                            onClick={() => restartRun.current("approve")}
+                        >
+                            Approve ({restartUi.waiting})
+                        </Button>
+                        <Button
+                            loading={restartUi.decidePending}
+                            onClick={() => restartRun.current("reject")}
+                        >
+                            Send back
+                        </Button>
+                    </>
+                )}
                 {canSendForRating && (
                     <Button
                         type="primary"
@@ -848,8 +1147,9 @@ export default function FormEditorPage({ formId = null, periodBar = null, yearSe
     return (
         <>
             <PageHeader
-                title={`${form.type.toUpperCase()} — ${sheetName(form)}`}
+                title={hideTitle ? null : `${form.type.toUpperCase()} — ${sheetName(form)}`}
                 subtitle={
+                    hideTitle ? null : (
                     <>
                         <span className="pms-desktop-only">
                             {(filters
@@ -869,6 +1169,7 @@ export default function FormEditorPage({ formId = null, periodBar = null, yearSe
                             {[form.school_year?.label, form.org_unit?.name].filter(Boolean).join(" · ")}
                         </span>
                     </>
+                    )
                 }
                 extra={
                     <div className="pms-form-head">
@@ -897,6 +1198,7 @@ export default function FormEditorPage({ formId = null, periodBar = null, yearSe
                 isOwner={isOwner}
                 isOpcr={isOpcr}
                 periodLocked={periodLocked}
+                hideLockAlert={hideLockAlert}
                 viewedPeriod={viewedPeriod}
                 planningOpen={planningOpen}
                 approverLabel={approverLabel}
@@ -1099,6 +1401,9 @@ export default function FormEditorPage({ formId = null, periodBar = null, yearSe
                                 canAssign={canNameAccountable}
                                 canRecordProgress={canRecordProgress}
                                 showScores={showScores}
+                                showProgress={!hideProgress}
+                                scoreEdit={sheetScoreEdit}
+                                scoreLegend={sheetLegend}
                                 showAccomplishments={showAccomplishments}
                                 summary={summary}
                                 focusLineId={focusLineId}
@@ -1106,6 +1411,7 @@ export default function FormEditorPage({ formId = null, periodBar = null, yearSe
                                 openFocusedLine={openFocusedLine}
                                 returnMarks={returnMarks}
                                 onExpand={() => setSheetFull(true)}
+                                onReplaceUi={onReplaceUi}
                             />
                         ) : form.outputs.length === 0 && !canEditCommitment ? (
                             <Empty description="No commitments yet." />
@@ -1118,8 +1424,12 @@ export default function FormEditorPage({ formId = null, periodBar = null, yearSe
                                 canAssign={canAssign}
                                 canAssignHeadings={canAssignHeadings}
                                 showScores={showScores}
+                                showProgress={!hideProgress}
+                                scoreEdit={sheetScoreEdit}
+                                scoreLegend={sheetLegend}
                                 showAccomplishments={showAccomplishments}
                                 opcrTargets={opcrTargets}
+                                vpLinkByTarget={vpLinkByTarget}
                                 summary={summary}
                                 focusLineId={focusLineId}
                                 focusOutputId={focusOutputId}
@@ -1131,6 +1441,7 @@ export default function FormEditorPage({ formId = null, periodBar = null, yearSe
                                 arriveOpenOutput={sheetFull ? false : Boolean(arrived?.openOutput)}
                                 arriveTick={sheetFull ? null : arrived?.tick}
                                 onExpand={() => setSheetFull(true)}
+                                onRestartUi={onRestartUi}
                             />
                         )}
                     </Card>
@@ -1146,9 +1457,11 @@ export default function FormEditorPage({ formId = null, periodBar = null, yearSe
                 className="pms-sheet-drawer"
                 title={
                     <Space size={12} wrap>
-                        <span>
-                            {form.type.toUpperCase()} — {sheetName(form)}
-                        </span>
+                        {!hideTitle && (
+                            <span>
+                                {form.type.toUpperCase()} — {sheetName(form)}
+                            </span>
+                        )}
                         <Tag color={metaFor(form.status).color}>
                             {metaFor(form.status).label}
                         </Tag>
@@ -1203,6 +1516,9 @@ export default function FormEditorPage({ formId = null, periodBar = null, yearSe
                         canAssign={canNameAccountable}
                         canRecordProgress={canRecordProgress}
                         showScores={showScores}
+                                showProgress={!hideProgress}
+                        scoreEdit={sheetScoreEdit}
+                        scoreLegend={sheetLegend}
                         showAccomplishments={showAccomplishments}
                         summary={summary}
                         returnMarks={returnMarks}
@@ -1216,8 +1532,12 @@ export default function FormEditorPage({ formId = null, periodBar = null, yearSe
                         canAssign={canAssign}
                         canAssignHeadings={canAssignHeadings}
                         showScores={showScores}
+                                showProgress={!hideProgress}
+                        scoreEdit={sheetScoreEdit}
+                        scoreLegend={sheetLegend}
                         showAccomplishments={showAccomplishments}
                         opcrTargets={opcrTargets}
+                        vpLinkByTarget={vpLinkByTarget}
                         summary={summary}
                         returnMarks={returnMarks}
                         assignedOnly={user?.role === "employee"}

@@ -28,6 +28,8 @@ export default function CommentThread({ formId, indicatorId = null, compact = fa
     });
     const viewOnly = user?.role === "admin"
         || (user?.role === "hr" && Number(form?.user_id) !== Number(user?.id));
+    const ownsForm = Number(form?.user_id) === Number(user?.id)
+        || (form?.type === "opcr" && user?.role === "president");
     const closed = remarksClosed(form);
     const queryClient = useQueryClient();
     const [body, setBody] = useState("");
@@ -97,7 +99,9 @@ export default function CommentThread({ formId, indicatorId = null, compact = fa
                     placeholder={
                         indicatorId
                             ? "Write a message about this success indicator — type @ to tag someone"
-                            : "Write a message to the ratee — type @ to tag someone"
+                            : ownsForm
+                              ? "Write a reply — type @ to tag someone"
+                              : "Write a message to the ratee — type @ to tag someone"
                     }
                 />
             </div>

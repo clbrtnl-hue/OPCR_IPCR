@@ -33,6 +33,7 @@ import RichText from "~/components/RichText";
 import RichTextView, { toPlainText } from "~/components/RichTextView";
 import DeliveredBy from "~/components/DeliveredBy";
 import ProgressCell from "~/components/ProgressCell";
+import { ScoreFields } from "~/components/SheetScoreCells";
 
 export default function IndicatorRow({
     indicator,
@@ -44,6 +45,8 @@ export default function IndicatorRow({
     showAccomplishments = true,
     isOpcr,
     remarksOpen = false,
+    linkLabel = null,
+    scoreEdit = null,
 }) {
     const queryClient = useQueryClient();
     const accomplishment = indicator.accomplishments?.find(
@@ -225,12 +228,20 @@ export default function IndicatorRow({
                 </Typography.Text>
             )}
 
+            {scoreEdit && (
+                <ScoreFields
+                    line={indicator}
+                    saved={(indicator.ratings ?? []).find((row) => row.rating_period_id === periodId)}
+                    scoreEdit={scoreEdit}
+                />
+            )}
+
             {!isOpcr && indicator.parent && (
                 <Alert
                     type="info"
                     showIcon
                     style={{ marginBottom: 12 }}
-                    message="Contributes to office target"
+                    message={linkLabel || "Contributes to office target"}
                     description={toPlainText(indicator.parent.description)}
                 />
             )}
@@ -363,7 +374,7 @@ export default function IndicatorRow({
                 />
             </Modal>
 
-            {rating && (
+            {rating && !scoreEdit && (
                 <Space wrap style={{ marginTop: 12 }}>
                     <Tag>Q {rating.q ?? "—"}</Tag>
                     <Tag>E {rating.e ?? "—"}</Tag>

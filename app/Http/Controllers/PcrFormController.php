@@ -13,6 +13,7 @@ use App\Models\PcrComment;
 use App\Models\PcrForm;
 use App\Models\PcrFormReviewer;
 use App\Models\PcrIndicator;
+use App\Models\PcrTargetReplacement;
 use App\Models\PcrOutput;
 use App\Models\PcrRating;
 use App\Models\PcrReturnMark;
@@ -140,6 +141,7 @@ class PcrFormController extends Controller
 
         $form->loadMissing([
             'outputs.indicators.children' => fn ($query) => $query
+                ->whereNull('closed_at')
                 ->select([
                     'id', 'parent_indicator_id', 'output_id', 'description', 'assigned_by',
                     'progress_status', 'progress_pct', 'rating_period_id',
@@ -163,6 +165,8 @@ class PcrFormController extends Controller
         ]);
 
         $form->setRelation('outputs', PcrOutline::numbered($form->outputs));
+
+        $this->attachPendingReplacements($form);
 
         $payload = $form->toArray();
         $payload['review_steps'] = $form->type === 'ipcr' ? PcrWorkflow::chainFor($form) : [];
@@ -863,7 +867,10 @@ class PcrFormController extends Controller
             // The live score stays one row. This keeps what this person sent on,
             // so a later rater can replace the numbers without erasing them.
             if ($log && $this->keepsRatingRecord($form, $from, $to)) {
-                $scores = $this->ratingSnapshot($form);
+                $onlyOwner = in_array($from, ['commitments_approved', 'returned'], true)
+                    ? (int) $user->id
+                    : null;
+                $scores = self::ratingSnapshot($form, $onlyOwner);
 
                 if ($scores !== []) {
                     $log->update(['scores' => $scores]);
@@ -1909,6 +1916,26 @@ class PcrFormController extends Controller
             ];
         }
 
+        foreach (ActivityLog::where('subject_type', 'PcrForm')->where('subject_id', $form->id)->where('action', 'replace')->get() as $log) {
+            $changes = collect($log->changes ?? [])
+                ->filter(fn ($row) => is_array($row) && isset($row['field']))
+                ->map(fn ($row) => [
+                    'field' => $row['field'],
+                    'from'  => $row['from'] ?? 'None',
+                    'to'    => $row['to'] ?? 'None',
+                ])
+                ->values()
+                ->all();
+
+            $events[] = [
+                'kind'    => 'replacement',
+                'at'      => $log->created_at,
+                'actor'   => $log->user_name,
+                'detail'  => $changes === [] ? $log->description : null,
+                'changes' => $changes,
+            ];
+        }
+
         usort($events, fn ($a, $b) => ($b['at'] <=> $a['at']));
 
         return response()->json([
@@ -2015,6 +2042,10 @@ class PcrFormController extends Controller
             }
 
             foreach ($output->indicators as $line) {
+                if ($line->closed_at || $line->replacement_status === 'pending') {
+                    continue;
+                }
+
                 $text = trim(strip_tags($line->description));
 
                 if ($text === '' || str_contains($text, 'New success indicator')) {
@@ -2339,6 +2370,32 @@ class PcrFormController extends Controller
             ->keyBy('id');
     }
 
+    /** The proposal id rides on the new line so QA can approve it from the sheet. */
+    private function attachPendingReplacements(PcrForm $form): void
+    {
+        $ids = $form->outputs->flatMap(fn ($output) => $output->indicators->pluck('id'));
+
+        if ($ids->isEmpty()) {
+            return;
+        }
+
+        $pending = PcrTargetReplacement::query()
+            ->where('status', 'pending')
+            ->whereIn('new_indicator_id', $ids)
+            ->get()
+            ->keyBy('new_indicator_id');
+
+        foreach ($form->outputs as $output) {
+            foreach ($output->indicators as $indicator) {
+                $row = $pending->get($indicator->id);
+
+                if ($row) {
+                    $indicator->setAttribute('replacement_id', $row->id);
+                }
+            }
+        }
+    }
+
     private function publishedOpcrFor(PcrForm $form): ?PcrForm
     {
         $opcr = PcrForm::with(['outputs.indicators', 'outputs.parentOutput.parentOutput'])
@@ -2373,6 +2430,7 @@ class PcrFormController extends Controller
                 // An office target lasts the school year. Mid-year and end-year
                 // IPCRs both link to it; the period on an old line does not hide it.
                 return $output->indicators
+                    ->filter(fn ($indicator) => ! $indicator->closed_at && $indicator->replacement_status !== 'pending')
                     ->map(fn ($indicator) => [
                         'id'               => $indicator->id,
                         'section'          => $output->section,
@@ -2455,7 +2513,9 @@ class PcrFormController extends Controller
                 })
             )
             ->get()
-            ->filter(fn ($assignment) => $assignment->indicator?->output?->form)
+            ->filter(fn ($assignment) => $assignment->indicator?->output?->form
+                && ! $assignment->indicator->closed_at
+                && $assignment->indicator->replacement_status !== 'pending')
             ->unique('indicator_id')
             ->values();
     }
@@ -2562,16 +2622,30 @@ class PcrFormController extends Controller
         return "{$name} still needs a narrative and two files.";
     }
 
-    /** Head, dean, director, and VP scores are a record of what they sent on. */
+    /**
+     * Reviewer scores, and an optional self-rating, are a record of what was
+     * sent on. A return does not count as sending a rating on.
+     */
     private function keepsRatingRecord(PcrForm $form, string $from, string $to): bool
     {
-        return $form->type === 'ipcr'
-            && in_array($from, ['head_review', 'dean_review', 'director_review', 'vp_review'], true)
-            && $to !== 'returned';
+        if ($form->type !== 'ipcr' || $to === 'returned') {
+            return false;
+        }
+
+        if (in_array($from, ['head_review', 'dean_review', 'director_review', 'vp_review'], true)) {
+            return true;
+        }
+
+        return in_array($from, ['commitments_approved', 'returned'], true)
+            && PcrWorkflow::isReviewDestination($to);
     }
 
-    /** The Q, E, and T on the form at the moment it is sent to the next person. */
-    private function ratingSnapshot(PcrForm $form): array
+    /**
+     * The Q, E, and T on the form at the moment it is sent to the next person.
+     * Pass a user id to keep only that person's own scores, which is how an
+     * optional self-rating is logged without claiming a reviewer's numbers.
+     */
+    public static function ratingSnapshot(PcrForm $form, ?int $onlyRatedBy = null): array
     {
         $dimensions = app(WorkflowSettings::class)->ratingDimensionKeys();
 
@@ -2589,10 +2663,10 @@ class PcrFormController extends Controller
             ])
             ->orderBy('id')
             ->get()
-            ->map(function (PcrIndicator $indicator) use ($dimensions) {
+            ->map(function (PcrIndicator $indicator) use ($dimensions, $onlyRatedBy) {
                 $rating = $indicator->ratings->first();
 
-                if (! $rating) {
+                if (! $rating || ($onlyRatedBy && (int) $rating->rated_by !== $onlyRatedBy)) {
                     return null;
                 }
 
@@ -2832,14 +2906,12 @@ class PcrFormController extends Controller
                     ->orWhere(fn ($inner) => $inner->namedFor($user->id))
                     ->orWhere(fn ($inner) => $inner->accountableTo((int) $user->id));
 
-                // VPs always see the published college OPCR in the list, even
-                // when it sits on the college unit outside their division.
-                if ($user->role === 'vp') {
-                    $q->orWhere(function ($inner) {
-                        $inner->where('type', 'opcr')
-                            ->whereIn('status', PcrWorkflow::OPCR_VISIBLE);
-                    });
-                }
+                // The published college OPCR is readable from any account, the
+                // same way a VP already reads it from outside the college unit.
+                $q->orWhere(function ($inner) {
+                    $inner->where('type', 'opcr')
+                        ->whereIn('status', PcrWorkflow::OPCR_VISIBLE);
+                });
 
                 if ($watched !== []) {
                     $q->orWhereIn('org_unit_id', $watched)
@@ -2854,7 +2926,11 @@ class PcrFormController extends Controller
 
         $query->where(function ($q) use ($user) {
             $q->where('user_id', $user->id)
-                ->orWhere(fn ($inner) => $inner->accountableTo((int) $user->id));
+                ->orWhere(fn ($inner) => $inner->accountableTo((int) $user->id))
+                ->orWhere(function ($inner) {
+                    $inner->where('type', 'opcr')
+                        ->whereIn('status', PcrWorkflow::OPCR_VISIBLE);
+                });
         });
     }
 }

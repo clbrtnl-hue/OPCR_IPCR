@@ -29,16 +29,16 @@ const ITEMS = {
     reports: { key: "/reports", icon: <NavIcon name="reports" />, label: "Reports" },
     closing: { key: "/closing", icon: <NavIcon name="review" />, label: "Close ratings" },
     users: { key: "/admin/users", icon: <NavIcon name="accounts" />, label: "Accounts" },
+
     orgUnits: { key: "/admin/org-units", icon: <NavIcon name="hierarchy" />, label: "Hierarchy" },
     schoolYears: { key: "/admin/school-years", icon: <NavIcon name="calendar" />, label: "School Years" },
+
     workflow: { key: "/admin/workflow", icon: <NavIcon name="workflow" />, label: "Workflow" },
     audit: { key: "/admin/audit", icon: <NavIcon name="audit" />, label: "Audit Trail" },
     notifications: { key: "/notifications", icon: <NavIcon name="bell" />, label: "Notifications" },
 };
 
 const withPersonal = (menu) => [...menu, ITEMS.notifications];
-
-const COLLEGE_MENU_ROLES = ["admin", "president", "hr", "qa", "vp"];
 
 const samePerson = (left, right) => Number(left) === Number(right);
 
@@ -123,8 +123,8 @@ export default function AppLayout({ children }) {
         queryKey: ["notifications", "bell", user?.id],
         queryFn: () => api.get("notifications?limit=6").then((r) => r.data),
         enabled: Boolean(user),
-        refetchInterval: 4000,
-        refetchIntervalInBackground: true,
+        refetchInterval: 15_000,
+        refetchIntervalInBackground: false,
     });
 
     const { data: years = [] } = useQuery({
@@ -136,11 +136,6 @@ export default function AppLayout({ children }) {
     const unread = notifications?.unread ?? 0;
     const activeYear = years.find((y) => y.is_active);
     const activePeriod = activeYear?.periods?.find((p) => p.is_active);
-    const opcrRules = user?.workflow?.opcr ?? {};
-    const actsOnOpcr = ["creator_roles", "approver_roles", "publisher_roles", "rating_trigger_roles"].some(
-        (slot) => (opcrRules[slot] ?? []).includes(user?.role)
-    );
-    const hasCollegeMenu = COLLEGE_MENU_ROLES.includes(user?.role) || actsOnOpcr;
     const isRater = (user?.workflow?.rater_roles ?? (user?.role === "qa" ? ["qa"] : [])).includes(user?.role);
     const seesQueueBadge =
         Boolean(user) &&
@@ -150,8 +145,6 @@ export default function AppLayout({ children }) {
         queryKey: ["review-queue", "mine", user?.id],
         queryFn: () => api.get("pcr-forms?queue=1").then((r) => r.data),
         enabled: seesQueueBadge,
-        refetchInterval: 4000,
-        refetchIntervalInBackground: true,
     });
     const queueCount =
         user?.role === "president"
@@ -161,12 +154,7 @@ export default function AppLayout({ children }) {
             : Array.isArray(waiting)
               ? waiting.length
               : 0;
-    const { data: accountableOpcrs = [] } = useQuery({
-        queryKey: ["college-opcr-nav", user?.id],
-        queryFn: () => api.get("pcr-forms?accountable=1").then((r) => r.data),
-        enabled: Boolean(user) && !hasCollegeMenu,
-    });
-    const seesCollegeOpcr = hasCollegeMenu || accountableOpcrs.length > 0;
+    const seesCollegeOpcr = Boolean(user);
     const leadsATeam = ["program_head", "vp", "qa"].includes(user?.role);
     const canFollowUp = Boolean(user?.capabilities?.follow_up);
     const { data: watchedUnits = [] } = useQuery({
@@ -264,6 +252,12 @@ export default function AppLayout({ children }) {
 
             if (openForm?.type === "opcr" && flat.some((item) => item.key === "/college-opcr")) {
                 return "/college-opcr";
+            }
+
+            // The president's direct reports live under Forms. Unit approvers
+            // keep My Team.
+            if (user?.role === "president" && flat.some((item) => item.key === "/my-forms")) {
+                return "/my-forms";
             }
 
             if (openForm && flat.some((item) => item.key === "/my-team")) {

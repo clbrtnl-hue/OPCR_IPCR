@@ -2,6 +2,9 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\ActivityLog;
+use App\Models\Notification;
+use App\Models\PcrForm;
 use App\Models\PcrIndicator;
 use App\Models\PcrOutput;
 use App\Models\PcrTargetAssignment;
@@ -33,8 +36,23 @@ class PcrIndicatorController extends Controller
         ]);
 
         $output = PcrOutput::with('form')->findOrFail($data['output_id']);
+        $existingLine = $id ? PcrIndicator::find($id) : null;
 
-        if (! PcrWorkflow::canEditCommitments($request->user(), $output->form)) {
+        if ($existingLine?->closed_at) {
+            return response()->json([
+                'message' => 'This commitment was closed when its target was replaced.',
+            ], 409);
+        }
+
+        // A restarted line stays editable after the rest of the form is approved.
+        $restartWrite = $existingLine
+            && $existingLine->needs_commitment_approval
+            && ! $existingLine->line_approved_at
+            && ! $existingLine->line_submitted_at
+            && PcrWorkflow::owns($request->user(), $output->form)
+            && ! in_array($output->form->status, ['rated', 'final', 'appeal'], true);
+
+        if (! $restartWrite && ! PcrWorkflow::canEditCommitments($request->user(), $output->form)) {
             return response()->json([
                 'message' => PcrWorkflow::commitmentClosedMessage($output->form)
                     ?? 'Commitments can only be changed while the form is a draft or has been returned to you.',
@@ -44,7 +62,10 @@ class PcrIndicatorController extends Controller
         $isOpcr = $output->form->type === 'opcr';
 
         // An OPCR line sits at the top of the tree; it never hangs off anything.
-        $parentId = $isOpcr ? null : ($data['parent_indicator_id'] ?? null);
+        // A restarted commitment keeps the replacement it was given.
+        $parentId = $restartWrite
+            ? $existingLine->parent_indicator_id
+            : ($isOpcr ? null : ($data['parent_indicator_id'] ?? null));
 
         // A period-pinned IPCR decides the period for every line it holds; the
         // OPCR (and legacy year-wide IPCRs) still choose per line.
@@ -78,7 +99,7 @@ class PcrIndicatorController extends Controller
             return response()->json(['message' => $message], 409);
         }
 
-        if ($parentId) {
+        if ($parentId && ! $restartWrite) {
             if ($error = $this->parentProblem($parentId, $output, $periodId, $id)) {
                 return response()->json(['message' => $error], 422);
             }
@@ -187,6 +208,18 @@ class PcrIndicatorController extends Controller
     {
         $indicator = PcrIndicator::with('output.form')->findOrFail($id);
 
+        if ($indicator->closed_at) {
+            return response()->json([
+                'message' => 'This commitment was closed when its target was replaced.',
+            ], 409);
+        }
+
+        if ($indicator->needs_commitment_approval && ! $indicator->line_approved_at) {
+            return response()->json([
+                'message' => 'Write the new commitment on this line. It replaced the one above it.',
+            ], 409);
+        }
+
         if (! PcrWorkflow::canEditCommitments($request->user(), $indicator->output->form)) {
             return response()->json([
                 'message' => PcrWorkflow::commitmentClosedMessage($indicator->output->form)
@@ -215,6 +248,275 @@ class PcrIndicatorController extends Controller
         $progress->shareAcrossAssignedTargets($form);
 
         return response()->json(['data' => 'deleted']);
+    }
+
+    /** The owner sends only the restarted line. The rest of the form stays where it is. */
+    public function submitRestart(Request $request, $id)
+    {
+        $indicator = PcrIndicator::with('output.form')->findOrFail($id);
+        $form = $indicator->output->form;
+        $user = $request->user();
+
+        if (! PcrWorkflow::owns($user, $form)) {
+            return response()->json(['message' => 'Only the owner of this form can send this commitment.'], 403);
+        }
+
+        if ($message = $this->restartBlock($indicator, $form, $user)) {
+            return response()->json(['message' => $message], 409);
+        }
+
+        if (Html::isBlank($indicator->description)) {
+            return response()->json(['message' => 'Write the new commitment before sending it.'], 422);
+        }
+
+        if (! $indicator->line_approver_id) {
+            return response()->json(['message' => 'Nobody is set to approve this commitment.'], 409);
+        }
+
+        $indicator->update(['line_submitted_at' => now()]);
+
+        Notification::send(
+            $indicator->line_approver_id,
+            'approval',
+            'A replaced commitment needs your approval',
+            'One line was started over after its target changed. The rest of the form is unchanged.',
+            $form->id,
+            "/forms/{$form->id}"
+        );
+
+        return response()->json(['data' => 'submitted']);
+    }
+
+    public function approveRestart(Request $request, $id)
+    {
+        $indicator = PcrIndicator::with('output.form')->findOrFail($id);
+        $user = $request->user();
+
+        if ((int) $indicator->line_approver_id !== (int) $user->id) {
+            return response()->json(['message' => 'This commitment is waiting for somebody else.'], 403);
+        }
+
+        if (! $indicator->needs_commitment_approval || $indicator->line_approved_at || ! $indicator->line_submitted_at) {
+            return response()->json(['message' => 'This commitment is not waiting for approval.'], 409);
+        }
+
+        $indicator->update([
+            'line_approved_at'          => now(),
+            'needs_commitment_approval' => false,
+        ]);
+
+        $this->logReplacedCommitment($indicator, $user);
+
+        Notification::send(
+            $indicator->output->form->user_id,
+            'approved',
+            'Your new commitment was approved',
+            'The line that replaced the old target is now part of your IPCR.',
+            $indicator->output->form_id,
+            "/forms/{$indicator->output->form_id}"
+        );
+
+        return response()->json(['data' => 'approved']);
+    }
+
+    public function returnRestart(Request $request, $id)
+    {
+        $data = $request->validate([
+            'note' => 'required|string|max:2000',
+        ]);
+
+        $indicator = PcrIndicator::with('output.form')->findOrFail($id);
+        $user = $request->user();
+
+        if ((int) $indicator->line_approver_id !== (int) $user->id) {
+            return response()->json(['message' => 'This commitment is waiting for somebody else.'], 403);
+        }
+
+        if (! $indicator->line_submitted_at || $indicator->line_approved_at) {
+            return response()->json(['message' => 'This commitment is not waiting for approval.'], 409);
+        }
+
+        $note = Html::clean($data['note']);
+
+        if (Html::isBlank($note)) {
+            return response()->json(['message' => 'Say what needs rewriting before sending it back.'], 422);
+        }
+
+        $indicator->update(['line_submitted_at' => null]);
+
+        Notification::send(
+            $indicator->output->form->user_id,
+            'returned',
+            'Your new commitment was sent back',
+            Html::toText($note),
+            $indicator->output->form_id,
+            "/forms/{$indicator->output->form_id}"
+        );
+
+        return response()->json(['data' => 'returned']);
+    }
+
+    /** Every restarted line on this form goes together. One notice. */
+    public function submitRestarts(Request $request, $id)
+    {
+        $form = PcrForm::findOrFail($id);
+        $user = $request->user();
+
+        if (! PcrWorkflow::owns($user, $form)) {
+            return response()->json(['message' => 'Only the owner of this form can send these commitments.'], 403);
+        }
+
+        $lines = $this->openRestarts($form)->whereNull('line_submitted_at')->values();
+
+        if ($lines->isEmpty()) {
+            return response()->json(['message' => 'No new commitments are waiting to be sent.'], 409);
+        }
+
+        foreach ($lines as $indicator) {
+            if ($message = $this->restartBlock($indicator, $form, $user)) {
+                return response()->json(['message' => $message], 409);
+            }
+
+            if (Html::isBlank($indicator->description)) {
+                return response()->json(['message' => 'Write every new commitment before sending them.'], 422);
+            }
+
+            if (! $indicator->line_approver_id) {
+                return response()->json(['message' => 'Nobody is set to approve this commitment.'], 409);
+            }
+        }
+
+        foreach ($lines as $indicator) {
+            $indicator->update(['line_submitted_at' => now()]);
+        }
+
+        $count = $lines->count();
+
+        foreach ($lines->pluck('line_approver_id')->unique() as $approverId) {
+            Notification::send(
+                $approverId,
+                'approval',
+                $count === 1
+                    ? 'A replaced commitment needs your approval'
+                    : "{$count} replaced commitments need your approval",
+                'These lines were started over after a target changed. The rest of the form is unchanged.',
+                $form->id,
+                "/forms/{$form->id}"
+            );
+        }
+
+        return response()->json(['data' => 'submitted', 'count' => $count]);
+    }
+
+    public function decideRestarts(Request $request, $id)
+    {
+        $form = PcrForm::findOrFail($id);
+        $user = $request->user();
+        $approve = $request->boolean('approve');
+        $note = null;
+
+        if (! $approve) {
+            $data = $request->validate([
+                'note' => 'required|string|max:2000',
+            ]);
+            $note = Html::clean($data['note']);
+
+            if (Html::isBlank($note)) {
+                return response()->json(['message' => 'Say what needs rewriting before sending it back.'], 422);
+            }
+        }
+
+        $lines = $this->openRestarts($form)
+            ->where('line_approver_id', $user->id)
+            ->whereNotNull('line_submitted_at')
+            ->values();
+
+        if ($lines->isEmpty()) {
+            return response()->json(['message' => 'No new commitments are waiting for you.'], 409);
+        }
+
+        foreach ($lines as $indicator) {
+            $indicator->update($approve
+                ? ['line_approved_at' => now(), 'needs_commitment_approval' => false]
+                : ['line_submitted_at' => null]);
+
+            if ($approve) {
+                $this->logReplacedCommitment($indicator, $user);
+            }
+        }
+
+        $count = $lines->count();
+
+        Notification::send(
+            $form->user_id,
+            $approve ? 'approved' : 'returned',
+            $approve
+                ? ($count === 1 ? 'Your new commitment was approved' : "{$count} new commitments were approved")
+                : ($count === 1 ? 'Your new commitment was sent back' : "{$count} new commitments were sent back"),
+            $approve
+                ? 'The lines that replaced the old targets are now part of your IPCR.'
+                : Html::toText($note),
+            $form->id,
+            "/forms/{$form->id}"
+        );
+
+        return response()->json(['data' => $approve ? 'approved' : 'returned', 'count' => $count]);
+    }
+
+    private function logReplacedCommitment(PcrIndicator $line, $actor): void
+    {
+        if (! $line->replaces_indicator_id) {
+            return;
+        }
+
+        $old = PcrIndicator::find($line->replaces_indicator_id);
+        $formId = PcrOutput::whereKey($line->output_id)->value('form_id');
+
+        if (! $old || ! $formId) {
+            return;
+        }
+
+        $plain = fn (?string $text) => ($text = trim(Html::toText($text ?? ''))) === '' ? 'None' : $text;
+
+        ActivityLog::record(
+            'PcrForm',
+            (int) $formId,
+            'replace',
+            'These cells changed.',
+            [[
+                'field' => 'Success indicator',
+                'from'  => $plain($old->description),
+                'to'    => $plain($line->description),
+            ]],
+            $actor
+        );
+    }
+
+    private function openRestarts(PcrForm $form)
+    {
+        return PcrIndicator::query()
+            ->whereHas('output', fn ($query) => $query->where('form_id', $form->id))
+            ->where('needs_commitment_approval', true)
+            ->whereNull('closed_at')
+            ->whereNull('line_approved_at')
+            ->get();
+    }
+
+    private function restartBlock(PcrIndicator $indicator, $form, $user): ?string
+    {
+        if ($indicator->closed_at || ! $indicator->needs_commitment_approval || $indicator->line_approved_at) {
+            return 'This line is not a commitment started over after a target change.';
+        }
+
+        if ($indicator->line_submitted_at) {
+            return 'This commitment is already waiting for approval.';
+        }
+
+        if (in_array($form->status, ['rated', 'final', 'appeal'], true)) {
+            return 'This form has been rated and can no longer be changed.';
+        }
+
+        return PcrWorkflow::formLockMessage($user, $form, $indicator->rating_period_id);
     }
 
     /**
@@ -262,6 +564,10 @@ class PcrIndicatorController extends Controller
 
         // A head or VP may answer a published college target. Faculty and staff
         // only answer the line a head or VP assigned to them.
+        if ($parent->closed_at || $parent->replacement_status === 'pending') {
+            return 'That target has been replaced. Pick the current one.';
+        }
+
         if ($parentForm->type === 'opcr') {
             if (! PcrWorkflow::opcrIsVisible($parentForm)) {
                 return 'The college OPCR has not been published yet, so its targets cannot be committed to.';

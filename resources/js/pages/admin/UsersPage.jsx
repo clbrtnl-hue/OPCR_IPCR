@@ -11,7 +11,6 @@ import {
     Popconfirm,
     Segmented,
     Select,
-    Space,
     Spin,
     Table,
     Tag,
@@ -160,22 +159,38 @@ export default function UsersPage() {
     };
 
     const accountActions = (record) => (
-        <Space size={4} className="pms-account-actions">
+        <div
+            className="pms-account-actions"
+            style={{
+                display: "inline-flex",
+                gap: 4,
+                alignItems: "center",
+                justifyContent: "flex-end",
+            }}
+        >
             <Button size="small" onClick={() => openDrawer(record)}>
                 Edit
             </Button>
-            {record.status === "active" && (
-                <Popconfirm
-                    title="Deactivate this account?"
-                    description="They will no longer be able to sign in."
-                    onConfirm={() => deactivate.mutate(record.id)}
-                >
-                    <Button size="small" danger>
-                        Deactivate
-                    </Button>
-                </Popconfirm>
-            )}
-        </Space>
+            <span
+                style={{
+                    display: "inline-flex",
+                    justifyContent: "flex-start",
+                    minWidth: 88,
+                }}
+            >
+                {record.status === "active" ? (
+                    <Popconfirm
+                        title="Deactivate this account?"
+                        description="They will no longer be able to sign in."
+                        onConfirm={() => deactivate.mutate(record.id)}
+                    >
+                        <Button size="small" danger>
+                            Deactivate
+                        </Button>
+                    </Popconfirm>
+                ) : null}
+            </span>
+        </div>
     );
 
     const columns = [

@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { Button, Card, Empty, Popconfirm, Space, Table, Tabs, Tag, message } from "antd";
+import { Badge, Button, Card, Empty, Popconfirm, Space, Table, Tabs, Tag, message } from "antd";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import dayjs from "dayjs";
@@ -273,6 +273,23 @@ export default function ReviewQueuePage() {
     const viewingSubtitle = "Forms in review or with QA. Open one to read it.";
     const subtitle = tab === "viewing" ? viewingSubtitle : tab === "rating" ? ratingSubtitle : approvalSubtitle;
     const showingList = tab === "viewing" || (tab === "rating" && monitors && !isQa && user?.role !== "hr");
+    const approverRoles = user?.workflow?.opcr?.approver_roles ?? ["qa"];
+    const commitmentBadge = rows.filter((form) => {
+        if (scoreable(form, user)) return false;
+        if (form.status === "commitment_review") return true;
+
+        return form.status === "qa_approval" && approverRoles.includes(user?.role);
+    }).length;
+    const approvalBadge = viewOnly ? approvalRows.length : commitmentBadge;
+    const ratingBadge = scoresHere && !viewOnly
+        ? rows.filter((form) => scoreable(form, user)).length
+        : ratingRows.length;
+    const tabLabel = (text, count) => (
+        <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+            {text}
+            <Badge count={count} size="small" />
+        </span>
+    );
 
     const queueTabs = seesRating ? (
         <Tabs
@@ -281,9 +298,9 @@ export default function ReviewQueuePage() {
             onChange={selectTab}
             style={{ marginBottom: 16 }}
             items={[
-                { key: "approval", label: "Commitment approval" },
+                { key: "approval", label: tabLabel("Commitment approval", approvalBadge) },
                 ...(isQa ? [{ key: "viewing", label: "Viewing" }] : []),
-                { key: "rating", label: "Rating" },
+                { key: "rating", label: tabLabel("Rating", ratingBadge) },
             ]}
         />
     ) : null;
@@ -292,7 +309,7 @@ export default function ReviewQueuePage() {
         <>
             <PageHeader title="Review Queue" subtitle={subtitle} />
 
-            {tab === "rating" && scoresHere ? (
+            {tab === "rating" ? (
                 <RatingPage
                     embedded
                     periodFilter={periodId}

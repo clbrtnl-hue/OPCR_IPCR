@@ -11,10 +11,14 @@ class PcrIndicator extends Model
     protected $guarded = [];
 
     protected $casts = [
-        'allotted_budget' => 'float',
-        'progress_pct'    => 'integer',
-        'target_date'     => 'date',
-        'completed_on'    => 'date',
+        'allotted_budget'            => 'float',
+        'progress_pct'               => 'integer',
+        'target_date'                => 'date',
+        'completed_on'               => 'date',
+        'closed_at'                  => 'datetime',
+        'line_submitted_at'          => 'datetime',
+        'line_approved_at'           => 'datetime',
+        'needs_commitment_approval'  => 'boolean',
     ];
 
     protected $appends = ['delay'];
@@ -56,6 +60,35 @@ class PcrIndicator extends Model
     public function children()
     {
         return $this->hasMany(PcrIndicator::class, 'parent_indicator_id');
+    }
+
+    /** Commitments still in force. A replaced line stays on the form as a record. */
+    public function openChildren()
+    {
+        return $this->children()->whereNull('closed_at');
+    }
+
+    /** Closed lines, pending replacements, and unapproved restarts are not scored. */
+    public function countsTowardRating(): bool
+    {
+        if ($this->closed_at || $this->replacement_status === 'pending') {
+            return false;
+        }
+
+        return ! $this->needs_commitment_approval || (bool) $this->line_approved_at;
+    }
+
+    public function scopeRateable($query)
+    {
+        return $query->whereNull('closed_at')
+            ->where(function ($inner) {
+                $inner->whereNull('replacement_status')
+                    ->orWhere('replacement_status', '!=', 'pending');
+            })
+            ->where(function ($inner) {
+                $inner->where('needs_commitment_approval', false)
+                    ->orWhereNotNull('line_approved_at');
+            });
     }
 
     public function assignments()

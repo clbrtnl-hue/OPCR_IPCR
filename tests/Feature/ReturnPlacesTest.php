@@ -206,6 +206,12 @@ class ReturnPlacesTest extends PmsTestCase
             ]],
         ])->assertOk();
 
+        // Commitments can only go out once the college OPCR is published.
+        $this->makeForm([
+            'type' => 'opcr', 'org_unit_id' => $unit->id,
+            'school_year_id' => $year->id, 'status' => 'published',
+        ]);
+
         $this->actingAsUser($owner);
         $this->postJson("/api/pcr-forms/{$form->id}/status", [
             'status' => 'commitment_review',

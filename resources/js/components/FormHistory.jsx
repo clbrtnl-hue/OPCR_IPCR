@@ -27,6 +27,7 @@ const KIND_META = {
     evidence: { label: "Evidence", icon: <PaperClipOutlined />, color: VIZ.ordinal[3] },
     delegation: { label: "Delegation", icon: <UserAddOutlined />, color: VIZ.series[1] },
     progress: { label: "Progress", icon: <CheckCircleOutlined />, color: VIZ.good },
+    replacement: { label: "Replacement", icon: <SwapOutlined />, color: VIZ.series[1] },
 };
 
 const PAGE = 40;
@@ -53,6 +54,7 @@ function titleFor(event) {
     if (event.kind === "remark") return "Remark";
     if (event.kind === "evidence") return "Evidence attached";
     if (event.kind === "delegation") return "Handed over";
+    if (event.kind === "replacement") return "Replaced";
 
     return "Commitment completed";
 }
@@ -180,6 +182,18 @@ export default function FormHistory({ formId }) {
                     {event.detail && (
                         <div className="pms-history-detail">
                             {event.kind === "delegation" ? `Assigned to ${event.detail}` : event.detail}
+                        </div>
+                    )}
+
+                    {event.changes?.length > 0 && (
+                        <div className="pms-history-detail">
+                            {event.changes.map((row) => (
+                                <div key={row.field} style={{ marginTop: 6 }}>
+                                    <strong>{row.field}</strong>
+                                    <div>From: {row.from || "None"}</div>
+                                    <div>To: {row.to || "None"}</div>
+                                </div>
+                            ))}
                         </div>
                     )}
 

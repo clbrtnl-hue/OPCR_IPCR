@@ -210,7 +210,8 @@ class OpcrSheetTest extends PmsTestCase
 
     public function test_the_sheet_is_told_how_far_each_line_has_got(): void
     {
-        ['president' => $president, 'opcr' => $opcr, 'year' => $year] = $this->college();
+        // Lines can only record accomplishments once the OPCR targets are published.
+        ['president' => $president, 'opcr' => $opcr, 'year' => $year] = $this->college('published');
 
         $output = PcrOutput::create(['form_id' => $opcr->id, 'section' => 'support', 'title' => 'MANCOM meetings']);
         $line   = PcrIndicator::create([

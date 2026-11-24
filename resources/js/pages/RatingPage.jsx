@@ -3,16 +3,11 @@ import {
     Alert,
     Button,
     Card,
-    Divider,
-    Drawer,
     Empty,
-    Input,
     Segmented,
     Select,
     Space,
-    Table,
     Tag,
-    Tooltip,
     Typography,
     message,
 } from "antd";
@@ -23,19 +18,13 @@ import { useAuth } from "~/hooks/useAuth";
 import {
     ADJECTIVAL_COLORS,
     RATING_LEGEND,
-    SECTION_LABELS,
     nextReviewStop,
-    statusMeta,
 } from "~/utils/constants";
 import { averageOf, dimensionPhrase, ratingRules, scoreOptions } from "~/utils/ratingScale";
 import PageHeader from "~/components/PageHeader";
-import RichText from "~/components/RichText";
-import RichTextView, { toPlainText } from "~/components/RichTextView";
-import CommentThread from "~/components/CommentThread";
 import ReturnPlacesModal from "~/components/ReturnPlacesModal";
 import TargetRating from "~/pages/TargetRating";
-import IndicatorRow from "~/components/IndicatorRow";
-import AccomplishmentView, { AccomplishmentCell } from "~/components/AccomplishmentView";
+import FormEditorPage from "~/pages/FormEditorPage";
 
 function RatingLegend({ user }) {
     const bands = user?.workflow?.rating?.bands?.length ? user.workflow.rating.bands : RATING_LEGEND;
@@ -63,50 +52,6 @@ function attendanceRate(category, attendance, periodId) {
     }
 
     return (attendance[periodId] ?? attendance[String(periodId)])?.[category] ?? null;
-}
-
-function AttendanceEvidence({ category, attendance, periodId }) {
-    const rate = attendanceRate(category, attendance, periodId);
-
-    if (!rate) {
-        return null;
-    }
-
-    const label = category === "daily" ? "Days present" : "Attendance";
-    const excused = rate.leave ?? rate.excused ?? 0;
-    const excusedWord = category === "daily" ? "leave" : "excused";
-    const tip = (
-        <div className="pms-attendance-tip">
-            <div>{rate.present ?? 0} present</div>
-            <div>{rate.absent ?? 0} absent</div>
-            <div>{excused} {excusedWord}</div>
-            {rate.counted > 0 ? (
-                <div>
-                    {rate.pct}% → Suggested {rate.suggested ?? "—"}
-                </div>
-            ) : (
-                <div>{excusedWord} stays out of the percentage.</div>
-            )}
-            <div>You can still change the score.</div>
-        </div>
-    );
-
-    if (!rate.counted) {
-        return (
-            <Tooltip title={tip}>
-                <div className="pms-attendance-evidence">{label} —</div>
-            </Tooltip>
-        );
-    }
-
-    return (
-        <Tooltip title={tip}>
-            <div className="pms-attendance-evidence">
-                {label} {rate.pct}%<span>{rate.present}/{rate.counted}</span>
-                {rate.suggested != null && <span className="pms-attendance-suggested">Suggested {rate.suggested}</span>}
-            </div>
-        </Tooltip>
-    );
 }
 
 function arrivalTime(form) {
@@ -137,8 +82,6 @@ export default function RatingPage({ embedded = false, periodFilter = null, ahea
     const [selectedId, setSelectedId] = useState(null);
     const [periodId, setPeriodId] = useState(null);
     const [scores, setScores] = useState({});
-    const [openLineId, setOpenLineId] = useState(null);
-    const [rateLineId, setRateLineId] = useState(null);
     const [returnModal, setReturnModal] = useState(false);
     const dirtyScores = useRef(new Set());
     const leavingId = useRef(null);
@@ -174,8 +117,6 @@ export default function RatingPage({ embedded = false, periodFilter = null, ahea
     const openWaiting = (id) => {
         setSelectedId(id);
         setPeriodId(null);
-        setOpenLineId(null);
-        setRateLineId(null);
     };
 
     const showNextAfter = (sentId) => {
@@ -220,8 +161,6 @@ export default function RatingPage({ embedded = false, periodFilter = null, ahea
 
         setSelectedId(nextId);
         setPeriodId(null);
-        setOpenLineId(null);
-        setRateLineId(null);
     }, [followsArrival, isLoading, selectedId, toRate, wantedId]);
 
     const { data: form } = useQuery({
@@ -241,6 +180,26 @@ export default function RatingPage({ embedded = false, periodFilter = null, ahea
     const formPeriodId = form?.type === "ipcr" ? (form?.rating_period_id ?? null) : null;
     const activePeriodId =
         formPeriodId ?? periodId ?? periods.find((p) => p.is_active)?.id ?? periods[0]?.id;
+    const activePeriod = periods.find((p) => p.id === activePeriodId) ?? null;
+    const periodLocked =
+        form?.type === "opcr"
+            ? periods.length > 0 && periods.every((p) => p.is_locked)
+            : Boolean(activePeriod?.is_locked);
+    const [hiddenAlerts, setHiddenAlerts] = useState(() => new Set());
+
+    useEffect(() => {
+        setHiddenAlerts(new Set());
+    }, [form?.id]);
+
+    const hideAlert = (key) =>
+        setHiddenAlerts((prev) => {
+            if (prev.has(key)) return prev;
+
+            const next = new Set(prev);
+            next.add(key);
+
+            return next;
+        });
 
     const indicators = useMemo(() => {
         if (!form) return [];
@@ -254,15 +213,6 @@ export default function RatingPage({ embedded = false, periodFilter = null, ahea
             })
         );
     }, [form]);
-
-    const openLine = useMemo(
-        () => indicators.find((i) => i.id === openLineId) ?? null,
-        [indicators, openLineId]
-    );
-    const rateLine = useMemo(
-        () => indicators.find((row) => row.id === rateLineId) ?? null,
-        [indicators, rateLineId]
-    );
 
     useEffect(() => {
         dirtyScores.current = new Set();
@@ -352,7 +302,9 @@ export default function RatingPage({ embedded = false, periodFilter = null, ahea
 
     const finalize = useMutation({
         mutationFn: () =>
-            api.post(`pcr-forms/${form.id}/finalize-rating`, { rating_period_id: activePeriodId }),
+            api.post(`pcr-forms/${form.id}/finalize-rating`, {
+                rating_period_id: activePeriodId,
+            }),
         onSuccess: ({ data }) => {
             const score = `Rated ${Number(data.summary.final_average).toFixed(2)} — ${data.summary.adjectival}.`;
             message.success(`${score} It leaves your queue.`);
@@ -378,138 +330,36 @@ export default function RatingPage({ embedded = false, periodFilter = null, ahea
 
     const unrated = Object.values(scores).filter((row) => rowAverage(row) === null).length;
 
-    const columns = [
-        {
-            title: "Output",
-            dataIndex: ["output", "title"],
-            width: 160,
-            render: (title, record) => (
-                <div>
-                    <Tag>{SECTION_LABELS[record.output.section]}</Tag>
-                    <div style={{ marginTop: 4 }}>{title}</div>
-                    <AttendanceEvidence
-                        category={record.output.attendance_category}
-                        attendance={form?.attendance}
-                        periodId={activePeriodId}
-                    />
-                </div>
-            ),
-        },
-        {
-            title: "Success indicator",
-            dataIndex: "description",
-            width: 220,
-            render: (v) => <RichTextView html={v} />,
-        },
-        {
-            title: "Target date",
-            dataIndex: "target_date",
-            width: 120,
-            render: (value) => {
-                if (!value) return "—";
-
-                const stamp = dayjs(value);
-
-                return (
-                    <span className="pms-review-date">
-                        {stamp.isValid() ? stamp.format("MMM D, YYYY") : String(value)}
-                    </span>
-                );
-            },
-        },
-        {
-            title: "Actual accomplishment",
-            key: "accomplishment",
-            width: 240,
-            render: (_, record) => {
-                const accomplishment = record.accomplishments?.find(
-                    (a) => a.rating_period_id === activePeriodId
-                );
-
-                return (
-                    <AccomplishmentCell
-                        html={accomplishment?.actual_accomplishment}
-                        evidenceCount={accomplishment?.attachments?.length ?? 0}
-                        onOpen={() => setOpenLineId(record.id)}
-                    />
-                );
-            },
-        },
-        ...scale.dimensions.map((dimension) => ({
-            title: dimension.short,
-            key: dimension.key,
-            width: 90,
-            render: (_, record) =>
-                canRate ? (
-                    <Select
-                        size="small"
-                        style={{ width: 70 }}
-                        allowClear
-                        value={scores[record.id]?.[dimension.key] ?? undefined}
-                        onChange={(value) => update(record.id, dimension.key, value ?? null)}
-                        options={scoresChoices}
-                    />
-                ) : (
-                    <span>{scores[record.id]?.[dimension.key] ?? "—"}</span>
-                ),
-        })),
-        {
-            title: "A",
-            key: "a",
-            width: 70,
-            render: (_, record) => {
-                const value = rowAverage(scores[record.id]);
-                return value ? <Tag color="purple">{value}</Tag> : <Tag>—</Tag>;
-            },
-        },
-        {
-            title: "Score note",
-            key: "remarks",
-            width: 220,
-            render: (_, record) =>
-                canRate ? (
-                    <RichText
-                        rows={2}
-                        value={scores[record.id]?.remarks ?? ""}
-                        onChange={(html) => update(record.id, "remarks", html)}
-                    />
-                ) : scores[record.id]?.remarks ? (
-                    <RichTextView html={scores[record.id].remarks} />
-                ) : (
-                    <Typography.Text type="secondary">—</Typography.Text>
-                ),
-        },
-    ];
-
-    const rateActions = canRate && (
-        <Space wrap>
-            <Button loading={save.isPending} onClick={() => save.mutate()}>
-                Save progress
-            </Button>
-            <Button danger onClick={() => setReturnModal(true)}>
-                Return
-            </Button>
-            {closesHere ? (
-                <Button
-                    type="primary"
-                    disabled={unrated > 0}
-                    loading={finalize.isPending}
-                    onClick={() => save.mutateAsync().then(() => finalize.mutate())}
-                >
-                    Finalize rating
+    const rateActions = () =>
+        canRate ? (
+            <Space wrap>
+                <Button loading={save.isPending} onClick={() => save.mutate()}>
+                    Save progress
                 </Button>
-            ) : (
-                <Button
-                    type="primary"
-                    disabled={unrated > 0}
-                    loading={sendOn.isPending}
-                    onClick={() => save.mutateAsync().then(() => sendOn.mutate())}
-                >
-                    {`Send to ${nextReviewStop(form).label}`}
+                <Button danger onClick={() => setReturnModal(true)}>
+                    Return
                 </Button>
-            )}
-        </Space>
-    );
+                {closesHere ? (
+                    <Button
+                        type="primary"
+                        disabled={unrated > 0}
+                        loading={finalize.isPending || save.isPending}
+                        onClick={() => save.mutateAsync().then(() => finalize.mutate())}
+                    >
+                        Finalize rating
+                    </Button>
+                ) : (
+                    <Button
+                        type="primary"
+                        disabled={unrated > 0}
+                        loading={sendOn.isPending}
+                        onClick={() => save.mutateAsync().then(() => sendOn.mutate())}
+                    >
+                        {`Send to ${nextReviewStop(form).label}`}
+                    </Button>
+                )}
+            </Space>
+        ) : null;
 
     const modeSwitch = !viewOnly ? (
         <Segmented
@@ -615,215 +465,68 @@ export default function RatingPage({ embedded = false, periodFilter = null, ahea
             ) : (
                 form && (
                     <>
-                        <Card
-                            className="pms-rate-card"
-                            title={
-                                <Space>
-                                    <span>
-                                        {form.type.toUpperCase()} — {form.owner?.name ?? form.org_unit?.name}
-                                    </span>
-                                    <Tag color={statusMeta(form.status, form).color}>
-                                        {statusMeta(form.status, form).label}
-                                    </Tag>
-                                </Space>
-                            }
-                            extra={rateActions}
-                            style={{ marginBottom: 16 }}
-                        >
-                            {!canRate && (
-                                <Alert
-                                    type="info"
-                                    showIcon
-                                    style={{ marginBottom: 16 }}
-                                    message={readingScores ? "Scores are read-only." : "This rating is closed."}
-                                    description={
-                                        readingScores
-                                            ? "You can read these scores, but you cannot rate or close a form."
-                                            : "The form is no longer waiting for a rating, so the scores and remarks are view-only now."
-                                    }
-                                />
-                            )}
+                        {!canRate && !hiddenAlerts.has("closed") && (
+                            <Alert
+                                type="info"
+                                showIcon
+                                closable
+                                onClose={() => hideAlert("closed")}
+                                style={{ marginBottom: 16 }}
+                                message={readingScores ? "Scores are read-only." : "This rating is closed."}
+                                description={
+                                    readingScores
+                                        ? "You can read these scores, but you cannot rate or close a form."
+                                        : "The form is no longer waiting for a rating, so the scores and remarks are view-only now."
+                                }
+                            />
+                        )}
 
-                            {canRate && unrated > 0 && (
-                                <Alert
-                                    type="warning"
-                                    showIcon
-                                    style={{ marginBottom: 16 }}
-                                    message={`${unrated} line${unrated === 1 ? "" : "s"} still unrated`}
-                                    description={
-                                        closesHere
-                                            ? "Every success indicator needs at least one score before the rating can be finalized."
-                                            : "Every success indicator needs at least one score before this can be sent on."
-                                    }
-                                />
-                            )}
+                        {canRate && periodLocked && !hiddenAlerts.has("locked") && (
+                            <Alert
+                                type="warning"
+                                showIcon
+                                closable
+                                onClose={() => hideAlert("locked")}
+                                style={{ marginBottom: 16 }}
+                                message={
+                                    form.type === "opcr"
+                                        ? `${form.school_year?.label || "This school year"} is closed`
+                                        : `${activePeriod?.label || "This review period"} is locked`
+                                }
+                                description="Ratings cannot be saved or finalized until an administrator unlocks the period."
+                            />
+                        )}
 
-                            <div className="pms-mobile-only pms-rate-rows">
-                                {indicators.map((record) => (
-                                    <div key={record.id} className="pms-rate-row">
-                                        <span className="pms-rate-summary">
-                                            {toPlainText(record.description) || "Untitled line"}
-                                        </span>
-                                        <Button
-                                            type="text"
-                                            className="pms-rate-open"
-                                            onClick={() => setRateLineId(record.id)}
-                                        >
-                                            Open
-                                        </Button>
-                                    </div>
-                                ))}
-                            </div>
-                            <div className="pms-mobile-only pms-rate-actions">{rateActions}</div>
-                            <div className="pms-desktop-only">
-                                <Table
-                                    rowKey="id"
-                                    dataSource={indicators}
-                                    columns={columns}
-                                    pagination={false}
-                                    size="small"
-                                    scroll={{ x: 1280 }}
-                                />
-                            </div>
+                        {canRate && unrated > 0 && !hiddenAlerts.has("unrated") && (
+                            <Alert
+                                type="warning"
+                                showIcon
+                                closable
+                                onClose={() => hideAlert("unrated")}
+                                style={{ marginBottom: 16 }}
+                                message={`${unrated} line${unrated === 1 ? "" : "s"} still unrated`}
+                                description={
+                                    closesHere
+                                        ? "Every success indicator needs at least one score before the rating can be finalized."
+                                        : "Every success indicator needs at least one score before this can be sent on."
+                                }
+                            />
+                        )}
 
-                            <div className="pms-desktop-only">
-                                <Divider />
-                                <RatingLegend user={user} />
-                            </div>
-                        </Card>
-
-                        <Card
-                            className="pms-rate-feedback"
-                            title="Message to ratee"
-                        >
-                            <Typography.Paragraph type="secondary" style={{ marginTop: 0 }}>
-                                Conversation feedback — the ratee sees this under Feedback &amp; history on their form.
-                                Score notes above stay on the rating sheet.
-                            </Typography.Paragraph>
-                            <CommentThread formId={form.id} />
-                        </Card>
-
-                        <Drawer
-                            title={openLine ? toPlainText(openLine.description) : ""}
-                            placement="right"
-                            width={620}
-                            open={Boolean(openLine)}
-                            onClose={() => setOpenLineId(null)}
-                        >
-                            {openLine && (
-                                <IndicatorRow
-                                    key={openLine.id}
-                                    indicator={openLine}
-                                    formId={form.id}
-                                    periodId={activePeriodId}
-                                    canEditCommitment={false}
-                                    canRecordProgress={false}
-                                    canAssign={false}
-                                    isOpcr={form.type === "opcr"}
-                                />
-                            )}
-                        </Drawer>
-
-                        <Drawer
-                            className="pms-rate-drawer"
-                            title="Rating"
-                            placement="right"
-                            width={420}
-                            open={Boolean(rateLine)}
-                            onClose={() => setRateLineId(null)}
-                        >
-                            {rateLine && (
-                                <>
-                                    <div className="pms-rate-field">
-                                        <span>Output</span>
-                                        <div>
-                                            {toPlainText(rateLine.output?.title || rateLine.output?.description) || "—"}
-                                            <AttendanceEvidence
-                                                category={rateLine.output?.attendance_category}
-                                                attendance={form?.attendance}
-                                                periodId={activePeriodId}
-                                            />
-                                        </div>
-                                    </div>
-                                    <div className="pms-rate-field">
-                                        <span>Success indicator</span>
-                                        <div>{toPlainText(rateLine.description) || "Untitled line"}</div>
-                                    </div>
-                                    <div className="pms-rate-field">
-                                        <span>Target date</span>
-                                        <div>
-                                            <span className="pms-review-date">
-                                                {rateLine.target_date && dayjs(rateLine.target_date).isValid()
-                                                    ? dayjs(rateLine.target_date).format("MMM D, YYYY")
-                                                    : "—"}
-                                            </span>
-                                        </div>
-                                    </div>
-                                    <div className="pms-rate-field">
-                                        <span>Actual accomplishment</span>
-                                        <div>
-                                            <AccomplishmentView
-                                                html={
-                                                    rateLine.accomplishments?.find(
-                                                        (row) => row.rating_period_id === activePeriodId
-                                                    )?.actual_accomplishment
-                                                }
-                                                attachments={
-                                                    rateLine.accomplishments?.find(
-                                                        (row) => row.rating_period_id === activePeriodId
-                                                    )?.attachments
-                                                }
-                                                empty="No accomplishment yet"
-                                            />
-                                        </div>
-                                    </div>
-                                    {scale.dimensions.map((dimension) => (
-                                        <div key={dimension.key} className="pms-rate-field">
-                                            <span>{dimension.label}</span>
-                                            <div>
-                                                {canRate ? (
-                                                    <span className="pms-rate-picks">
-                                                        {scoresChoices.map((choice) => (
-                                                            <button
-                                                                key={choice.value}
-                                                                type="button"
-                                                                className={
-                                                                    Number(scores[rateLine.id]?.[dimension.key]) === choice.value
-                                                                        ? "is-on"
-                                                                        : undefined
-                                                                }
-                                                                onClick={() => update(rateLine.id, dimension.key, choice.value)}
-                                                            >
-                                                                {choice.label}
-                                                            </button>
-                                                        ))}
-                                                    </span>
-                                                ) : (
-                                                    <strong>{scores[rateLine.id]?.[dimension.key] ?? "—"}</strong>
-                                                )}
-                                            </div>
-                                        </div>
-                                    ))}
-                                    <div className="pms-rate-field">
-                                        <span>Score note</span>
-                                        <div>
-                                            {canRate ? (
-                                                <RichText
-                                                    rows={3}
-                                                    value={scores[rateLine.id]?.remarks ?? ""}
-                                                    onChange={(html) => update(rateLine.id, "remarks", html)}
-                                                />
-                                            ) : scores[rateLine.id]?.remarks ? (
-                                                <RichTextView html={scores[rateLine.id].remarks} />
-                                            ) : (
-                                                <Typography.Text type="secondary">No score note yet</Typography.Text>
-                                            )}
-                                        </div>
-                                    </div>
-                                    <RatingLegend user={user} />
-                                </>
-                            )}
-                        </Drawer>
+                        <FormEditorPage
+                            key={form.id}
+                            formId={form.id}
+                            hideTitle
+                            hideLockAlert
+                            toolbarExtra={canRate ? rateActions : null}
+                            scoreLegend={canRate ? () => <RatingLegend user={user} /> : null}
+                            scoreEdit={{
+                                canEdit: canRate && !periodLocked,
+                                scores,
+                                choices: scoresChoices,
+                                onChange: update,
+                            }}
+                        />
 
                         <ReturnPlacesModal
                             open={returnModal}

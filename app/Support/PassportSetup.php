@@ -123,11 +123,6 @@ class PassportSetup
 
     private static function ensurePersonalAccessClient(): void
     {
-        $marker = storage_path('framework/passport-client.ready');
-        if (is_file($marker)) {
-            return;
-        }
-
         if (! \Illuminate\Support\Facades\Schema::hasTable('oauth_clients')) {
             return;
         }
@@ -138,15 +133,10 @@ class PassportSetup
         try {
             $clients->personalAccessClient($provider);
         } catch (RuntimeException) {
+            // A wiped database leaves the old marker behind, so the client
+            // is checked every boot and created again when it is missing.
             $clients->createPersonalAccessGrantClient('OCC PMS', $provider);
         }
-
-        $directory = dirname($marker);
-        if (! is_dir($directory)) {
-            mkdir($directory, 0775, true);
-        }
-
-        file_put_contents($marker, 'ok');
     }
 
     private static function fileIsKey(string $path): bool

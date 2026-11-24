@@ -172,15 +172,20 @@ export const TargetLink = forwardRef(function TargetLink({ title, ...props }, re
     );
 });
 
-export default function OpcrTargetCell({ line, children }) {
+export default function OpcrTargetCell({ line, linkLabel, children }) {
     return (
         <div className="pms-target-cell">
             {children}
 
-            {line.parent && (
-                <Tooltip title={toPlainText(line.parent.description)}>
-                    <Tag bordered={false} color="geekblue" icon={<LinkOutlined />} className="pms-target-tag">
-                        Office target
+            {(linkLabel || line.parent) && (
+                <Tooltip title={line.parent ? toPlainText(line.parent.description) : undefined}>
+                    <Tag
+                        bordered={false}
+                        color={linkLabel ? "purple" : "geekblue"}
+                        icon={<LinkOutlined />}
+                        className="pms-target-tag"
+                    >
+                        {linkLabel || "Office target"}
                     </Tag>
                 </Tooltip>
             )}

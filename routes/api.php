@@ -16,6 +16,7 @@ use App\Http\Controllers\PcrOutputController;
 use App\Http\Controllers\PcrRatingController;
 use App\Http\Controllers\ReportController;
 use App\Http\Controllers\SchoolYearController;
+use App\Http\Controllers\TargetReplacementController;
 use App\Http\Controllers\TeamController;
 use App\Http\Controllers\UserController;
 use App\Http\Controllers\UserProfileController;
@@ -108,6 +109,16 @@ Route::middleware('auth:api')->group(function () {
     Route::delete('pcr-outputs/{id}', [PcrOutputController::class, 'destroy']);
 
     Route::post('pcr-indicators', [PcrIndicatorController::class, 'store']);
+    Route::post('pcr-forms/{id}/restart-commitments', [PcrIndicatorController::class, 'submitRestarts']);
+    Route::post('pcr-forms/{id}/restart-commitments/decide', [PcrIndicatorController::class, 'decideRestarts']);
+    Route::post('pcr-indicators/{id}/submit-commitment', [PcrIndicatorController::class, 'submitRestart']);
+    Route::post('pcr-indicators/{id}/approve-commitment', [PcrIndicatorController::class, 'approveRestart']);
+    Route::post('pcr-indicators/{id}/return-commitment', [PcrIndicatorController::class, 'returnRestart']);
+    Route::post('target-replacements/batch', [TargetReplacementController::class, 'storeMany']);
+    Route::post('target-replacements', [TargetReplacementController::class, 'store']);
+    Route::post('target-replacements/{id}/approve', [TargetReplacementController::class, 'approve']);
+    Route::post('target-replacements/{id}/reject', [TargetReplacementController::class, 'reject']);
+    Route::post('pcr-forms/{id}/target-replacements', [TargetReplacementController::class, 'decideForm']);
     Route::get('pcr-indicators/{id}/rollup', [PcrDeliveryController::class, 'rollup']);
     Route::post('pcr-indicators/{id}/progress', [PcrIndicatorController::class, 'progress']);
     Route::delete('pcr-indicators/{id}', [PcrIndicatorController::class, 'destroy']);

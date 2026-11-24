@@ -79,11 +79,24 @@ class PcrRatingController extends Controller
         }
 
         $formIndicatorIds = $this->indicatorIds($form);
+        $rateableIds = $this->rateableIds($form);
 
         foreach ($data['ratings'] as $row) {
-            if (! in_array((int) $row['indicator_id'], $formIndicatorIds, true)) {
+            $lineId = (int) $row['indicator_id'];
+
+            if (! in_array($lineId, $formIndicatorIds, true)) {
                 return response()->json([
                     'message' => 'One of those indicators is not part of this form.',
+                ], 422);
+            }
+
+            if (! in_array($lineId, $rateableIds, true)) {
+                $line = PcrIndicator::find($lineId);
+
+                return response()->json([
+                    'message' => $line?->closed_at
+                        ? 'This commitment was closed when its target was replaced, so it is not rated.'
+                        : 'This commitment is waiting for approval, so it is not rated yet.',
                 ], 422);
             }
         }
@@ -146,6 +159,7 @@ class PcrRatingController extends Controller
     {
         $data = $request->validate([
             'rating_period_id' => 'required|integer|exists:rating_periods,id',
+            'keep'             => 'sometimes|boolean',
         ]);
 
         $form   = PcrForm::findOrFail($id);
@@ -182,7 +196,16 @@ class PcrRatingController extends Controller
             ], 422);
         }
 
-        DB::transaction(function () use ($form, $period, $summary, $user) {
+        // Keep leaves the scores already on the form. The person who closes
+        // the rating in the system stays the one who finalized it.
+        $keep = $request->boolean('keep');
+        $note = "{$period->label}: {$summary['final_average']} ({$summary['adjectival']})";
+
+        if ($keep) {
+            $note .= '. Kept the rating already on the form.';
+        }
+
+        DB::transaction(function () use ($form, $period, $summary, $user, $note, $keep) {
             PcrPeriodSummary::updateOrCreate(
                 ['form_id' => $form->id, 'rating_period_id' => $period->id],
                 [
@@ -205,12 +228,15 @@ class PcrRatingController extends Controller
                 'rated_at'      => now(),
             ]);
 
-            PcrStatusLog::record(
-                $form->id,
-                $fromStatus,
-                'rated',
-                "{$period->label}: {$summary['final_average']} ({$summary['adjectival']})"
-            );
+            $log = PcrStatusLog::record($form->id, $fromStatus, 'rated', $note);
+
+            if ($log && ! $keep) {
+                $scores = PcrFormController::ratingSnapshot($form);
+
+                if ($scores !== []) {
+                    $log->update(['scores' => $scores]);
+                }
+            }
         });
 
         ActivityLog::record(
@@ -522,6 +548,15 @@ class PcrRatingController extends Controller
             ->all();
     }
 
+    private function rateableIds(PcrForm $form): array
+    {
+        return PcrIndicator::rateable()
+            ->whereHas('output', fn ($q) => $q->where('form_id', $form->id))
+            ->pluck('id')
+            ->map(fn ($id) => (int) $id)
+            ->all();
+    }
+
     private function computeSummary(PcrForm $form, RatingPeriod $period): array
     {
         $rows = PcrIndicator::query()
@@ -531,6 +566,15 @@ class PcrRatingController extends Controller
                     ->where('pcr_ratings.rating_period_id', '=', $period->id);
             })
             ->where('pcr_outputs.form_id', $form->id)
+            ->whereNull('pcr_indicators.closed_at')
+            ->where(function ($query) {
+                $query->whereNull('pcr_indicators.replacement_status')
+                    ->orWhere('pcr_indicators.replacement_status', '!=', 'pending');
+            })
+            ->where(function ($query) {
+                $query->where('pcr_indicators.needs_commitment_approval', false)
+                    ->orWhereNotNull('pcr_indicators.line_approved_at');
+            })
             ->get(['pcr_indicators.id', 'pcr_outputs.section', 'pcr_ratings.a']);
 
         $bySection = ['strategic' => [], 'core' => [], 'support' => []];

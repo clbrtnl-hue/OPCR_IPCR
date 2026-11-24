@@ -26,7 +26,7 @@ export default function PageHeader({ title, subtitle, extra }) {
                             <NavIcon name="back" />
                         </button>
                     )}
-                    <h1 className="pms-page-title">{title}</h1>
+                    {title ? <h1 className="pms-page-title">{title}</h1> : null}
                 </div>
                 {subtitle && <p className="pms-page-subtitle">{subtitle}</p>}
             </div>

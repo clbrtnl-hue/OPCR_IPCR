@@ -37,8 +37,8 @@ class IndicatorProgressService
     {
         $line->loadMissing('output.form');
 
-        if ($line->children()->exists() || $line->assignments()->exists()) {
-            $child = $line->children()->first();
+        if ($line->openChildren()->exists() || $line->assignments()->exists()) {
+            $child = $line->openChildren()->first();
 
             if ($child) {
                 $this->recalculateFrom($child);
@@ -77,7 +77,7 @@ class IndicatorProgressService
         while ($current && ! isset($seen[$current->id])) {
             $seen[$current->id] = true;
 
-            $children = $current->children()->get(['progress_status', 'progress_pct']);
+            $children = $current->openChildren()->get(['progress_status', 'progress_pct']);
 
             if ($children->isEmpty()) {
                 break;
@@ -101,7 +101,7 @@ class IndicatorProgressService
 
     public function releaseParent(PcrIndicator $parent): void
     {
-        $sibling = $parent->children()->first();
+        $sibling = $parent->openChildren()->first();
 
         if ($sibling) {
             $this->recalculateFrom($sibling);
@@ -149,6 +149,7 @@ class IndicatorProgressService
         }
 
         $beneath = PcrIndicator::whereIn('output_id', $childOutputIds)
+            ->whereNull('closed_at')
             ->get(['progress_status', 'progress_pct']);
 
         if ($beneath->isEmpty()) {
@@ -159,7 +160,7 @@ class IndicatorProgressService
         $status  = $this->statusFor($beneath);
 
         foreach ($office->indicators()->get() as $target) {
-            if ($target->children()->exists() || $target->assignments()->exists()) {
+            if ($target->openChildren()->exists() || $target->assignments()->exists()) {
                 continue;   // measured by its own sub-tasks, or by the assignee's commitments
             }
 
@@ -206,7 +207,7 @@ class IndicatorProgressService
         $seen[$target->id] = true;
         $target->loadMissing('output.form');
 
-        $children = $target->children()->get(['progress_status', 'progress_pct']);
+        $children = $target->openChildren()->get(['progress_status', 'progress_pct']);
 
         if ($children->isEmpty()) {
             if ($target->assignments()->exists()) {

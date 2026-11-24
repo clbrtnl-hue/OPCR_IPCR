@@ -443,7 +443,7 @@ class PcrFormExcel
 
     /**
      * The IPCR sign-off from the Madriaga sheet.
-     * Discussed with shows the ratee. Final Rating by shows the approver.
+     * Discussed with shows the ratee. Final Rating by shows the president.
      * Assessed by holds the certification, then the word Supervisor.
      * Only the Discussed-with date is one merged cell (column C).
      */
@@ -477,7 +477,7 @@ class PcrFormExcel
 
         $this->merge('A'.($s + 2).':B'.($s + 2), $this->partyName('ratee'), $size, false, 'center', 'top');
         $this->write('G'.($s + 2), $this->longDate($this->form->reviewed_at), $size, false, 'center', 'center');
-        $this->merge('H'.($s + 2).':L'.($s + 2), $this->partyName('approver'), $size, false, 'center', 'bottom');
+        $this->merge('H'.($s + 2).':L'.($s + 2), $this->upper($this->officeHead?->name), $size, false, 'center', 'bottom');
         $this->write('M'.($s + 2), $this->longDate($this->form->vp_reviewed_at ?: $this->form->rated_at), $size, false, 'center', 'center');
 
         $this->merge('A'.($s + 3).':B'.($s + 3), 'Employee', $size, false, 'center', 'top');
@@ -516,7 +516,8 @@ class PcrFormExcel
 
             foreach (PcrOutline::numbered($outputs) as $output) {
                 $lines = $output->indicators
-                    ->filter(fn ($line) => ! $line->rating_period_id || (int) $line->rating_period_id === (int) $this->period?->id)
+                    ->filter(fn ($line) => (! $line->rating_period_id || (int) $line->rating_period_id === (int) $this->period?->id)
+                        && $line->countsTowardRating())
                     ->values();
 
                 if ($lines->isEmpty()) {

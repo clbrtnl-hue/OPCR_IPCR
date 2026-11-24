@@ -12,7 +12,8 @@
         ? 'January to December ' . $year
         : ($period?->label ?? $form->schoolYear?->label);
     $lines = fn ($output) => $output->indicators->filter(
-        fn ($i) => ! $i->rating_period_id || (int) $i->rating_period_id === (int) $period?->id
+        fn ($i) => (! $i->rating_period_id || (int) $i->rating_period_id === (int) $period?->id)
+            && $i->countsTowardRating()
     );
     $accountable = function ($line) {
         $people = $line->assignments->map(fn ($a) => $a->user?->name)->filter();
@@ -282,7 +283,7 @@
                 <td width="33%" class="center">
                     Final Rating by<br><br><br>
                     <div class="rule">
-                        {{ $form->rated_by_name ?? $form->vpReviewer?->name }}<br>
+                        {{ $officeHead?->name }}<br>
                         Head of Office
                     </div>
                 </td>

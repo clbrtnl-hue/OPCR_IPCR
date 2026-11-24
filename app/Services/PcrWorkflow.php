@@ -278,9 +278,10 @@ class PcrWorkflow
 
     /** Whoever is named for this stage on this form — not whoever holds a role. */
     /**
-     * The head scores a faculty IPCR, the VP scores a head's IPCR and may
-     * change the faculty score, and QA scores a VP's IPCR and may change any
-     * score that reaches them. QA also scores their own IPCR and their staff's.
+     * The owner may optionally score their own IPCR while it is still with
+     * them. After that, the head scores a faculty IPCR and may change that
+     * score, the VP may change the score that reaches them, and QA may change
+     * any score that reaches them or leave it. QA also scores their own IPCR.
      */
     public static function mayScore(User $user, PcrForm $form): bool
     {
@@ -288,11 +289,24 @@ class PcrWorkflow
             return $form->status === 'qa_rating' && self::isRater($user);
         }
 
+        if (self::ownerMaySelfRate($user, $form)) {
+            return true;
+        }
+
         if ((int) self::reviewerId($form, $form->status) === (int) $user->id) {
             return true;
         }
 
         return $form->status === 'qa_rating' && self::isRater($user);
+    }
+
+    /** Optional. Only while the finished IPCR is still with its owner, before review. */
+    public static function ownerMaySelfRate(User $user, PcrForm $form): bool
+    {
+        return $form->type === 'ipcr'
+            && self::owns($user, $form)
+            && (bool) $form->commitment_approved_at
+            && in_array($form->status, ['commitments_approved', 'returned'], true);
     }
 
     /** The rating role closes the rating. On their own staff they close it without sending it up. */
@@ -653,6 +667,11 @@ class PcrWorkflow
         }
 
         if ($form->type === 'opcr') {
+            // Anyone can read a published college OPCR. Drafts stay with the people who already open them.
+            if (self::opcrIsVisible($form)) {
+                return true;
+            }
+
             $rules = app(WorkflowSettings::class);
 
             if (in_array($user->role, $rules->opcr('approver_roles'), true)

@@ -3,6 +3,8 @@ import {
     Badge,
     Button,
     Drawer,
+    Input,
+    Modal,
     Popconfirm,
     Space,
     Tag,
@@ -38,9 +40,27 @@ import ProgressCell from "~/components/ProgressCell";
 import { ADJECTIVAL_COLORS, DELAY_META, NARRATIVE_MAX, SECTION_LABELS } from "~/utils/constants";
 import { returnMark } from "~/utils/returnMarks";
 import { ratingRules } from "~/utils/ratingScale";
+import { ScoreCells, ScoreFields, ScoreHeaders } from "~/components/SheetScoreCells";
 import { useAuth } from "~/hooks/useAuth";
 
 const SECTIONS = ["strategic", "core", "support"];
+
+function keptAfterReplacement(line, indicators, form) {
+    if (!line.closed_at || line.closed_reason !== "target_replaced") return true;
+
+    const next = (indicators ?? []).find(
+        (item) => item.replaces_indicator_id === line.id && !item.closed_at
+    );
+
+    if (!next) return true;
+    if (next.line_approved_at) return false;
+    if (next.needs_commitment_approval) return true;
+
+    const formApproved = Boolean(form.commitment_approved_at)
+        || !["draft", "returned", "commitment_review"].includes(form.status);
+
+    return !formApproved;
+}
 
 export default function IpcrSheet({
     form,
@@ -50,8 +70,12 @@ export default function IpcrSheet({
     canAssign,
     canAssignHeadings,
     showScores = false,
+    showProgress = true,
+    scoreEdit = null,
+    scoreLegend = null,
     showAccomplishments = true,
     opcrTargets = [],
+    vpLinkByTarget = null,
     summary,
     focusLineId = null,
     focusOutputId = null,
@@ -63,11 +87,13 @@ export default function IpcrSheet({
     arriveOpenOutput = false,
     arriveTick = null,
     onExpand,
+    onRestartUi = null,
 }) {
     const { user } = useAuth();
     const scale = ratingRules(user);
     const queryClient = useQueryClient();
     const [openLineId, setOpenLineId] = useState(null);
+    const [returning, setReturning] = useState(null);
     const focusedLine = useRef(null);
     const focusedOutput = useRef(null);
     const [justAdded, setJustAdded] = useState(null);
@@ -76,6 +102,27 @@ export default function IpcrSheet({
     const { openPerson } = usePerson();
 
     const refresh = () => queryClient.invalidateQueries({ queryKey: ["pcr-form", String(form.id)] });
+
+    const sendRestarts = useMutation({
+        mutationFn: () => api.post(`pcr-forms/${form.id}/restart-commitments`),
+        onSuccess: () => {
+            message.success("New commitments sent for approval.");
+            refresh();
+        },
+    });
+
+    const decideRestarts = useMutation({
+        mutationFn: ({ approve, note }) =>
+            api.post(`pcr-forms/${form.id}/restart-commitments/decide`, {
+                approve,
+                ...(note ? { note } : {}),
+            }),
+        onSuccess: (_data, { approve }) => {
+            message.success(approve ? "New commitments approved." : "Sent back to be rewritten.");
+            setReturning(null);
+            refresh();
+        },
+    });
 
     const { data: people = [] } = useQuery({
         queryKey: ["assignable-users"],
@@ -344,13 +391,15 @@ export default function IpcrSheet({
                 .map((o) => ({
                     ...o,
                     lines: (o.indicators ?? []).filter(
-                        (i) => !i.rating_period_id || i.rating_period_id === periodId
+                        (i) =>
+                            (!i.rating_period_id || i.rating_period_id === periodId) &&
+                            keptAfterReplacement(i, o.indicators, form)
                     ),
                 }));
         });
 
         return map;
-    }, [form.outputs, periodId]);
+    }, [form, periodId]);
 
     const openLine = useMemo(() => {
         if (!openLineId) return null;
@@ -387,9 +436,11 @@ export default function IpcrSheet({
     );
     const showAccountable = canAssign || anyDelegated;
     const columnCount =
-        (showAccountable ? 5 : 4) +
+        (showAccountable ? 5 : 4) -
+        (showProgress ? 0 : 1) +
         (showAccomplishments ? 1 : 0) +
-        (showScores ? scale.dimensions.length + 1 : 0);
+        (showScores ? scale.dimensions.length + 1 + (scoreEdit ? 1 : 0) : 0);
+    const tailSpan = columnCount - (scoreEdit ? 5 : 4);
 
     const rows = [];
 
@@ -423,7 +474,30 @@ export default function IpcrSheet({
 
         outputs.forEach((output, outputIndex) => {
             const number = outputIndex + 1;
-            const lines = output.lines;
+            const isOwner = Number(form.user_id) === Number(user?.id);
+            const visible = isOwner
+                ? output.lines
+                : output.lines.filter((line) => {
+                      if (!line.closed_at || line.closed_reason !== "target_replaced") return true;
+
+                      const stillOpen = (output.indicators ?? []).some(
+                          (item) =>
+                              item.replaces_indicator_id === line.id &&
+                              !item.closed_at &&
+                              !item.line_approved_at
+                      );
+
+                      return !stillOpen;
+                  });
+            const lines = [...visible].sort((a, b) => {
+                const gap = Number(a.sort_order ?? 0) - Number(b.sort_order ?? 0);
+
+                if (gap !== 0) return gap;
+                if (a.id === b.replaces_indicator_id) return -1;
+                if (b.id === a.replaces_indicator_id) return 1;
+
+                return Number(a.id) - Number(b.id);
+            });
             const span = Math.max(lines.length, 1);
             const fromCollege = Boolean(output.parent_output_id && output.assigned_by);
             const handed = opcrTargets.filter((t) => t.assigned);
@@ -548,20 +622,41 @@ export default function IpcrSheet({
                 );
                 const evidenceCount = accomplishment?.attachments?.length ?? 0;
                 const handedTo = accountableFor(line);
+                const restarted =
+                    Boolean(line.needs_commitment_approval) && !line.line_approved_at && !line.closed_at;
+                const lineEditable = !line.closed_at && (canEdit || (restarted && !line.line_submitted_at));
+                const markNew =
+                    restarted ||
+                    (canEdit && !line.closed_at && line.replaces_indicator_id && !line.line_approved_at);
+                const replaced = line.replaces_indicator_id
+                    ? (output.indicators ?? []).find((item) => item.id === line.replaces_indicator_id)
+                    : null;
+                const oldStillOpen =
+                    line.closed_at &&
+                    line.closed_reason === "target_replaced" &&
+                    (output.indicators ?? []).some(
+                        (item) =>
+                            item.replaces_indicator_id === line.id &&
+                            !item.closed_at &&
+                            !item.line_approved_at
+                    );
 
                 rows.push(
                     <tr key={`line-${line.id}`} data-row={`indicator-${line.id}`}>
                         {lineIndex === 0 && outputCell}
 
-                        <td>
+                        <td className={(isOwner ? oldStillOpen : markNew) ? "pms-flag" : undefined}>
                             <div className="pms-sheet-number">
                                 <span>
                                     {number}.{lineIndex + 1}.
                                 </span>
-                                <OpcrTargetCell line={line}>
+                                <OpcrTargetCell
+                                    line={line}
+                                    linkLabel={vpLinkByTarget?.[String(line.parent_indicator_id)]}
+                                >
                                     <SheetCell
                                         value={toPlainText(line.description)}
-                                        disabled={!canEdit}
+                                        disabled={!lineEditable}
                                         placeholder="Target + measure + timeframe"
                                         maxLength={NARRATIVE_MAX}
                                         mark={returnMark(returnMarks, {
@@ -576,7 +671,33 @@ export default function IpcrSheet({
                                     />
                                 </OpcrTargetCell>
                             </div>
-                            {canEdit && (
+                            {!isOwner && markNew && replaced && (
+                                <Typography.Text
+                                    type="secondary"
+                                    style={{ display: "block", marginTop: 4, fontSize: 12, whiteSpace: "pre-wrap" }}
+                                >
+                                    Previous: {toPlainText(replaced.description) || "None"}
+                                </Typography.Text>
+                            )}
+                            {line.replaces_indicator_id && !line.closed_at && !restarted && (
+                                <Tag style={{ marginTop: 4 }}>New commitment for the replaced target</Tag>
+                            )}
+                            {line.closed_at && (
+                                <Tag color="default" style={{ marginTop: 4 }}>
+                                    Target replaced — not rated
+                                </Tag>
+                            )}
+                            {restarted && !line.line_submitted_at && (
+                                <Tag color="gold" style={{ marginTop: 4 }}>
+                                    Write a new commitment
+                                </Tag>
+                            )}
+                            {restarted && line.line_submitted_at && (
+                                <Tag color="processing" style={{ marginTop: 4 }}>
+                                    Waiting for approval
+                                </Tag>
+                            )}
+                            {canEdit && !line.closed_at && (
                                 <Space size={2} className="pms-sheet-rowtools">
                                     {targets.length > 0 &&
                                         !line.assigned_by &&
@@ -682,7 +803,7 @@ export default function IpcrSheet({
                             <SheetCell
                                 type="date"
                                 value={line.target_date}
-                                disabled={!canEdit}
+                                disabled={!lineEditable}
                                 placeholder="No date"
                                 mark={returnMark(returnMarks, {
                                     indicatorId: line.id,
@@ -700,6 +821,7 @@ export default function IpcrSheet({
                             )}
                         </td>
 
+                        {showProgress && (
                         <td className="pms-sheet-progress">
                             <ProgressCell
                                 status={line.progress_status ?? "not_started"}
@@ -712,6 +834,7 @@ export default function IpcrSheet({
                                 }
                             />
                         </td>
+                        )}
 
                         {showAccountable && (
                             <td>
@@ -787,17 +910,7 @@ export default function IpcrSheet({
                             </td>
                         )}
 
-                        {showScores &&
-                            scale.dimensions.map((dimension) => (
-                                <td key={dimension.key} className="pms-sheet-score">
-                                    {rating?.[dimension.key] ?? ""}
-                                </td>
-                            ))}
-                        {showScores && (
-                            <td className="pms-sheet-score">
-                                {rating?.a != null ? Number(rating.a).toFixed(2) : ""}
-                            </td>
-                        )}
+                        {showScores && <ScoreCells line={line} saved={rating} scoreEdit={scoreEdit} />}
                     </tr>
                 );
             });
@@ -807,10 +920,11 @@ export default function IpcrSheet({
             rows.push(
                 <tr key={`summary-${section}`} className="pms-sheet-summary">
                     <td colSpan={3}>AVERAGE RATING — {SECTION_LABELS[section]}</td>
-                    <td colSpan={columnCount - 4} />
+                    <td colSpan={tailSpan} />
                     <td className="pms-sheet-score">
                         {sectionAverage != null ? Number(sectionAverage).toFixed(2) : ""}
                     </td>
+                    {scoreEdit && <td />}
                 </tr>
             );
         }
@@ -820,16 +934,17 @@ export default function IpcrSheet({
         rows.push(
             <tr key="grand-total" className="pms-sheet-total">
                 <td colSpan={3}>TOTAL OVERALL RATING</td>
-                <td colSpan={columnCount - 4} />
+                <td colSpan={tailSpan} />
                 <td className="pms-sheet-score">
                     {summary?.final_average != null
                         ? Number(summary.final_average).toFixed(2)
                         : ""}
                 </td>
+                {scoreEdit && <td />}
             </tr>,
             <tr key="adjectival" className="pms-sheet-total">
                 <td colSpan={3}>ADJECTIVAL RATING</td>
-                <td colSpan={columnCount - 4} />
+                <td colSpan={tailSpan} />
                 <td className="pms-sheet-score">
                     {summary?.adjectival ? (
                         <Tag color={ADJECTIVAL_COLORS[summary.adjectival]} style={{ margin: 0 }}>
@@ -839,17 +954,105 @@ export default function IpcrSheet({
                         ""
                     )}
                 </td>
+                {scoreEdit && <td />}
             </tr>
         );
     }
 
+    const restartLines = (form.outputs ?? []).flatMap((output) =>
+        (output.indicators ?? []).filter(
+            (line) => line.needs_commitment_approval && !line.line_approved_at && !line.closed_at
+        )
+    );
+    const toSend = restartLines.filter((line) => !line.line_submitted_at);
+    const waitingForMe = restartLines.filter(
+        (line) => line.line_submitted_at && Number(line.line_approver_id) === Number(user?.id)
+    );
+    const ownsForm = Number(form.user_id) === Number(user?.id);
+    const readyToSend = toSend.length > 0 && toSend.every((line) => toPlainText(line.description));
+    const restartRun = useRef({});
+
+    restartRun.current = {
+        send: () => sendRestarts.mutate(),
+        approve: () => decideRestarts.mutate({ approve: true }),
+        reject: () => setReturning({ note: "" }),
+    };
+
+    useEffect(() => {
+        if (!onRestartUi) return undefined;
+
+        return () => onRestartUi(null);
+    }, [onRestartUi]);
+
+    useEffect(() => {
+        if (!onRestartUi) return;
+
+        onRestartUi({
+            showSend: ownsForm && toSend.length > 0,
+            count: toSend.length,
+            ready: readyToSend,
+            sendPending: sendRestarts.isPending,
+            showDecide: waitingForMe.length > 0,
+            waiting: waitingForMe.length,
+            decidePending: decideRestarts.isPending,
+            run: (name) => restartRun.current[name]?.(),
+        });
+    }, [
+        onRestartUi,
+        ownsForm,
+        toSend.length,
+        readyToSend,
+        sendRestarts.isPending,
+        waitingForMe.length,
+        decideRestarts.isPending,
+    ]);
+
     return (
         <>
+            {!onRestartUi && ((ownsForm && toSend.length > 0) || waitingForMe.length > 0) ? (
+                <Space style={{ marginBottom: 12 }} wrap>
+                    {ownsForm && toSend.length > 0 && (
+                        <>
+                            <Button
+                                type="primary"
+                                disabled={!readyToSend}
+                                loading={sendRestarts.isPending}
+                                onClick={() => sendRestarts.mutate()}
+                            >
+                                Send for approval ({toSend.length})
+                            </Button>
+                            {!readyToSend && (
+                                <Typography.Text type="secondary">
+                                    Write every new commitment first.
+                                </Typography.Text>
+                            )}
+                        </>
+                    )}
+                    {waitingForMe.length > 0 && (
+                        <>
+                            <Button
+                                type="primary"
+                                loading={decideRestarts.isPending}
+                                onClick={() => decideRestarts.mutate({ approve: true })}
+                            >
+                                Approve ({waitingForMe.length})
+                            </Button>
+                            <Button
+                                loading={decideRestarts.isPending}
+                                onClick={() => setReturning({ note: "" })}
+                            >
+                                Send back
+                            </Button>
+                        </>
+                    )}
+                </Space>
+            ) : null}
             <LineCards
                 form={form}
                 periodId={periodId}
                 showScores={showScores}
                 showAccomplishments={showAccomplishments}
+                vpLinkByTarget={vpLinkByTarget}
                 onOpen={setOpenLineId}
                 onEnter={canEdit && onExpand ? () => onExpand() : undefined}
                 addSections={canEdit ? ["core", "support"] : []}
@@ -869,30 +1072,21 @@ export default function IpcrSheet({
                                 <div className="pms-sheet-subhead">(Target + Measure)</div>
                             </th>
                             <th style={{ width: 110 }}>Target Date</th>
-                            <th style={{ width: 140 }}>Progress</th>
+                            {showProgress && <th style={{ width: 140 }}>Progress</th>}
                             {showAccountable && <th style={{ width: 180 }}>Accountable</th>}
                             {showAccomplishments && (
                                 <th style={{ width: 240 }}>Actual Accomplishments</th>
                             )}
-                            {showScores && (
-                                <>
-                                    {scale.dimensions.map((dimension) => (
-                                        <th
-                                            key={dimension.key}
-                                            style={{ width: 38 }}
-                                            title={dimension.label}
-                                        >
-                                            {dimension.short}
-                                        </th>
-                                    ))}
-                                    <th style={{ width: 46 }} title="Average">A</th>
-                                </>
-                            )}
+                            {showScores && <ScoreHeaders scoreEdit={scoreEdit} />}
                         </tr>
                     </thead>
                     <tbody>{rows}</tbody>
                 </table>
             </div>
+
+            {scoreLegend ? (
+                <div style={{ marginTop: 12 }}>{typeof scoreLegend === "function" ? scoreLegend() : scoreLegend}</div>
+            ) : null}
 
             {canEdit && (
                 <Typography.Text className="pms-sheet-hint" type="secondary" style={{ fontSize: 12 }}>
@@ -914,11 +1108,17 @@ export default function IpcrSheet({
                         indicator={openLine}
                         formId={form.id}
                         periodId={periodId}
-                        canEditCommitment={canEdit}
-                        canRecordProgress={canRecordProgress}
+                        canEditCommitment={canEdit && !openLine.closed_at}
+                        canRecordProgress={
+                            canRecordProgress &&
+                            !openLine.closed_at &&
+                            !(openLine.needs_commitment_approval && !openLine.line_approved_at)
+                        }
                         canAssign={canAssign}
                         showAccomplishments={showAccomplishments}
                         isOpcr={false}
+                        linkLabel={vpLinkByTarget?.[String(openLine.parent_indicator_id)]}
+                        scoreEdit={scoreEdit}
                         remarksOpen={openLine.id === focusLineId}
                     />
                 )}
@@ -933,6 +1133,26 @@ export default function IpcrSheet({
                 onClose={() => setAssigning(null)}
                 onAssign={(ids) => assign.mutate(ids)}
             />
+
+            <Modal
+                title="Send these commitments back"
+                open={Boolean(returning)}
+                okText="Send back"
+                confirmLoading={decideRestarts.isPending}
+                okButtonProps={{ disabled: !returning?.note?.trim() }}
+                onOk={() => decideRestarts.mutate({ approve: false, note: returning.note })}
+                onCancel={() => setReturning(null)}
+                destroyOnClose
+            >
+                <Input.TextArea
+                    rows={3}
+                    value={returning?.note ?? ""}
+                    placeholder="What needs to be rewritten"
+                    onChange={(event) =>
+                        setReturning((current) => ({ ...current, note: event.target.value }))
+                    }
+                />
+            </Modal>
         </>
     );
 }

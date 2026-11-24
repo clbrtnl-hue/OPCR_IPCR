@@ -99,13 +99,19 @@ class FormHistoryTest extends PmsTestCase
         $this->assertSame($sorted, $times);
     }
 
-    public function test_a_stranger_cannot_read_the_history(): void
+    public function test_a_published_opcr_history_is_view_only_for_everyone_but_a_draft_stays_private(): void
     {
         ['opcr' => $opcr] = $this->office();
 
         $outsider = User::factory()->create(['role' => 'employee', 'org_unit_id' => $this->makeUnit(['code' => 'OTH'])->id]);
 
         $this->actingAsUser($outsider);
+
+        // A published college OPCR is view-only for everyone.
+        $this->getJson("/api/pcr-forms/{$opcr->id}/history")->assertOk();
+
+        // A draft stays with the people who already open it.
+        $opcr->update(['status' => 'draft']);
 
         $this->getJson("/api/pcr-forms/{$opcr->id}/history")->assertStatus(403);
     }

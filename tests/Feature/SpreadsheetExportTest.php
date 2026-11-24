@@ -78,8 +78,9 @@ class SpreadsheetExportTest extends PmsTestCase
 
         $this->assertNotEmpty($rows);
 
-        $description = $rows[0][3];
-        $progress    = $rows[0][5];
+        // Columns: Owner, Unit, Section, Link, Success indicator, Target date, Progress %.
+        $description = $rows[0][4];
+        $progress    = $rows[0][6];
 
         $this->assertStringNotContainsString('<', (string) $description);
         $this->assertStringContainsString('Publish', (string) $description);
@@ -103,7 +104,7 @@ class SpreadsheetExportTest extends PmsTestCase
         $path  = $this->download("school_year_id={$year->id}&table=commitments&format=xlsx");
         $sheet = IOFactory::load($path)->getActiveSheet();
 
-        $descriptions = collect($sheet->toArray())->skip(1)->pluck(3);
+        $descriptions = collect($sheet->toArray())->skip(1)->pluck(4);
 
         $this->assertTrue($descriptions->contains('=1+1'), 'The text should survive verbatim, not be evaluated.');
 

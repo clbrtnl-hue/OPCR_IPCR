@@ -22,8 +22,8 @@ export default function NotificationBell() {
         queryKey: ["notifications", "bell", user?.id],
         enabled: Boolean(user),
         queryFn: () => api.get("notifications?limit=6").then((r) => r.data),
-        refetchInterval: 4000,
-        refetchIntervalInBackground: true,
+        refetchInterval: 15_000,
+        refetchIntervalInBackground: false,
     });
 
     const items = data?.items ?? [];

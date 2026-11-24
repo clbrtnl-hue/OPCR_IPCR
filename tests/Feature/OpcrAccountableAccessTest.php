@@ -75,7 +75,22 @@ class OpcrAccountableAccessTest extends PmsTestCase
         $this->actingAsUser($outsider);
 
         $this->getJson('/api/pcr-forms?accountable=1')->assertOk()->assertJsonCount(0);
-        $this->getJson("/api/pcr-forms?type=opcr&school_year_id={$year->id}")->assertOk()->assertJsonCount(0);
+        $this->getJson("/api/pcr-forms?type=opcr&school_year_id={$year->id}")
+            ->assertOk()
+            ->assertJsonPath('0.id', $opcr->id);
+        $this->getJson("/api/pcr-forms/{$opcr->id}")->assertOk();
+
+        $this->postJson('/api/pcr-indicators', [
+            'id'          => $target->id,
+            'output_id'   => $target->output_id,
+            'description' => 'Rewritten by someone who only reads the form.',
+        ])->assertStatus(409);
+
+        $opcr->update(['status' => 'draft']);
+
+        $this->getJson("/api/pcr-forms?type=opcr&school_year_id={$year->id}")
+            ->assertOk()
+            ->assertJsonCount(0);
         $this->getJson("/api/pcr-forms/{$opcr->id}")->assertStatus(403);
     }
 

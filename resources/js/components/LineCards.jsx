@@ -8,6 +8,24 @@ import { averageOf, ratingRules } from "~/utils/ratingScale";
 
 const SECTIONS = ["strategic", "core", "support"];
 
+function showReplacedLine(line, output, form) {
+    if (!line.closed_at || line.closed_reason !== "target_replaced") return true;
+    if (form.type === "opcr") return false;
+
+    const next = (output.indicators ?? []).find(
+        (item) => item.replaces_indicator_id === line.id && !item.closed_at
+    );
+
+    if (!next) return true;
+    if (next.line_approved_at) return false;
+    if (next.needs_commitment_approval) return true;
+
+    const formApproved = Boolean(form.commitment_approved_at)
+        || !["draft", "returned", "commitment_review"].includes(form.status);
+
+    return !formApproved;
+}
+
 function Score({ label, value }) {
     return (
         <span className="pms-line-score">
@@ -26,6 +44,7 @@ function SectionCards({
     user,
     onOpen,
     onEnter,
+    vpLinkByTarget,
     canAdd,
     onAdd,
 }) {
@@ -90,6 +109,9 @@ function SectionCards({
                         >
                             {outputTitle && <span className="pms-line-output">{outputTitle}</span>}
                             <span className="pms-line-title">{toPlainText(line.description) || "Untitled line"}</span>
+                            {vpLinkByTarget?.[String(line.parent_indicator_id)] && (
+                                <Tag color="purple">{vpLinkByTarget[String(line.parent_indicator_id)]}</Tag>
+                            )}
                             <span className="pms-line-progress">
                                 {unlinked ? (
                                     <span className="pms-progress-label" style={{ color: "#8c8c8c" }}>
@@ -141,6 +163,7 @@ export default function LineCards({
     showAccomplishments = true,
     onOpen,
     onEnter,
+    vpLinkByTarget = null,
     addSections = [],
     onAdd,
 }) {
@@ -154,11 +177,13 @@ export default function LineCards({
             section,
             blanks: onEnter ? outputs.filter((output) => (output.indicators ?? []).length === 0) : [],
             lines: outputs.flatMap((output) =>
-                (output.indicators ?? []).map((line) => ({
-                    line,
-                    outputId: output.id,
-                    outputTitle: toPlainText(output.title || output.description),
-                }))
+                (output.indicators ?? [])
+                    .filter((line) => line.replacement_status !== "pending" && showReplacedLine(line, output, form))
+                    .map((line) => ({
+                        line,
+                        outputId: output.id,
+                        outputTitle: toPlainText(output.title || output.description),
+                    }))
             ),
         };
     }).filter((group) => group.lines.length > 0 || group.blanks.length > 0 || addable.has(group.section));
@@ -180,6 +205,7 @@ export default function LineCards({
                     user={user}
                     onOpen={onOpen}
                     onEnter={onEnter}
+                    vpLinkByTarget={vpLinkByTarget}
                     canAdd={addable.has(group.section)}
                     onAdd={onAdd}
                 />
