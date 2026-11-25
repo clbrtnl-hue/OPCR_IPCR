@@ -34,13 +34,21 @@ const BAND_COLOR = {
 
 const NAME_SKIP = new Set(["of", "the", "and", "for", "in", "a", "an"]);
 
-function paceColor(pct) {
+function paceAgainst(pct, collegePct, overdue = 0) {
+    if (overdue > 0) return VIZ.critical;
     if (pct == null) return VIZ.muted;
-    if (pct >= 75) return VIZ.good;
-    if (pct >= 50) return VIZ.series[0];
-    if (pct >= 25) return VIZ.warning;
+    if (collegePct == null || pct >= collegePct) return VIZ.good;
 
-    return VIZ.critical;
+    return VIZ.warning;
+}
+
+function shortPerson(name) {
+    const parts = String(name || "")
+        .trim()
+        .split(/\s+/)
+        .filter(Boolean);
+
+    return parts[parts.length - 1] || "—";
 }
 
 function percent(part, whole) {
@@ -236,7 +244,6 @@ export default function PresidentGlance({ data, periodLocked = false }) {
     const overdue = lines.filter((line) => line.is_overdue).length;
     const notStarted = lines.filter((line) => line.progress_status === "not_started" && !line.is_overdue).length;
     const ongoing = Math.max(0, lines.length - completed - overdue - notStarted);
-    const workTotal = completed + ongoing + notStarted + overdue;
     const onTime = percent(Math.max(0, lines.length - overdue), lines.length);
 
     const people = data?.people ?? [];
@@ -290,9 +297,10 @@ export default function PresidentGlance({ data, periodLocked = false }) {
 
         for (const row of data?.vps ?? []) {
             const name = row.vp || "No VP";
-            const group = groups.get(name) ?? { name, pcts: [], units: [] };
+            const group = groups.get(name) ?? { name, pcts: [], units: [], overdue: 0 };
             if (row.progress_pct != null) group.pcts.push(Number(row.progress_pct));
             if (row.unit) group.units.push(row.unit);
+            group.overdue += Number(row.overdue ?? 0);
             groups.set(name, group);
         }
 
@@ -304,20 +312,24 @@ export default function PresidentGlance({ data, periodLocked = false }) {
 
                 return {
                     key: group.name,
-                    label: group.name,
+                    label: shortPerson(group.name),
                     value,
-                    color: paceColor(value),
+                    color: paceAgainst(value, collegePct, group.overdue),
                     href: reportPath("vps", group.name),
-                    hint: value != null ? `${group.name} — ${value}% across ${group.units.join(", ")}` : `${group.name} — no commitments yet`,
+                    hint:
+                        value != null
+                            ? `${group.name} — ${value}% · ${group.units.join(", ")}`
+                            : `${group.name} — no commitments yet`,
                 };
             })
             .sort((a, b) => (b.value ?? -1) - (a.value ?? -1) || a.label.localeCompare(b.label));
-    }, [data]);
+    }, [data, collegePct]);
 
     const ratedTotal = Number(totals.rated ?? 0);
     const bands = RATING_LEGEND.map((band) => ({
         key: band.label,
         label: band.label,
+        mark: band.value,
         value: Number(data?.adjectival?.[band.label] ?? 0),
         color: BAND_COLOR[band.label] ?? VIZ.series[0],
         href: reportPath("ratings", band.label),
@@ -348,18 +360,11 @@ export default function PresidentGlance({ data, periodLocked = false }) {
 
     return (
         <div className="pms-president">
-            <BoardCard title="Offices and programs" className="pms-board-units">
+            <BoardCard title="Units" className="pms-board-units">
                 {ranked.length === 0 ? (
                     <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="No offices or programs to compare yet." />
                 ) : (
                     <div className="pms-board-table">
-                        <div className="pms-board-table-head">
-                            <span>Unit</span>
-                            <span>People</span>
-                            <span>Progress</span>
-                            <span>Due</span>
-                            <span>Rating</span>
-                        </div>
                         <div className="pms-board-table-body">
                             {ranked.map((unit) => (
                                 <button
@@ -393,14 +398,27 @@ export default function PresidentGlance({ data, periodLocked = false }) {
                                                 <i
                                                     key={index}
                                                     style={
-                                                        unit.progress_pct != null && index < Math.round(unit.progress_pct / 12.5)
-                                                            ? { background: paceColor(unit.progress_pct) }
+                                                        unit.progress_pct != null &&
+                                                        index < Math.round(unit.progress_pct / 12.5)
+                                                            ? {
+                                                                  background: paceAgainst(
+                                                                      unit.progress_pct,
+                                                                      collegePct,
+                                                                      unit.overdue
+                                                                  ),
+                                                              }
                                                             : undefined
                                                     }
                                                 />
                                             ))}
                                         </span>
-                                        <strong>{unit.progress_pct != null ? `${unit.progress_pct}%` : "—"}</strong>
+                                        <strong
+                                            style={{
+                                                color: paceAgainst(unit.progress_pct, collegePct, unit.overdue),
+                                            }}
+                                        >
+                                            {unit.progress_pct != null ? `${unit.progress_pct}%` : "—"}
+                                        </strong>
                                     </span>
                                     <span className={unit.overdue > 0 ? "pms-board-due is-late" : "pms-board-due"} title={dueTitle(unit)}>
                                         {dueFigure(unit)}
@@ -415,12 +433,11 @@ export default function PresidentGlance({ data, periodLocked = false }) {
                 )}
             </BoardCard>
 
-            <BoardCard title="College status" className="pms-board-status-card">
+            <BoardCard title="Status" className="pms-board-status-card">
                 <div className="pms-status-top">
                     <StatusRing
                         slices={workSlices}
-                        total={workTotal}
-                        caption="commitments"
+                        total={collegePct != null ? `${collegePct}%` : "—"}
                         onSelect={(slice) => open(slice.href)}
                     />
                     <div className="pms-status-legend">
@@ -428,17 +445,17 @@ export default function PresidentGlance({ data, periodLocked = false }) {
                             <button
                                 key={slice.key}
                                 type="button"
+                                title={slice.hint}
                                 disabled={slice.value === 0}
                                 onClick={() => slice.value > 0 && open(slice.href)}
                             >
                                 <i style={{ background: slice.color }} />
-                                <span>{slice.label}</span>
                                 <strong>{slice.value}</strong>
                             </button>
                         ))}
                     </div>
                 </div>
-                <button type="button" className="pms-status-meter" onClick={() => open(reportPath("commitments"))}>
+                <button type="button" className="pms-status-meter" title="On time" onClick={() => open(reportPath("commitments"))}>
                     <span className="pms-status-meter-track">
                         <span className="pms-status-meter-fill" style={{ width: `${onTime ?? 0}%` }}>
                             <span className="pms-status-meter-pill">{onTime != null ? `${onTime}%` : "—"}</span>
@@ -446,9 +463,8 @@ export default function PresidentGlance({ data, periodLocked = false }) {
                     </span>
                 </button>
                 <div className="pms-status-piles">
-                    <button type="button" onClick={() => open(reportPath("people"))}>
+                    <button type="button" title="Ahead of the college" onClick={() => open(reportPath("people"))}>
                         <i className="is-ahead" />
-                        <span>Ahead</span>
                         <span className="pms-board-faces" aria-hidden="true">
                             {aheadPeople.slice(0, 3).map((person) => (
                                 <span key={person.id} title={person.name}>
@@ -458,9 +474,8 @@ export default function PresidentGlance({ data, periodLocked = false }) {
                         </span>
                         <strong>+{peopleAhead}</strong>
                     </button>
-                    <button type="button" onClick={() => open(reportPath("people"))}>
+                    <button type="button" title="Not started" onClick={() => open(reportPath("people"))}>
                         <i />
-                        <span>Not started</span>
                         <span className="pms-board-faces" aria-hidden="true">
                             {idlePeople.slice(0, 3).map((person) => (
                                 <span key={person.id} title={person.name}>
@@ -473,7 +488,7 @@ export default function PresidentGlance({ data, periodLocked = false }) {
                 </div>
             </BoardCard>
 
-            <BoardCard title="Where forms wait" className="pms-board-queue">
+            <BoardCard title="Queue" className="pms-board-queue">
                 {waitingStages.length === 0 && pendingReviewers.length === 0 ? (
                     <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="Nothing is waiting on a reviewer." />
                 ) : (
@@ -530,7 +545,7 @@ export default function PresidentGlance({ data, periodLocked = false }) {
                                                     <span>{initials(row.name)}</span>
                                                 </span>
                                                 <span className="pms-board-queue-who">
-                                                    <strong>{who}</strong>
+                                                    <strong title={who}>{shortPerson(who)}</strong>
                                                     <em>{STAGE_SHORT[row.stage] ?? row.stage}</em>
                                                 </span>
                                                 <span className="pms-board-queue-wait">
@@ -575,7 +590,7 @@ export default function PresidentGlance({ data, periodLocked = false }) {
                 )}
             </BoardCard>
 
-            <BoardCard title="By VP" className="pms-board-team">
+            <BoardCard title="VPs" className="pms-board-team">
                 {vpBars.length === 0 ? (
                     <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="No VP is named on a unit yet." />
                 ) : (
@@ -593,12 +608,12 @@ export default function PresidentGlance({ data, periodLocked = false }) {
                 )}
             </BoardCard>
 
-            <BoardCard title="Rating bands" className="pms-board-ratings">
+            <BoardCard title="Ratings" className="pms-board-ratings">
                 <div className="pms-board-bands">
                     {bands.map((band) => (
-                        <button key={band.key} type="button" onClick={() => open(band.href)}>
+                        <button key={band.key} type="button" title={band.label} onClick={() => open(band.href)}>
                             <i style={{ background: band.color }} />
-                            <span>{band.label}</span>
+                            <span>{band.mark}</span>
                             <span className="pms-board-track">
                                 <span
                                     style={{

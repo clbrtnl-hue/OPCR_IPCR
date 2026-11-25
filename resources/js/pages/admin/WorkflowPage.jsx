@@ -148,11 +148,11 @@ export default function WorkflowPage() {
                 style={{ marginBottom: 16 }}
             >
                 <Typography.Paragraph type="secondary">
-                    An IPCR walks these stages in order. A skippable stage nobody fills is
-                    passed over — which is how a head's own form skips the head stage,
-                    a unit with no dean or director skips those stages, and a VP's goes straight to QA.
-                    The last stage stays QA and can never be skipped. Name the person for a new step
-                    on Setup → Hierarchy.
+                    An IPCR walks these stages in order. A stage nobody fills is passed
+                    over, so the form is not left waiting on an empty step — a head's own
+                    form skips the head stage, a unit with no dean or director skips those,
+                    and a VP's goes straight to QA. The last stage closes the form and
+                    cannot be skipped. Name the person for a new step on Setup → Hierarchy.
                 </Typography.Paragraph>
 
                 <Space.Compact style={{ marginBottom: 12, width: "100%", maxWidth: 420 }}>

@@ -19,8 +19,6 @@ class InactiveAccount
 
     public const MOVED_NOTE = 'The reviewer account is inactive, so this step now goes to the next active person in that slot.';
 
-    public const STUCK_NOTE = 'The commitment approver account is inactive, and nobody active can take this step.';
-
     public function seal(User $user): void
     {
         $this->revokeTokens($user);
@@ -111,16 +109,28 @@ class InactiveAccount
             return true;
         }
 
-        $already = PcrStatusLog::query()
-            ->where('form_id', $form->id)
-            ->where('note', self::STUCK_NOTE)
-            ->exists();
+        // Nobody active can approve. Leave it with the owner so they can edit
+        // and send again once an approver can sign in. Staying in
+        // commitment_review waits on an account that cannot open the form.
+        $form->forceFill([
+            'status'                 => 'returned',
+            'commitment_approver_id' => null,
+        ])->save();
 
-        if ($already) {
-            return false;
-        }
+        PcrStatusLog::record(
+            $form->id,
+            'commitment_review',
+            'returned',
+            'Sent back because the approver account is inactive and nobody else can approve these commitments yet.'
+        );
 
-        PcrStatusLog::record($form->id, 'commitment_review', 'commitment_review', self::STUCK_NOTE);
+        $this->tell(
+            $form->user_id ? (int) $form->user_id : null,
+            'returned',
+            'Your IPCR came back to you',
+            'The person who approves commitments can no longer sign in, and nobody else can take that step yet. Edit it, then send it again once an approver is available.',
+            $form->id
+        );
 
         return true;
     }

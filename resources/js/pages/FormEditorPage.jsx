@@ -313,6 +313,7 @@ function FormStatusAlerts({
     isOwner,
     isOpcr,
     periodLocked,
+    cycleClosed = null,
     hideLockAlert = false,
     viewedPeriod,
     planningOpen,
@@ -330,13 +331,19 @@ function FormStatusAlerts({
             : form.status === "commitments_approved"
               ? "commitments_approved"
               : null;
+    // Send stays disabled for these. The note has to stay on the page —
+    // hiding it after a few seconds leaves a button that does nothing.
+    const sendBlocked = Boolean(form.commitment_wait) || !form.commitment_approver;
+    const returnNote = [...(form.status_logs ?? [])]
+        .sort((a, b) => b.id - a.id)
+        .find((log) => log.to_status === "returned" && log.note)?.note;
 
     useEffect(() => {
         setHidden(new Set());
     }, [form.id, form.status, periodLocked, planningOpen]);
 
     useEffect(() => {
-        if (!softKey || !isOwner) return undefined;
+        if (!softKey || !isOwner || (softKey === "planning" && sendBlocked)) return undefined;
         const timer = window.setTimeout(() => {
             setHidden((prev) => {
                 if (prev.has(softKey)) return prev;
@@ -346,7 +353,7 @@ function FormStatusAlerts({
             });
         }, SOFT_ALERT_MS);
         return () => window.clearTimeout(timer);
-    }, [softKey, isOwner, form.id]);
+    }, [softKey, isOwner, form.id, sendBlocked]);
 
     const hide = (key) =>
         setHidden((prev) => {
@@ -362,6 +369,18 @@ function FormStatusAlerts({
         style: { marginBottom: 16 },
         onClose: () => hide(key),
     });
+
+    if (cycleClosed) {
+        return (
+            <Alert
+                type="warning"
+                showIcon
+                style={{ marginBottom: 16 }}
+                message="This cycle is not open yet"
+                description={cycleClosed}
+            />
+        );
+    }
 
     if (periodLocked) {
         if (hideLockAlert || hidden.has("locked")) return null;
@@ -389,15 +408,16 @@ function FormStatusAlerts({
         <>
             {planningOpen && softKey === "planning" && !hidden.has("planning") && (
                 <Alert
-                    type="info"
+                    type={sendBlocked ? "warning" : "info"}
                     {...alertProps("planning")}
+                    closable={!sendBlocked}
                     message="Commitments need approval first"
                     description={
                         form.commitment_wait
                             ? form.commitment_wait
                             : form.commitment_approver
                               ? `Send them to ${approverLabel}. You can name accountable people now; tasks stay closed until commitments are approved.`
-                              : "There is nobody to approve these commitments yet."
+                              : "There is nobody to approve these commitments yet. Send stays closed until an administrator names someone who can approve them."
                     }
                 />
             )}
@@ -435,9 +455,10 @@ function FormStatusAlerts({
                         ) : isOpcr && returnedFromRating ? (
                             "Targets and success indicators stay as they are. Update the actual accomplishment and the evidence, then send it back for rating."
                         ) : (
-                            form.commitment_approved_at
+                            returnNote
+                            || (form.commitment_approved_at
                                 ? "Read the feedback below, make the corrections, then submit it again. Self-rating is optional."
-                                : "Read the feedback below, make the corrections, then submit it again."
+                                : "Read the feedback below, make the corrections, then submit it again.")
                         )
                     }
                 />
@@ -772,6 +793,7 @@ export default function FormEditorPage({ formId = null, periodBar = null, yearSe
             selfDirty.current = new Set();
             queryClient.invalidateQueries({ queryKey: ["pcr-form", id] });
         },
+        onError: (error) => message.error(error?.response?.data?.message ?? "Could not save the self-rating."),
     });
 
     const move = useMutation({
@@ -784,6 +806,7 @@ export default function FormEditorPage({ formId = null, periodBar = null, yearSe
             queryClient.invalidateQueries({ queryKey: ["review-queue"] });
             queryClient.invalidateQueries({ queryKey: ["qa-queue"] });
         },
+        onError: (error) => message.error(error?.response?.data?.message ?? "Could not update the form."),
     });
 
     const isOwner = useMemo(() => {
@@ -808,6 +831,7 @@ export default function FormEditorPage({ formId = null, periodBar = null, yearSe
     const yearClosed =
         form.type === "opcr" && periods.length > 0 && periods.every((period) => period.is_locked);
     const periodLocked = form.type === "opcr" ? yearClosed : Boolean(viewedPeriod?.is_locked);
+    const cycleClosed = form.cycle_closed || null;
     const isOpcr = form.type === "opcr";
     const commitmentsApproved = Boolean(form.commitment_approved_at);
     const returnedFromRating =
@@ -822,6 +846,7 @@ export default function FormEditorPage({ formId = null, periodBar = null, yearSe
     const canEditCommitment =
         isOwner &&
         !periodLocked &&
+        !cycleClosed &&
         (isOpcr ? form.status === "draft" || (form.status === "returned" && !returnedFromRating) : planningOpen);
     const workOpen =
         isOpcr ||
@@ -835,6 +860,7 @@ export default function FormEditorPage({ formId = null, periodBar = null, yearSe
         workOpen &&
         !["rated", "final"].includes(form.status) &&
         !periodLocked &&
+        !cycleClosed &&
         (!isOpcr || opcrDeliveryOpen);
     // Name people while writing commitments (like OPCR), and keep handing work
     // out after approval until rating starts.
@@ -846,11 +872,13 @@ export default function FormEditorPage({ formId = null, periodBar = null, yearSe
     const canAssignHeadings =
         isOwner &&
         !periodLocked &&
+        !cycleClosed &&
         Boolean(user.capabilities?.assign_outputs) &&
         (isOpcr ? !["rated", "final"].includes(form.status) : handoutOpen);
     const canAssign =
         isOwner &&
         !periodLocked &&
+        !cycleClosed &&
         Boolean(user.capabilities?.assign_indicators) &&
         (isOpcr ? !["rated", "final"].includes(form.status) : handoutOpen);
     const opcrHandoutClosed =
@@ -890,7 +918,7 @@ export default function FormEditorPage({ formId = null, periodBar = null, yearSe
     // or approved. IPCR waits on commitment approval; OPCR waits on publish.
     const showAccomplishments = isOpcr ? opcrDeliveryOpen : workOpen;
 
-    const opcrAction = !isOpcr
+    const opcrAction = !isOpcr || cycleClosed
         ? null
         : canCreateOpcr && (form.status === "draft" || (form.status === "returned" && !returnedFromRating))
           ? { status: "qa_approval", label: "Send for approval", short: "Send" }
@@ -902,6 +930,7 @@ export default function FormEditorPage({ formId = null, periodBar = null, yearSe
 
     const canStartOpcrRating =
         isOpcr &&
+        !cycleClosed &&
         canTriggerRating &&
         (form.status === "published" || (form.status === "returned" && returnedFromRating));
     const canSendCommitments = canEditCommitment && !isOpcr;
@@ -909,6 +938,7 @@ export default function FormEditorPage({ formId = null, periodBar = null, yearSe
         isOwner &&
         !isOpcr &&
         !periodLocked &&
+        !cycleClosed &&
         commitmentsApproved &&
         ["commitments_approved", "returned"].includes(form.status);
     const selfRateRows = () =>
@@ -1074,6 +1104,7 @@ export default function FormEditorPage({ formId = null, periodBar = null, yearSe
     ).includes(form.status);
     const canDecideCommitments =
         !isOpcr &&
+        !cycleClosed &&
         form.status === "commitment_review" &&
         samePerson(form.commitment_approver?.id, user.id);
     // Plain value, not a hook: this sits after the loading return.
@@ -1096,7 +1127,7 @@ export default function FormEditorPage({ formId = null, periodBar = null, yearSe
     // Step progress is for the account owner only — reviewers keep the status tag.
     const seesSteps = isOwner;
     const approverLabel = form.commitment_approver?.label || "approval";
-    const canReturnOpcr = isOpcr && canApproveOpcr && form.status === "qa_approval";
+    const canReturnOpcr = isOpcr && !cycleClosed && canApproveOpcr && form.status === "qa_approval";
 
     // Each review point carries its own commitments — January to June is not
     // rated on the same lines as July to December.
@@ -1192,7 +1223,17 @@ export default function FormEditorPage({ formId = null, periodBar = null, yearSe
                         type="primary"
                         loading={move.isPending}
                         disabled={!form.commitment_approver || Boolean(form.commitment_wait)}
-                        onClick={() => move.mutate({ status: "commitment_review" })}
+                        onClick={() => {
+                            const lines = (form.outputs ?? []).reduce(
+                                (count, output) => count + (output.indicators ?? []).length,
+                                0
+                            );
+                            if (!lines) {
+                                message.error("Add at least one success indicator before submitting.");
+                                return;
+                            }
+                            move.mutate({ status: "commitment_review" });
+                        }}
                     >
                         <span className="pms-btn-long">
                             {form.commitment_approver ? `Send to ${approverLabel}` : "Send"}
@@ -1438,6 +1479,7 @@ export default function FormEditorPage({ formId = null, periodBar = null, yearSe
                 isOwner={isOwner}
                 isOpcr={isOpcr}
                 periodLocked={periodLocked}
+                cycleClosed={cycleClosed}
                 hideLockAlert={hideLockAlert}
                 viewedPeriod={viewedPeriod}
                 planningOpen={planningOpen}

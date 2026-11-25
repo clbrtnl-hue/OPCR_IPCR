@@ -341,7 +341,9 @@ class PcrWorkflow
 
             if ($resume !== false) {
                 foreach (array_slice($stages, $resume) as $stage) {
-                    if (self::stageFilled($form, $stage) || ! ($stage['skippable'] ?? true)) {
+                    // An empty step has nobody who can open the form, so it is
+                    // passed over. Stopping there is what leaves the form stuck.
+                    if (self::stageFilled($form, $stage)) {
                         return $stage['status'];
                     }
                 }
@@ -359,8 +361,10 @@ class PcrWorkflow
         }
 
         // The first stage after here that somebody actually fills.
+        // An empty step is passed over even when it was marked required —
+        // a form cannot wait on a person who was never named.
         foreach (array_slice($stages, $position + 1) as $stage) {
-            if (self::stageFilled($form, $stage) || ! ($stage['skippable'] ?? true)) {
+            if (self::stageFilled($form, $stage)) {
                 return $stage['status'];
             }
         }
@@ -591,6 +595,65 @@ class PcrWorkflow
         return $id ? (int) $id : null;
     }
 
+    /**
+     * A later school year can hold an empty form. Commitments and every later
+     * step wait until that year is the current cycle and the period being
+     * written is open. A year-wide OPCR waits until any period of that year
+     * is open. Null when the write or the status move may proceed.
+     */
+    public static function cycleClosedMessage(PcrForm $form, ?int $explicit = null): ?string
+    {
+        $form->loadMissing('schoolYear');
+        $year = $form->schoolYear;
+
+        if (! $year?->is_active) {
+            $label = $year?->label ?: 'This school year';
+
+            return "{$label} is not the current cycle yet. Open the review period and set the year active before writing commitments or moving the form.";
+        }
+
+        $periodId = $explicit ?: ($form->rating_period_id ? (int) $form->rating_period_id : null);
+
+        if ($periodId) {
+            $period = RatingPeriod::find($periodId);
+
+            return ($period && $period->status !== 'open') ? self::periodNotOpenMessage($period) : null;
+        }
+
+        $periods = RatingPeriod::where('school_year_id', $form->school_year_id)->orderBy('seq')->get();
+
+        if ($periods->isEmpty()) {
+            return null;
+        }
+
+        if ($form->type === 'opcr') {
+            if ($periods->contains(fn (RatingPeriod $period) => $period->status === 'open')) {
+                return null;
+            }
+
+            return self::periodNotOpenMessage(
+                $periods->first(fn (RatingPeriod $period) => $period->status === 'upcoming') ?? $periods->first()
+            );
+        }
+
+        $period = RatingPeriod::find(self::periodForWrite($form));
+
+        return ($period && $period->status !== 'open') ? self::periodNotOpenMessage($period) : null;
+    }
+
+    private static function periodNotOpenMessage(RatingPeriod $period): string
+    {
+        if ($period->status === 'upcoming') {
+            return "{$period->label} is still upcoming. Open it before writing commitments or moving the form.";
+        }
+
+        if ($period->status === 'closed') {
+            return "{$period->label} is closed. Open it before writing commitments or moving the form.";
+        }
+
+        return "{$period->label} is not open. Open it before writing commitments or moving the form.";
+    }
+
     /** Null when the write may proceed. A locked period is view-only. */
     public static function lockMessage(User $user, ?int $periodId): ?string
     {
@@ -613,6 +676,10 @@ class PcrWorkflow
      */
     public static function formLockMessage(User $user, PcrForm $form, ?int $explicit = null): ?string
     {
+        if ($message = self::cycleClosedMessage($form, $explicit)) {
+            return $message;
+        }
+
         if ($form->type !== 'opcr') {
             return self::lockMessage($user, self::periodForWrite($form, $explicit));
         }
@@ -836,6 +903,10 @@ class PcrWorkflow
 
     public static function canEditCommitments(User $user, PcrForm $form): bool
     {
+        if (self::cycleClosedMessage($form)) {
+            return false;
+        }
+
         if (! $form->isEditable() || ! self::owns($user, $form)) {
             return false;
         }
@@ -854,6 +925,10 @@ class PcrWorkflow
     /** Why a target edit was refused, when the reason is more specific than "not a draft". */
     public static function commitmentClosedMessage(PcrForm $form): ?string
     {
+        if ($message = self::cycleClosedMessage($form)) {
+            return $message;
+        }
+
         if ($form->type === 'opcr' && $form->status === 'returned' && self::returnedFromRating($form)) {
             return 'This OPCR was returned from rating. Targets and success indicators stay as they are — update the accomplishment and the evidence.';
         }

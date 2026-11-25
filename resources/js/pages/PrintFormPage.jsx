@@ -28,6 +28,272 @@ function score(value) {
     return value != null && value !== "" ? Number(value).toFixed(2) : "";
 }
 
+function longDate(value) {
+    return value ? dayjs(value).format("D MMMM YYYY") : "";
+}
+
+const IPCR_BANDS = {
+    strategic: "STRATEGIC PRIORITY",
+    core: "CORE FUNCTIONS:",
+    support: "SUPPORT FUNCTIONS:",
+};
+
+const IPCR_COLS = [
+    "15.13%", "2.89%", "2.89%", "14.76%", "2.89%", "2.89%", "9.01%",
+    "2.89%", "2.89%", "2.89%", "2.89%", "3.04%", "34.92%",
+];
+
+function onPaper(indicator, periodId) {
+    if (!indicator) return false;
+    if (indicator.rating_period_id && Number(indicator.rating_period_id) !== Number(periodId)) return false;
+    if (indicator.closed_at) return false;
+    if (indicator.replacement_status === "pending") return false;
+    if (indicator.needs_commitment_approval && !indicator.line_approved_at) return false;
+
+    return true;
+}
+
+function ipcrRows(form, periodId) {
+    const rows = [];
+
+    ["strategic", "core", "support"].forEach((section) => {
+        const outputs = (form.outputs ?? []).filter((output) => output.section === section);
+
+        if (outputs.length === 0) return;
+
+        const lines = [];
+
+        outputs.forEach((output) => {
+            const title = output.outline_number
+                ? `${output.outline_number}. ${output.title}`
+                : output.title;
+            const kept = (output.indicators ?? []).filter((indicator) => onPaper(indicator, periodId));
+
+            if (kept.length === 0) {
+                lines.push({ title, rowSpan: 1, indicator: null });
+
+                return;
+            }
+
+            kept.forEach((indicator, index) => {
+                lines.push({
+                    title: index === 0 ? title : null,
+                    rowSpan: index === 0 ? kept.length : 0,
+                    indicator,
+                });
+            });
+        });
+
+        if (lines.length === 0) return;
+
+        rows.push({ kind: "section", label: IPCR_BANDS[section] });
+        lines.forEach((line) => rows.push({ kind: "line", ...line }));
+    });
+
+    return rows;
+}
+
+function IpcrPrint({ form, orgName, periodLabel, activePeriodId, summary }) {
+    const ratee = (form.owner?.name ?? form.org_unit?.name ?? "").toUpperCase();
+    const reviewer = (form.head_reviewer?.name ?? form.reviewed_by_name ?? "").toUpperCase();
+    const approver = (form.vp_reviewer?.name ?? form.vp_reviewed_by_name ?? "").toUpperCase();
+    const signed = longDate(form.submitted_at) || longDate(form.created_at);
+    const rows = ipcrRows(form, activePeriodId);
+
+    const lineCells = (row) => {
+        const indicator = row.indicator;
+        const accomplishment = indicator?.accomplishments?.find(
+            (item) => item.rating_period_id === activePeriodId
+        );
+        const rating = indicator?.ratings?.find((item) => item.rating_period_id === activePeriodId);
+
+        return (
+            <>
+                {row.rowSpan > 0 && (
+                    <td rowSpan={row.rowSpan} className="m-a pms-ipcr-mid">
+                        {row.title}
+                    </td>
+                )}
+                <td colSpan={3} className="b-a">
+                    <RichTextView html={indicator?.description} />
+                </td>
+                <td colSpan={3} className="m-t m-b m-r">
+                    <RichTextView html={accomplishment?.actual_accomplishment} />
+                </td>
+                <td className="m-a pms-ipcr-center">{rating?.q ?? ""}</td>
+                <td className="m-a pms-ipcr-center">{rating?.e ?? ""}</td>
+                <td className="m-a pms-ipcr-center">{rating?.t ?? ""}</td>
+                <td className="m-a pms-ipcr-center">{score(rating?.a)}</td>
+                <td colSpan={2} className="m-a">
+                    <RichTextView html={rating?.remarks} />
+                </td>
+            </>
+        );
+    };
+
+    return (
+        <div className="pms-print-sheet pms-print-official pms-print-ipcr">
+            <table className="pms-ipcr">
+                <colgroup>
+                    {IPCR_COLS.map((width, index) => (
+                        <col key={index} style={{ width }} />
+                    ))}
+                </colgroup>
+                <tbody>
+                    <tr>
+                        <td colSpan={13} className="b-t b-l b-r pms-ipcr-title">
+                            INDIVIDUAL PERFORMANCE COMMITMENT AND REVIEW
+                        </td>
+                    </tr>
+                    <tr>
+                        <td colSpan={13} className="b-l b-r pms-ipcr-lead">
+                            I, {ratee}, of the {orgName} commit to deliver and agree to be rated on the
+                            attainment of the following targets in accordance with the indicated measures
+                            for the period {periodLabel}.
+                        </td>
+                    </tr>
+                    <tr>
+                        <td colSpan={6} className="b-l" />
+                        <td colSpan={7} className="b-r pms-ipcr-center">{ratee}</td>
+                    </tr>
+                    <tr>
+                        <td colSpan={6} className="b-l" />
+                        <td colSpan={7} className="b-r pms-ipcr-center">Ratee</td>
+                    </tr>
+                    <tr>
+                        <td colSpan={6} className="b-l b-b" />
+                        <td colSpan={7} className="b-r b-b pms-ipcr-center">Date: {signed}</td>
+                    </tr>
+
+                    <tr>
+                        <td colSpan={3} className="b-l b-t pms-ipcr-label">Reviewed by</td>
+                        <td className="b-a pms-ipcr-center pms-ipcr-label">Date</td>
+                        <td colSpan={7} className="b-t b-b b-r pms-ipcr-label">Approved by</td>
+                        <td colSpan={2} className="b-t b-b b-r pms-ipcr-center pms-ipcr-label">Date</td>
+                    </tr>
+                    <tr className="pms-ipcr-signspace">
+                        <td colSpan={3} className="b-l b-t" />
+                        <td rowSpan={3} className="b-r b-b pms-ipcr-center pms-ipcr-mid">
+                            {longDate(form.reviewed_at)}
+                        </td>
+                        <td colSpan={7} className="b-l b-t" />
+                        <td colSpan={2} rowSpan={3} className="b-t b-r b-b pms-ipcr-center pms-ipcr-mid">
+                            {longDate(form.vp_reviewed_at)}
+                        </td>
+                    </tr>
+                    <tr className="pms-ipcr-signspace">
+                        <td colSpan={3} className="b-l b-b" />
+                        <td colSpan={7} className="b-l" />
+                    </tr>
+                    <tr>
+                        <td colSpan={3} className="m-l m-r m-b pms-ipcr-center pms-ipcr-label">{reviewer}</td>
+                        <td colSpan={7} className="b-l b-r b-b pms-ipcr-center pms-ipcr-label">{approver}</td>
+                    </tr>
+                    <tr>
+                        <td colSpan={3} className="m-l m-r m-t pms-ipcr-center pms-ipcr-label">Immediate Supervisor</td>
+                        <td className="b-r b-t" />
+                        <td colSpan={7} className="b-t b-r pms-ipcr-center pms-ipcr-label">Head of Office</td>
+                        <td colSpan={2} className="b-t b-r" />
+                    </tr>
+                    <tr>
+                        <td colSpan={13} className="m-a pms-ipcr-gap" />
+                    </tr>
+
+                    <tr>
+                        <td rowSpan={2} className="m-a pms-ipcr-center pms-ipcr-label pms-ipcr-mid">MFO/PPA</td>
+                        <td colSpan={3} className="b-l b-t pms-ipcr-center pms-ipcr-label">Success Indicator</td>
+                        <td colSpan={3} className="b-l b-t b-r pms-ipcr-center pms-ipcr-label">Actual</td>
+                        <td colSpan={4} className="m-t m-b b-r pms-ipcr-center pms-ipcr-label">Rating</td>
+                        <td colSpan={2} rowSpan={2} className="m-a pms-ipcr-center pms-ipcr-label pms-ipcr-mid">Remarks</td>
+                    </tr>
+                    <tr>
+                        <td colSpan={3} className="b-l b-b pms-ipcr-center pms-ipcr-label">(Target + Measure)</td>
+                        <td colSpan={3} className="b-l b-r b-b pms-ipcr-center pms-ipcr-label">Accomplishments</td>
+                        <td className="b-r b-b pms-ipcr-center pms-ipcr-label">Q</td>
+                        <td className="b-l b-r b-b pms-ipcr-center pms-ipcr-label">E</td>
+                        <td className="b-l b-r b-b pms-ipcr-center pms-ipcr-label">T</td>
+                        <td className="b-l b-b pms-ipcr-center pms-ipcr-label">A</td>
+                    </tr>
+
+                    {rows.map((row, index) => (
+                        row.kind === "section" ? (
+                            <tr key={`s-${index}`}>
+                                <td colSpan={13} className="b-l b-r pms-ipcr-label">{row.label}</td>
+                            </tr>
+                        ) : (
+                            <tr key={`l-${index}`}>{lineCells(row)}</tr>
+                        )
+                    ))}
+
+                    <tr>
+                        <td className="m-l m-t m-b">Final Average Rating</td>
+                        <td colSpan={12} className="m-r m-t m-b pms-ipcr-center">
+                            {score(summary?.final_average)}
+                        </td>
+                    </tr>
+                    <tr>
+                        <td className="m-l m-t m-b pms-ipcr-center">Adjectival Rating:</td>
+                        <td colSpan={12} className="m-r m-t m-b pms-ipcr-center pms-ipcr-label">
+                            {summary?.adjectival ?? ""}
+                        </td>
+                    </tr>
+                    <tr>
+                        <td colSpan={13} className="m-a">
+                            Comments and Recommendations for Development Purposes:
+                        </td>
+                    </tr>
+                    <tr>
+                        <td colSpan={13} className="m-a pms-ipcr-comments">
+                            <RichTextView html={form.header_note} />
+                        </td>
+                    </tr>
+
+                    <tr>
+                        <td colSpan={2} className="b-l b-t b-b b-r pms-ipcr-center pms-ipcr-label">Discussed with</td>
+                        <td className="b-l b-r b-b pms-ipcr-center pms-ipcr-label">Date</td>
+                        <td colSpan={3} className="b-l b-b b-r pms-ipcr-center pms-ipcr-label">Assessed by</td>
+                        <td className="b-l b-r b-b pms-ipcr-center pms-ipcr-label">Date</td>
+                        <td colSpan={5} className="b-l b-b b-r pms-ipcr-center pms-ipcr-label">Final Rating by</td>
+                        <td className="b-l b-r b-b pms-ipcr-center pms-ipcr-label">Date</td>
+                    </tr>
+                    <tr className="pms-ipcr-signspace">
+                        <td colSpan={2} className="b-l b-t b-r" />
+                        <td rowSpan={3} className="b-l b-r b-t pms-ipcr-center pms-ipcr-mid">
+                            {longDate(form.submitted_at)}
+                        </td>
+                        <td colSpan={3} rowSpan={2} className="b-l b-t b-r pms-ipcr-center">
+                            I certify that I discussed my assessment of the performance with the employee
+                        </td>
+                        <td className="b-l b-r b-t" />
+                        <td colSpan={5} className="b-l b-t b-r" />
+                        <td className="b-l b-r b-t" />
+                    </tr>
+                    <tr>
+                        <td colSpan={2} className="b-l b-r b-b pms-ipcr-center">{ratee}</td>
+                        <td className="b-l b-r pms-ipcr-center pms-ipcr-mid">{longDate(form.reviewed_at)}</td>
+                        <td colSpan={5} className="b-l b-r b-b pms-ipcr-center pms-ipcr-bottom">{approver}</td>
+                        <td className="b-l b-r pms-ipcr-center pms-ipcr-mid">
+                            {longDate(form.vp_reviewed_at || form.rated_at)}
+                        </td>
+                    </tr>
+                    <tr>
+                        <td colSpan={2} className="b-l b-t b-r b-b pms-ipcr-center">Employee</td>
+                        <td colSpan={3} className="b-l b-r b-t pms-ipcr-center">Supervisor</td>
+                        <td className="b-l b-r" />
+                        <td colSpan={5} className="b-l b-r pms-ipcr-center pms-ipcr-bottom">Head of Office</td>
+                        <td className="b-l b-r" />
+                    </tr>
+                    <tr>
+                        <td colSpan={13} className="m-a">
+                            Legend&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Q – Quality&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;E – Efficiency&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;T – Timeliness&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;A – Average
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    );
+}
+
 export default function PrintFormPage() {
     const { id } = useParams();
     const organization = useOrganization();
@@ -139,8 +405,7 @@ export default function PrintFormPage() {
         }
     };
 
-    return (
-        <div>
+    const toolbar = (
             <Space className="pms-no-print" style={{ padding: 16 }}>
                 <Button type="primary" icon={<PrinterOutlined />} onClick={() => window.print()}>
                     Print
@@ -157,6 +422,26 @@ export default function PrintFormPage() {
                     />
                 )}
             </Space>
+    );
+
+    if (!isOpcr) {
+        return (
+            <div>
+                {toolbar}
+                <IpcrPrint
+                    form={form}
+                    orgName={orgName}
+                    periodLabel={periodLabel}
+                    activePeriodId={activePeriodId}
+                    summary={summary}
+                />
+            </div>
+        );
+    }
+
+    return (
+        <div>
+            {toolbar}
 
             <div className="pms-print-sheet pms-print-official">
                 <div className="pms-print-letterhead">

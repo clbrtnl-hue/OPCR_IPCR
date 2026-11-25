@@ -63,6 +63,10 @@ function keptAfterReplacement(line, indicators, form) {
     return !formApproved;
 }
 
+function sheetError(error, fallback) {
+    message.error(error?.response?.data?.message ?? fallback);
+}
+
 export default function IpcrSheet({
     form,
     periodId,
@@ -114,6 +118,7 @@ export default function IpcrSheet({
             message.success("New commitments sent for approval.");
             refresh();
         },
+        onError: (error) => sheetError(error, "Could not send the new commitments."),
     });
 
     const decideRestarts = useMutation({
@@ -127,6 +132,7 @@ export default function IpcrSheet({
             setReturning(null);
             refresh();
         },
+        onError: (error) => sheetError(error, "Could not decide those commitments."),
     });
 
     const { data: people = [] } = useQuery({
@@ -153,6 +159,7 @@ export default function IpcrSheet({
             setAssigning(null);
             refresh();
         },
+        onError: (error) => sheetError(error, "Could not assign that."),
     });
 
     const saveOutput = useMutation({
@@ -192,6 +199,7 @@ export default function IpcrSheet({
 
             refresh();
         },
+        onError: (error) => sheetError(error, "Could not save that row."),
     });
 
     const swapOrder = useMutation({
@@ -215,6 +223,7 @@ export default function IpcrSheet({
             await api.post(url, { ...base(b), id: b.id, sort_order: a.sort_order });
         },
         onSuccess: refresh,
+        onError: (error) => sheetError(error, "Could not move that row."),
     });
 
     const removeOutput = useMutation({
@@ -223,6 +232,7 @@ export default function IpcrSheet({
             message.success("Row removed.");
             refresh();
         },
+        onError: (error) => sheetError(error, "Could not remove that row."),
     });
 
     const saveIndicator = useMutation({
@@ -265,6 +275,7 @@ export default function IpcrSheet({
 
             refresh();
         },
+        onError: (error) => sheetError(error, "Could not save that line."),
     });
 
     const patchLine = (line, outputId, changes) =>
@@ -283,6 +294,7 @@ export default function IpcrSheet({
             message.success("Row removed.");
             refresh();
         },
+        onError: (error) => sheetError(error, "Could not remove that line."),
     });
 
     const withdraw = useMutation({
@@ -291,6 +303,7 @@ export default function IpcrSheet({
             message.success("Assignment withdrawn.");
             refresh();
         },
+        onError: (error) => sheetError(error, "Could not withdraw that assignment."),
     });
 
     useEffect(() => {

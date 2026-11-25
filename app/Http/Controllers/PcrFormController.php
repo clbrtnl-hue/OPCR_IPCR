@@ -193,6 +193,8 @@ class PcrFormController extends Controller
                 : PcrWorkflow::commitmentWait($form);
         }
 
+        $payload['cycle_closed'] = PcrWorkflow::cycleClosedMessage($form);
+
         if ($form->type === 'ipcr' && $form->user_id) {
             $payload['assigned_targets'] = $this->assignedTargetsFor($form);
         }
@@ -597,6 +599,10 @@ class PcrFormController extends Controller
             return response()->json(['message' => "This form is already {$to}."], 409);
         }
 
+        if ($message = PcrWorkflow::cycleClosedMessage($form)) {
+            return response()->json(['message' => $message], 409);
+        }
+
         $isCommitmentSubmit = false;
         $isCommitmentDecision = false;
 
@@ -670,7 +676,12 @@ class PcrFormController extends Controller
             && PcrWorkflow::owns($user, $form)
         ) {
             $form->forceFill(PcrWorkflow::resolveReviewers($form))->save();
-            $to = PcrWorkflow::nextStatusFor($form, $from) ?? $to;
+            $to = $this->nextFilledStatus($form, $from);
+
+            if ($to instanceof \Illuminate\Http\JsonResponse) {
+                return $to;
+            }
+
             $isOwnerSubmission = true;
         }
 
@@ -776,7 +787,11 @@ class PcrFormController extends Controller
                 ], 409);
             }
 
-            $to = PcrWorkflow::nextStatusFor($form, $from) ?? $to;
+            $to = $this->nextFilledStatus($form, $from);
+
+            if ($to instanceof \Illuminate\Http\JsonResponse) {
+                return $to;
+            }
         }
 
         if ($from === 'dean_review' && $to !== 'returned') {
@@ -788,7 +803,11 @@ class PcrFormController extends Controller
                 ], 409);
             }
 
-            $to = PcrWorkflow::nextStatusFor($form, $from) ?? $to;
+            $to = $this->nextFilledStatus($form, $from);
+
+            if ($to instanceof \Illuminate\Http\JsonResponse) {
+                return $to;
+            }
         }
 
         if ($form->type === 'ipcr'
@@ -796,7 +815,11 @@ class PcrFormController extends Controller
             && ! in_array($from, ['head_review', 'dean_review', 'qa_rating'], true)
             && $to !== 'returned'
         ) {
-            $to = PcrWorkflow::nextStatusFor($form, $from) ?? $to;
+            $to = $this->nextFilledStatus($form, $from);
+
+            if ($to instanceof \Illuminate\Http\JsonResponse) {
+                return $to;
+            }
         }
 
         if ($form->type === 'ipcr'
@@ -1713,6 +1736,23 @@ class PcrFormController extends Controller
                 );
             }
         }
+    }
+
+    /**
+     * The next review step that has somebody to open it. The client may ask
+     * for head review; an empty step is not a place to park the form.
+     */
+    private function nextFilledStatus(PcrForm $form, string $from): string|\Illuminate\Http\JsonResponse
+    {
+        $next = PcrWorkflow::nextStatusFor($form, $from);
+
+        if (! $next) {
+            return response()->json([
+                'message' => 'There is nobody to review this form. Ask an administrator to name a reviewer.',
+            ], 422);
+        }
+
+        return $next;
     }
 
     /**

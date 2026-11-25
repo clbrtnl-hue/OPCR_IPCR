@@ -11,6 +11,7 @@ use App\Models\CalendarEventMark;
 use App\Models\Notification;
 use App\Models\OrgUnit;
 use App\Models\RatingPeriod;
+use App\Models\SchoolYear;
 use App\Models\User;
 use App\Services\AttendanceSync;
 use App\Support\CurrentOrganization;
@@ -208,6 +209,8 @@ class CalendarEventController extends Controller
             ], 422));
         }
 
+        $this->insideSchoolYear($start, $end);
+
         if ($request->user()->role === 'employee' && $data['visibility'] !== 'only_me') {
             abort(response()->json([
                 'message' => 'Your events stay on your calendar.',
@@ -345,6 +348,43 @@ class CalendarEventController extends Controller
             ],
             'viewer_ids' => $viewerIds,
         ];
+    }
+
+    private function insideSchoolYear(Carbon $start, Carbon $end): void
+    {
+        $years = SchoolYear::query()
+            ->whereNotNull('start_date')
+            ->whereNotNull('end_date')
+            ->get(['start_date', 'end_date']);
+
+        if ($years->isEmpty()) {
+            return;
+        }
+
+        $covers = function (Carbon $day) use ($years): bool {
+            return $years->contains(function (SchoolYear $year) use ($day) {
+                return $day->gte($year->start_date->copy()->startOfDay())
+                    && $day->lte($year->end_date->copy()->startOfDay());
+            });
+        };
+
+        $errors = [];
+        $message = 'Pick a date inside a school year.';
+
+        if (! $covers($start->copy()->startOfDay())) {
+            $errors['starts_at'] = [$message];
+        }
+
+        if (! $covers($end->copy()->startOfDay())) {
+            $errors['ends_at'] = [$message];
+        }
+
+        if ($errors !== []) {
+            abort(response()->json([
+                'message' => $message,
+                'errors'  => $errors,
+            ], 422));
+        }
     }
 
     /**

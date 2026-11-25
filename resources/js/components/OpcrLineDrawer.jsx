@@ -8,7 +8,7 @@ import {
 } from "@ant-design/icons";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import dayjs from "dayjs";
-import api from "~/utils/api";
+import api, { errorText } from "~/utils/api";
 import { DELAY_META, NARRATIVE_MAX, UPLOAD_ACCEPT, UPLOAD_MAX_MB } from "~/utils/constants";
 import CommentThread from "~/components/CommentThread";
 import DeliveredBy from "~/components/DeliveredBy";
@@ -39,6 +39,7 @@ export default function OpcrLineDrawer({
     const hasDelegatedHeading = Number(output?.delegated_outputs_count ?? 0) > 0;
     const serverText = accomplishment?.actual_accomplishment ?? "";
     const [text, setText] = useState(serverText);
+    const [saveError, setSaveError] = useState("");
     const seenServer = useRef(serverText);
 
     useEffect(() => {
@@ -56,17 +57,21 @@ export default function OpcrLineDrawer({
                 actual_accomplishment: text,
             }),
         onSuccess: () => {
+            setSaveError("");
             message.success("Office accomplishment saved.");
             refresh();
         },
+        onError: (error) => setSaveError(errorText(error)),
     });
 
     const removeAttachment = useMutation({
         mutationFn: (id) => api.delete(`pcr-attachments/${id}`),
         onSuccess: () => {
+            setSaveError("");
             message.success("Evidence removed.");
             refresh();
         },
+        onError: (error) => setSaveError(errorText(error)),
     });
 
     const upload = async (file) => {
@@ -163,7 +168,10 @@ export default function OpcrLineDrawer({
                             <RichText
                                 rows={4}
                                 value={text}
-                                onChange={setText}
+                                onChange={(value) => {
+                                    setSaveError("");
+                                    setText(value);
+                                }}
                                 maxLength={NARRATIVE_MAX}
                                 placeholder="What did the college deliver against this target?"
                             />
@@ -177,6 +185,7 @@ export default function OpcrLineDrawer({
                                 >
                                     Save
                                 </Button>
+                                {saveError && <span className="cal-field-error">{saveError}</span>}
                                 <Upload
                                     multiple
                                     accept={UPLOAD_ACCEPT}

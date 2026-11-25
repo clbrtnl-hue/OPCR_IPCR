@@ -1574,7 +1574,7 @@ class ReportController extends Controller
             'seal'         => PcrPrint::sealSrc(),
             'officeHead'   => PcrPrint::officeHead(),
             'scale'        => PcrPrint::scale(),
-        ])->setPaper('legal', 'landscape');
+        ])->setPaper($form->type === 'ipcr' ? 'folio' : 'legal', 'landscape');
 
         $name = strtoupper($form->type) . ' - ' . ($form->owner?->name ?? $form->orgUnit?->name);
 

@@ -8,7 +8,7 @@ export default function StatusRing({ slices, total, caption, onSelect }) {
 
     return (
         <div className="pms-status-ring">
-            <svg viewBox="0 0 168 168" role="img" aria-label={`${total} ${caption}`}>
+            <svg viewBox="0 0 168 168" role="img" aria-label={[total, caption].filter(Boolean).join(" ")}>
                 <g transform="rotate(-90 84 84)">
                     {sum === 0 ? (
                         <circle cx="84" cy="84" r={radius} fill="none" stroke="#f0efec" strokeWidth="16" />
@@ -43,7 +43,7 @@ export default function StatusRing({ slices, total, caption, onSelect }) {
             </svg>
             <div className="pms-status-ring-copy">
                 <strong>{total}</strong>
-                <span>{caption}</span>
+                {caption ? <span>{caption}</span> : null}
             </div>
         </div>
     );

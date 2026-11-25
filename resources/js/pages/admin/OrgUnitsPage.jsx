@@ -483,6 +483,7 @@ const OrgViewport = forwardRef(function OrgViewport({ children, placing = false 
     const [scale, setScale] = useState(1);
     const [size, setSize] = useState({ width: 0, height: 0 });
     const [grabbing, setGrabbing] = useState(false);
+    const [revealing, setRevealing] = useState(false);
 
     useLayoutEffect(() => {
         const node = tree.current;
@@ -577,15 +578,38 @@ const OrgViewport = forwardRef(function OrgViewport({ children, placing = false 
     useImperativeHandle(ref, () => ({
         reveal(unitId) {
             const view = viewport.current;
-            const target = tree.current?.querySelector(`[data-unit-id="${unitId}"]`);
-            if (!view || !target) return;
+            const scaleEl = tree.current;
+            const target = scaleEl?.querySelector(`[data-unit-id="${unitId}"]`);
+            if (!view || !scaleEl || !target) return;
 
-            const viewRect = view.getBoundingClientRect();
+            const old = scaleRef.current || 1;
+            const scaleRect = scaleEl.getBoundingClientRect();
             const targetRect = target.getBoundingClientRect();
-            view.scrollTo({
-                left: view.scrollLeft + targetRect.left - viewRect.left - (viewRect.width - targetRect.width) / 2,
-                top: view.scrollTop + targetRect.top - viewRect.top - (viewRect.height - targetRect.height) / 2,
-                behavior: "smooth",
+            const localX = (targetRect.left - scaleRect.left) / old;
+            const localY = (targetRect.top - scaleRect.top) / old;
+            const localW = targetRect.width / old;
+            const localH = targetRect.height / old;
+            const fitted = Math.min(
+                (view.clientWidth * 0.42) / Math.max(localW, 1),
+                (view.clientHeight * 0.5) / Math.max(localH, 1),
+            );
+            const next = Math.min(1.6, Math.max(0.9, fitted));
+            const left = localX * next - (view.clientWidth - localW * next) / 2;
+            const top = localY * next - (view.clientHeight - localH * next) / 2;
+
+            scaleRef.current = next;
+            setRevealing(true);
+            setScale(next);
+            window.setTimeout(() => setRevealing(false), 400);
+
+            requestAnimationFrame(() => {
+                requestAnimationFrame(() => {
+                    view.scrollTo({
+                        left: Math.max(0, left),
+                        top: Math.max(0, top),
+                        behavior: "smooth",
+                    });
+                });
             });
         },
     }));
@@ -603,7 +627,7 @@ const OrgViewport = forwardRef(function OrgViewport({ children, placing = false 
                 onClickCapture={onClickCapture}
             >
                 <div className="pms-org-stage" style={{ width: size.width * scale, height: size.height * scale }}>
-                    <div className="pms-org-scale" ref={tree} style={{ transform: `scale(${scale})` }}>
+                    <div className={`pms-org-scale${revealing ? " is-revealing" : ""}`} ref={tree} style={{ transform: `scale(${scale})` }}>
                         {children}
                     </div>
                 </div>
@@ -956,6 +980,7 @@ export default function OrgUnitsPage() {
 
     const openDrawer = (record, parentId = null) => {
         setEditing(record ?? null);
+        if (record?.id) setFoundId(record.id);
         setOpen(true);
         const reviewers = Object.fromEntries((record?.reviewers ?? []).map((row) => [row.slot, row.user_id]));
         const viewerIds = (record?.viewers ?? []).map((row) => row.user_id);
@@ -1018,10 +1043,10 @@ export default function OrgUnitsPage() {
     );
 
     return (
-        <>
+        <div className="pms-org-page">
             <PageHeader
                 title="Hierarchy"
-                subtitle="Drag a unit name to move it. An empty Head is skipped. An empty Dean, VP, or extra step uses the parent unit."
+                subtitle="Search zooms the chart to that unit. Drag a unit name to move it."
                 extra={
                     <>
                         {finder}
@@ -1224,6 +1249,6 @@ export default function OrgUnitsPage() {
                 </div>,
                 document.body,
             )}
-        </>
+        </div>
     );
 }

@@ -157,9 +157,18 @@ class InactiveAccountTest extends PmsTestCase
         $this->deleteJson("/api/users/{$head->id}")->assertOk();
         app(InactiveAccount::class)->sweep();
 
-        $this->assertSame('commitment_review', $form->fresh()->status);
-        $this->assertSame($head->id, (int) $form->fresh()->commitment_approver_id);
-        $this->assertSame(1, PcrStatusLog::query()->where('form_id', $form->id)->where('note', InactiveAccount::STUCK_NOTE)->count());
+        $fresh = $form->fresh();
+        $this->assertSame('returned', $fresh->status);
+        $this->assertNull($fresh->commitment_approver_id);
+        $this->assertSame(1, PcrStatusLog::query()->where('form_id', $form->id)->where('to_status', 'returned')->count());
+        $this->assertDatabaseHas('notifications', [
+            'user_id' => $faculty->id,
+            'form_id' => $form->id,
+            'title'   => 'Your IPCR came back to you',
+        ]);
+
+        app(InactiveAccount::class)->sweep();
+        $this->assertSame(1, PcrStatusLog::query()->where('form_id', $form->id)->where('to_status', 'returned')->count());
     }
 
     public function test_a_follow_up_reaches_the_person_who_took_over(): void

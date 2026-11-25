@@ -266,6 +266,7 @@ export default function RatingPage({ embedded = false, periodFilter = null, year
             dirtyScores.current = new Set();
             queryClient.invalidateQueries({ queryKey: ["pcr-form", String(selectedId)] });
         },
+        onError: (error) => message.error(error?.response?.data?.message ?? "Could not save the ratings."),
     });
 
     const sendOn = useMutation({
@@ -280,6 +281,7 @@ export default function RatingPage({ embedded = false, periodFilter = null, year
             if (followsArrival) showNextAfter(form.id);
             else setSelectedId(null);
         },
+        onError: (error) => message.error(error?.response?.data?.message ?? "Could not send the form."),
     });
 
     const returnForm = useMutation({
@@ -294,6 +296,7 @@ export default function RatingPage({ embedded = false, periodFilter = null, year
             if (followsArrival) showNextAfter(form.id);
             else setSelectedId(null);
         },
+        onError: (error) => message.error(error?.response?.data?.message ?? "Could not return the form."),
     });
 
     const finalize = useMutation({
@@ -310,6 +313,7 @@ export default function RatingPage({ embedded = false, periodFilter = null, year
             if (followsArrival) showNextAfter(form.id);
             else setSelectedId(null);
         },
+        onError: (error) => message.error(error?.response?.data?.message ?? "Could not finalize the rating."),
     });
 
     const update = (indicatorId, field, value) => {
@@ -363,6 +367,11 @@ export default function RatingPage({ embedded = false, periodFilter = null, year
                     >
                         {`Send to ${nextReviewStop(form).label}`}
                     </Button>
+                )}
+                {unrated > 0 && (
+                    <Typography.Text type="secondary">
+                        Rate every line before sending this on.
+                    </Typography.Text>
                 )}
             </Space>
         ) : null;

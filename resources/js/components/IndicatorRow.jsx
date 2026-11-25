@@ -25,7 +25,7 @@ import {
 } from "@ant-design/icons";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import dayjs from "dayjs";
-import api from "~/utils/api";
+import api, { errorText } from "~/utils/api";
 import { DELAY_META, NARRATIVE_MAX, PROGRESS_META, UPLOAD_ACCEPT, UPLOAD_MAX_MB } from "~/utils/constants";
 import CommentThread from "~/components/CommentThread";
 import AccomplishmentView, { AttachmentGallery } from "~/components/AccomplishmentView";
@@ -59,6 +59,7 @@ export default function IndicatorRow({
 
     const serverText = accomplishment?.actual_accomplishment ?? "";
     const [text, setText] = useState(serverText);
+    const [actionError, setActionError] = useState("");
     const seenServer = useRef(serverText);
 
     useEffect(() => {
@@ -80,17 +81,21 @@ export default function IndicatorRow({
                 actual_accomplishment: text,
             }),
         onSuccess: () => {
+            setActionError("");
             message.success("Accomplishment saved.");
             refresh();
         },
+        onError: (error) => setActionError(errorText(error)),
     });
 
     const removeIndicator = useMutation({
         mutationFn: () => api.delete(`pcr-indicators/${indicator.id}`),
         onSuccess: () => {
+            setActionError("");
             message.success("Success indicator removed.");
             refresh();
         },
+        onError: (error) => setActionError(errorText(error)),
     });
 
     const assign = useMutation({
@@ -101,10 +106,12 @@ export default function IndicatorRow({
                     ? "They already have this one."
                     : `Assigned to ${data.assigned} ${data.assigned === 1 ? "person" : "people"}.`
             );
+            setActionError("");
             setAssignOpen(false);
             setPicked([]);
             refresh();
         },
+        onError: (error) => setActionError(errorText(error)),
     });
 
     const { data: people = [] } = useQuery({
@@ -117,9 +124,11 @@ export default function IndicatorRow({
     const removeAttachment = useMutation({
         mutationFn: (id) => api.delete(`pcr-attachments/${id}`),
         onSuccess: () => {
+            setActionError("");
             message.success("Evidence removed.");
             refresh();
         },
+        onError: (error) => setActionError(errorText(error)),
     });
 
     const upload = async (file) => {
@@ -178,6 +187,9 @@ export default function IndicatorRow({
 
     return (
         <div className="pms-drawer-panel">
+            {actionError && (
+                <Alert type="error" showIcon style={{ marginBottom: 12 }} message={actionError} />
+            )}
             <div className="pms-drawer-actions">
                 <Space wrap size={8}>
                     {indicator.delay && indicator.delay.state !== "no_date" && (

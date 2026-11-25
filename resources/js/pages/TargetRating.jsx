@@ -1,15 +1,15 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { Button, Card, Drawer, Empty, Select, Space, Table, Tag, Typography, message } from "antd";
+import { Button, Card, Drawer, Empty, Select, Space, Tag, Typography, message } from "antd";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import dayjs from "dayjs";
-import api from "~/utils/api";
+import api, { errorText } from "~/utils/api";
 import { useAuth } from "~/hooks/useAuth";
 import { useOrganization } from "~/hooks/useOrganization";
-import { ROLE_LABELS, SECTION_LABELS, statusMeta } from "~/utils/constants";
-import { averageOf, ratingRules, scoreOptions } from "~/utils/ratingScale";
-import RichText from "~/components/RichText";
+import { ADJECTIVAL_COLORS, RATING_LEGEND, ROLE_LABELS, statusMeta } from "~/utils/constants";
+import { scoreOptions } from "~/utils/ratingScale";
 import RichTextView, { toPlainText } from "~/components/RichTextView";
 import AccomplishmentView, { AccomplishmentCell } from "~/components/AccomplishmentView";
+import { ScoreCells, ScoreFields, ScoreHeaders } from "~/components/SheetScoreCells";
 
 function linePeriodId(line, chosen) {
     if (line?.form?.rating_period_id) return line.form.rating_period_id;
@@ -49,9 +49,9 @@ export default function TargetRating({ periodFilter = null, yearFilter, ahead = 
     const [selectedId, setSelectedId] = useState(null);
     const [chosenPeriodId, setChosenPeriodId] = useState(null);
     const [scores, setScores] = useState({});
+    const [saveError, setSaveError] = useState("");
     const [openLineId, setOpenLineId] = useState(null);
     const dirtyScores = useRef(new Set());
-    const scale = ratingRules(user);
     const scoresChoices = scoreOptions(user);
 
     const { data: targets = [], isLoading } = useQuery({
@@ -155,114 +155,23 @@ export default function TargetRating({ periodFilter = null, yearFilter, ahead = 
             await Promise.all([...groups.values()].map((payload) => api.post("pcr-ratings", payload)));
         },
         onSuccess: () => {
+            setSaveError("");
             message.success("Ratings saved.");
             dirtyScores.current = new Set();
             queryClient.invalidateQueries({ queryKey: ["rating-targets"] });
             queryClient.invalidateQueries({ queryKey: ["pcr-form"] });
         },
+        onError: (error) => setSaveError(errorText(error)),
     });
 
-    const columns = [
-        {
-            title: "Commitment",
-            key: "who",
-            width: 180,
-            fixed: "left",
-            render: (_, record) => (
-                <div>
-                    <Tag color={record.form.type === "opcr" ? "geekblue" : "blue"}>{record.form.type.toUpperCase()}</Tag>
-                    <Tag color={statusMeta(record.form.status).color}>{statusMeta(record.form.status).label}</Tag>
-                    <div style={{ marginTop: 4 }}>{record.form.owner || record.form.org_unit}</div>
-                </div>
-            ),
-        },
-        {
-            title: "Success indicator",
-            dataIndex: "description",
-            width: 220,
-            fixed: "left",
-            render: (value) => <RichTextView html={value} />,
-        },
-        {
-            title: "Target date",
-            dataIndex: "target_date",
-            width: 120,
-            render: (value) => {
-                if (!value) return "—";
-
-                const stamp = dayjs(value);
-
-                return (
-                    <span className="pms-review-date">
-                        {stamp.isValid() ? stamp.format("MMM D, YYYY") : String(value)}
-                    </span>
-                );
-            },
-        },
-        {
-            title: "Actual accomplishment",
-            key: "accomplishment",
-            width: 240,
-            render: (_, record) => {
-                const accomplishment = accomplishmentFor(record, linePeriodId(record, activeChosen));
-
-                return (
-                    <AccomplishmentCell
-                        html={accomplishment?.actual_accomplishment}
-                        evidenceCount={accomplishment?.attachments?.length ?? 0}
-                        onOpen={() => setOpenLineId(record.id)}
-                    />
-                );
-            },
-        },
-        ...scale.dimensions.map((dimension) => ({
-            title: dimension.short,
-            key: dimension.key,
-            width: 90,
-            render: (_, record) =>
-                record.can_score ? (
-                    <Select
-                        size="small"
-                        style={{ width: 70 }}
-                        allowClear
-                        value={scores[record.id]?.[dimension.key] ?? undefined}
-                        onChange={(value) => update(record.id, dimension.key, value ?? null)}
-                        options={scoresChoices}
-                    />
-                ) : (
-                    <span>{scores[record.id]?.[dimension.key] ?? "—"}</span>
-                ),
-        })),
-        {
-            title: "A",
-            key: "a",
-            width: 70,
-            render: (_, record) => {
-                const value = averageOf(scores[record.id], user);
-
-                return value ? <Tag color="purple">{value}</Tag> : <Tag>—</Tag>;
-            },
-        },
-        {
-            title: "Score note",
-            key: "remarks",
-            width: 220,
-            render: (_, record) =>
-                record.can_score ? (
-                    <RichText
-                        rows={2}
-                        value={scores[record.id]?.remarks ?? ""}
-                        onChange={(html) => update(record.id, "remarks", html)}
-                    />
-                ) : scores[record.id]?.remarks ? (
-                    <RichTextView html={scores[record.id].remarks} />
-                ) : (
-                    <Typography.Text type="secondary">—</Typography.Text>
-                ),
-        },
-    ];
-
     const scoreableCount = lines.filter((line) => line.can_score).length;
+    const bands = user?.workflow?.rating?.bands?.length ? user.workflow.rating.bands : RATING_LEGEND;
+    const lineScore = (line) => ({
+        canEdit: Boolean(line.can_score),
+        scores,
+        choices: scoresChoices,
+        onChange: update,
+    });
 
     const targetLabel = (item) => {
         const text = toPlainText(item.description) || item.output || "Untitled target";
@@ -310,11 +219,11 @@ export default function TargetRating({ periodFilter = null, yearFilter, ahead = 
                 {ahead}
                 <Card className="pms-rate-picker" size="small" style={{ marginBottom: 16 }}>
                     <Space wrap className="pms-rate-pick">
-                        <span>Target:</span>
+                        <span>Target waiting for a rating:</span>
                         <Select
-                            className="pms-rate-form pms-rate-target"
-                            classNames={{ popup: { root: "pms-rate-form-popup pms-rate-target-popup" } }}
-                            popupMatchSelectWidth={false}
+                            className="pms-rate-form"
+                            classNames={{ popup: { root: "pms-rate-form-popup" } }}
+                            popupMatchSelectWidth
                             loading={isLoading}
                             placeholder="Select a target"
                             value={selectedId}
@@ -325,8 +234,12 @@ export default function TargetRating({ periodFilter = null, yearFilter, ahead = 
                             }}
                             options={targetOptions}
                         />
-                        {needsPeriod && periodChoices.length > 0 && (
+                        {needsPeriod && periodChoices.length === 1 && (
+                            <Tag color="blue">{periodChoices[0].label}</Tag>
+                        )}
+                        {needsPeriod && periodChoices.length > 1 && (
                             <Select
+                                style={{ minWidth: 180 }}
                                 value={activeChosen}
                                 onChange={setChosenPeriodId}
                                 options={periodChoices.map((period) => ({ value: period.id, label: period.label }))}
@@ -347,16 +260,13 @@ export default function TargetRating({ periodFilter = null, yearFilter, ahead = 
                     />
                 </Card>
             ) : (
-                <Card
-                    className="pms-rate-card"
-                    title={
-                        <Space wrap>
-                            {target.section && <Tag>{SECTION_LABELS[target.section] ?? target.section}</Tag>}
-                            <span>{targetLabel(target)}</span>
-                            <Tag>{lines.length}</Tag>
-                        </Space>
-                    }
-                    extra={
+                <Card className="pms-rate-card">
+                    {saveError && (
+                        <Typography.Paragraph type="danger" style={{ marginTop: 0 }}>
+                            {saveError}
+                        </Typography.Paragraph>
+                    )}
+                    <div className="pms-form-actions" style={{ display: "flex", justifyContent: "flex-end", marginBottom: 12 }}>
                         <Button
                             loading={save.isPending}
                             disabled={scoreableCount === 0 || (needsPeriod && !activeChosen)}
@@ -364,14 +274,72 @@ export default function TargetRating({ periodFilter = null, yearFilter, ahead = 
                         >
                             Save progress
                         </Button>
-                    }
-                >
-                    <Typography.Paragraph type="secondary">
-                        Score the ones waiting on you. Return, send on, finalize, and messages to the ratee stay on By form.
-                    </Typography.Paragraph>
-                    <div className="pms-desktop-only">
-                        <Table rowKey="id" dataSource={lines} columns={columns} pagination={false} size="small" scroll={{ x: 1480 }} />
                     </div>
+                    <div className="pms-desktop-only pms-sheet-wrap">
+                        <table className="pms-sheet">
+                            <thead>
+                                <tr>
+                                    <th style={{ width: 180 }}>Commitment</th>
+                                    <th style={{ width: 300 }}>
+                                        Success Indicator
+                                        <div className="pms-sheet-subhead">(Target + Measure)</div>
+                                    </th>
+                                    <th style={{ width: 110 }}>Target Date</th>
+                                    <th style={{ width: 280 }}>Actual Accomplishments</th>
+                                    <ScoreHeaders scoreEdit={{ canEdit: scoreableCount > 0 }} />
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {lines.map((line) => {
+                                    const periodId = linePeriodId(line, activeChosen);
+                                    const accomplishment = accomplishmentFor(line, periodId);
+                                    const stamp = line.target_date ? dayjs(line.target_date) : null;
+
+                                    return (
+                                        <tr key={line.id}>
+                                            <td>
+                                                <Tag color={line.form.type === "opcr" ? "geekblue" : "blue"}>
+                                                    {line.form.type.toUpperCase()}
+                                                </Tag>
+                                                <Tag color={statusMeta(line.form.status).color}>
+                                                    {statusMeta(line.form.status).label}
+                                                </Tag>
+                                                <div style={{ marginTop: 4 }}>{line.form.owner || line.form.org_unit}</div>
+                                            </td>
+                                            <td>
+                                                <RichTextView html={line.description} />
+                                            </td>
+                                            <td>
+                                                <span className="pms-review-date">
+                                                    {stamp?.isValid() ? stamp.format("MMM D, YYYY") : "—"}
+                                                </span>
+                                            </td>
+                                            <td className="pms-sheet-muted">
+                                                <AccomplishmentCell
+                                                    html={accomplishment?.actual_accomplishment}
+                                                    evidenceCount={accomplishment?.attachments?.length ?? 0}
+                                                    onOpen={() => setOpenLineId(line.id)}
+                                                />
+                                            </td>
+                                            <ScoreCells line={line} scoreEdit={lineScore(line)} />
+                                        </tr>
+                                    );
+                                })}
+                            </tbody>
+                        </table>
+                    </div>
+                    <Space wrap className="pms-rate-legend" style={{ marginTop: 12 }}>
+                        <Typography.Text type="secondary">Legend:</Typography.Text>
+                        {bands.map((band) => (
+                            <Tag key={band.label} color={ADJECTIVAL_COLORS[band.label]}>
+                                {band.value} — {band.label}
+                                {band.range ? ` (${band.range})` : ""}
+                            </Tag>
+                        ))}
+                    </Space>
+                    <Typography.Text className="pms-sheet-hint" type="secondary" style={{ fontSize: 12 }}>
+                        These are the commitments linked to this target. Score the ones waiting on you. Return, send on, and finalize stay on By form.
+                    </Typography.Text>
                     <div className="pms-mobile-only pms-rate-rows">
                         {lines.map((record) => (
                             <div key={record.id} className="pms-rate-row">
@@ -430,43 +398,7 @@ export default function TargetRating({ periodFilter = null, yearFilter, ahead = 
                                 />
                             </div>
                         </div>
-                        {scale.dimensions.map((dimension) => (
-                            <div key={dimension.key} className="pms-rate-field">
-                                <span>{dimension.label}</span>
-                                <div>
-                                    {openLine.can_score ? (
-                                        <span className="pms-rate-picks">
-                                            {scoresChoices.map((choice) => (
-                                                <button
-                                                    key={choice.value}
-                                                    type="button"
-                                                    className={Number(scores[openLine.id]?.[dimension.key]) === choice.value ? "is-on" : undefined}
-                                                    onClick={() => update(openLine.id, dimension.key, choice.value)}
-                                                >
-                                                    {choice.label}
-                                                </button>
-                                            ))}
-                                        </span>
-                                    ) : (
-                                        <strong>{scores[openLine.id]?.[dimension.key] ?? "—"}</strong>
-                                    )}
-                                </div>
-                            </div>
-                        ))}
-                        <div className="pms-rate-field">
-                            <span>Score note</span>
-                            {openLine.can_score ? (
-                                <RichText
-                                    rows={3}
-                                    value={scores[openLine.id]?.remarks ?? ""}
-                                    onChange={(html) => update(openLine.id, "remarks", html)}
-                                />
-                            ) : scores[openLine.id]?.remarks ? (
-                                <RichTextView html={scores[openLine.id].remarks} />
-                            ) : (
-                                <Typography.Text type="secondary">No score note yet</Typography.Text>
-                            )}
-                        </div>
+                        <ScoreFields line={openLine} scoreEdit={lineScore(openLine)} />
                     </>
                 )}
             </Drawer>

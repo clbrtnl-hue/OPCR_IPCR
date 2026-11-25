@@ -267,6 +267,31 @@ class CalendarEventTest extends PmsTestCase
         $this->assertSame($college->json('event.visibility'), 'everyone');
     }
 
+    public function test_an_event_has_to_fall_inside_a_school_year(): void
+    {
+        $this->makeOrganization();
+        $this->makeSchoolYear();
+        $staff = User::factory()->create(['role' => 'employee']);
+
+        $this->actingAsUser($staff);
+
+        $this->postJson('/api/calendar-events', [
+            'title' => 'Outside the year',
+            'starts_at' => '2026-07-01',
+            'ends_at' => '2026-07-02',
+            'all_day' => true,
+            'visibility' => 'only_me',
+        ])->assertStatus(422)->assertJsonValidationErrors(['starts_at', 'ends_at']);
+
+        $this->postJson('/api/calendar-events', [
+            'title' => 'Inside the year',
+            'starts_at' => '2026-11-24',
+            'ends_at' => '2026-11-24',
+            'all_day' => true,
+            'visibility' => 'only_me',
+        ])->assertCreated();
+    }
+
     public function test_an_employee_keeps_a_private_event(): void
     {
         $this->makeOrganization();

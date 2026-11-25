@@ -301,19 +301,21 @@ export default function ReviewQueuePage() {
         </span>
     );
 
+    const yearSelect = yearOptions.length > 0 ? (
+        <Select
+            className="pms-filter-select"
+            aria-label="School year"
+            value={resolvedYear == null ? undefined : Number(resolvedYear)}
+            onChange={(value) => setYearChoice(String(value))}
+            options={yearOptions.map((year) => ({
+                value: year.id,
+                label: year.is_active ? `${year.label} ★` : year.label,
+            }))}
+        />
+    ) : null;
+
     const queueTabs = (
         <>
-            {yearOptions.length > 0 && (
-                <Select
-                    value={resolvedYear == null ? undefined : Number(resolvedYear)}
-                    onChange={(value) => setYearChoice(String(value))}
-                    style={{ minWidth: 180, marginBottom: 16 }}
-                    options={yearOptions.map((year) => ({
-                        value: year.id,
-                        label: year.is_active ? `${year.label} ★` : year.label,
-                    }))}
-                />
-            )}
             <Tabs
                 className="pms-line-tabs"
                 activeKey={tab}
@@ -330,7 +332,7 @@ export default function ReviewQueuePage() {
 
     return (
         <>
-            <PageHeader title="Review Queue" subtitle={subtitle} />
+            <PageHeader title="Review Queue" subtitle={subtitle} extra={yearSelect} />
 
             {tab === "rating" ? (
                 yearReady ? (

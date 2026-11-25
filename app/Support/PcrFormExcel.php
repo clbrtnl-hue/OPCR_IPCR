@@ -165,7 +165,6 @@ class PcrFormExcel
         $this->merge('G4:M4', 'Ratee', 14, false, 'center', 'top');
         $this->merge('G5:M5', 'Date: '.$signed, 14, false, 'center', 'top');
         $this->outline('A1:M5');
-        $this->underline('G3:M3');
 
         $this->merge('A6:C6', 'Reviewed by', 14, true, 'left', 'top');
         $this->write('D6', 'Date', 14, true, 'center', 'top');
@@ -241,8 +240,14 @@ class PcrFormExcel
 
         foreach ($this->bodyRows() as $item) {
             if ($item['kind'] === 'section') {
-                $this->merge("A{$row}:{$last}{$row}", $item['label'], $this->isOpcr ? 12 : 14, true, 'left', 'center', 'D8D8D8');
-                $this->box("A{$row}:{$last}{$row}");
+                if ($this->isOpcr) {
+                    $this->merge("A{$row}:{$last}{$row}", $item['label'], 12, true, 'left', 'center', 'D8D8D8');
+                    $this->box("A{$row}:{$last}{$row}");
+                } else {
+                    $this->merge("A{$row}:{$last}{$row}", $item['label'], 14, true, 'left', 'top');
+                    $this->edge("A{$row}", 'left');
+                    $this->edge("{$last}{$row}", 'right');
+                }
                 $this->height($row, $this->isOpcr ? 16.5 : 18);
                 $row++;
 
@@ -443,8 +448,8 @@ class PcrFormExcel
 
     /**
      * The IPCR sign-off from the Madriaga sheet.
-     * Discussed with shows the ratee. Final Rating by shows the president.
-     * Assessed by holds the certification, then the word Supervisor.
+     * Discussed with shows the ratee. Final Rating by repeats the Head of Office
+     * named under Approved by. Assessed by holds the certification, then Supervisor.
      * Only the Discussed-with date is one merged cell (column C).
      */
     private function ipcrSignOff(int $row): int
@@ -477,7 +482,7 @@ class PcrFormExcel
 
         $this->merge('A'.($s + 2).':B'.($s + 2), $this->partyName('ratee'), $size, false, 'center', 'top');
         $this->write('G'.($s + 2), $this->longDate($this->form->reviewed_at), $size, false, 'center', 'center');
-        $this->merge('H'.($s + 2).':L'.($s + 2), $this->upper($this->officeHead?->name), $size, false, 'center', 'bottom');
+        $this->merge('H'.($s + 2).':L'.($s + 2), $this->partyName('approver'), $size, false, 'center', 'bottom');
         $this->write('M'.($s + 2), $this->longDate($this->form->vp_reviewed_at ?: $this->form->rated_at), $size, false, 'center', 'center');
 
         $this->merge('A'.($s + 3).':B'.($s + 3), 'Employee', $size, false, 'center', 'top');

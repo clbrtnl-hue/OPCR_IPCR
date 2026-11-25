@@ -104,36 +104,47 @@ export default function SchoolYearsPage() {
         onError: (error) => message.error(errorText(error)),
     });
 
+    const [actionError, setActionError] = useState("");
+    const clearActionError = () => setActionError("");
+
     const activateYear = useMutation({
         mutationFn: (id) => api.post(`school-years/${id}/activate`),
         onSuccess: () => {
+            clearActionError();
             message.success("Active school year set.");
             invalidate();
         },
+        onError: (error) => setActionError(errorText(error)),
     });
 
     const activatePeriod = useMutation({
         mutationFn: (id) => api.post(`rating-periods/${id}/activate`),
         onSuccess: () => {
+            clearActionError();
             message.success("Active review period set.");
             invalidate();
         },
+        onError: (error) => setActionError(errorText(error)),
     });
 
     const setPeriodLock = useMutation({
         mutationFn: ({ id, locked }) => api.post(`rating-periods/${id}/lock`, { locked }),
         onSuccess: (_, { locked }) => {
+            clearActionError();
             message.success(locked ? "Period locked — it is view-only now." : "Period unlocked.");
             queryClient.invalidateQueries({ queryKey: ["school-years"] });
         },
+        onError: (error) => setActionError(errorText(error)),
     });
 
     const setPeriodStatus = useMutation({
         mutationFn: ({ id, status }) => api.post(`rating-periods/${id}/status`, { status }),
         onSuccess: () => {
+            clearActionError();
             message.success("Review period updated.");
             invalidate();
         },
+        onError: (error) => setActionError(errorText(error)),
     });
 
     const periodColumns = [
@@ -257,12 +268,15 @@ export default function SchoolYearsPage() {
                 }
             />
 
+            {actionError && (
+                <Alert type="error" showIcon style={{ marginBottom: 16 }} message={actionError} />
+            )}
             <Alert
                 type="info"
                 showIcon
                 style={{ marginBottom: 16 }}
                 message="Creating ahead of time"
-                description="You can add next year's cycle now and leave it inactive. Forms can still be written against it; the active flag only tells everyone which cycle is current."
+                description="You can add next year's cycle now and leave it inactive. People can open a form for it, but they cannot write commitments or move it until you open a review period and set the year active."
             />
 
             <Card className="pms-list-panel">

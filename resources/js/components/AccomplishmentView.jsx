@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { Badge, Button, Popconfirm, Space, Typography, Upload, message } from "antd";
 import { CloseOutlined, ExpandOutlined, LoadingOutlined, PaperClipOutlined } from "@ant-design/icons";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import api from "~/utils/api";
+import api, { errorText } from "~/utils/api";
 import { NARRATIVE_MAX, UPLOAD_ACCEPT, UPLOAD_MAX_MB } from "~/utils/constants";
 import RichText from "~/components/RichText";
 import RichTextView from "~/components/RichTextView";
@@ -93,6 +93,7 @@ export function AccomplishmentField({
     const [draft, setDraft] = useState(serverText);
     const [pending, setPending] = useState(false);
     const [uploading, setUploading] = useState(0);
+    const [saveError, setSaveError] = useState("");
 
     useEffect(() => {
         if (editing) return;
@@ -123,19 +124,25 @@ export function AccomplishmentField({
                 rating_period_id: periodId,
                 actual_accomplishment: text,
             }),
-        onSuccess: () => refresh(),
-        onError: () => {
+        onSuccess: () => {
+            setSaveError("");
+            refresh();
+        },
+        onError: (error) => {
             setPending(false);
             setDraft(serverRef.current);
+            setSaveError(errorText(error));
         },
     });
 
     const removeAttachment = useMutation({
         mutationFn: (id) => api.delete(`pcr-attachments/${id}`),
         onSuccess: () => {
+            setSaveError("");
             message.success("Evidence removed.");
             refresh();
         },
+        onError: (error) => setSaveError(errorText(error)),
     });
 
     const commit = (next) => {
@@ -205,8 +212,14 @@ export function AccomplishmentField({
                         className={pending ? "pms-cell is-saving" : "pms-cell"}
                         tabIndex={0}
                         role="button"
-                        onClick={() => setEditing(true)}
-                        onFocus={() => setEditing(true)}
+                        onClick={() => {
+                            setSaveError("");
+                            setEditing(true);
+                        }}
+                        onFocus={() => {
+                            setSaveError("");
+                            setEditing(true);
+                        }}
                     >
                         {text ? (
                             <RichTextView html={text} />
@@ -221,6 +234,7 @@ export function AccomplishmentField({
                     empty && <span className="pms-cell-empty">{empty}</span>
                 )}
                 {mark && <div className="pms-cell-mark">{mark}</div>}
+                {saveError && <div className="cal-field-error">{saveError}</div>}
             </div>
             {note}
             <div className={evidenceMark ? "pms-flag" : undefined} style={{ marginTop: 4 }}>

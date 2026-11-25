@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { Button, DatePicker, Drawer, Dropdown, Form, Input, Popconfirm, Radio, Select, Spin, Switch, message } from "antd";
+import { Button, DatePicker, Drawer, Dropdown, Form, Input, Modal, Popconfirm, Radio, Select, Spin, Switch, message } from "antd";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import dayjs from "dayjs";
 import api from "~/utils/api";
@@ -88,6 +88,79 @@ function schoolYearFor(years, cursor) {
     const earlier = [...ordered].reverse().find((year) => !cursor.isBefore(dayjs(year.start_date), "day"));
 
     return earlier ?? ordered[0] ?? null;
+}
+
+function schoolYearOn(years, day) {
+    return orderedYears(years).find((year) => {
+        const start = dayjs(year.start_date);
+        const end = dayjs(year.end_date);
+
+        return !day.isBefore(start, "day") && !day.isAfter(end, "day");
+    }) ?? null;
+}
+
+function schoolYearTouching(years, month) {
+    const start = month.startOf("month");
+    const end = month.endOf("month");
+
+    return orderedYears(years).find((year) => {
+        const yearStart = dayjs(year.start_date);
+        const yearEnd = dayjs(year.end_date);
+
+        return !end.isBefore(yearStart, "day") && !start.isAfter(yearEnd, "day");
+    }) ?? null;
+}
+
+function clampToYear(day, year) {
+    if (!year?.start_date || !year?.end_date) return day;
+    const start = dayjs(year.start_date);
+    const end = dayjs(year.end_date);
+    if (day.isBefore(start, "day")) return start;
+    if (day.isAfter(end, "day")) return end;
+
+    return day;
+}
+
+function periodSpan(period, year) {
+    let start;
+    let end;
+
+    if (period?.opens_at && period?.closes_at) {
+        start = dayjs(period.opens_at).startOf("day");
+        end = dayjs(period.closes_at).startOf("day");
+    } else if (year?.start_date && year?.end_date) {
+        start = dayjs(year.start_date).startOf("day");
+        end = dayjs(year.end_date).startOf("day");
+        const mid = start.add(Math.floor(Math.max(end.diff(start, "second"), 0) / 2), "second").startOf("day");
+        if (Number(period?.seq) > 1) start = mid.add(1, "day");
+        else end = mid;
+    } else {
+        return null;
+    }
+
+    return end.isBefore(start, "day") ? null : [start, end];
+}
+
+function spanForPeriod(years, periodId) {
+    const match = years
+        .map((year) => ({ year, period: (year.periods ?? []).find((item) => item.id === periodId) }))
+        .find((item) => item.period);
+
+    return match ? periodSpan(match.period, match.year) : null;
+}
+
+function applyFieldErrors(form, error) {
+    const errors = error?.response?.data?.errors;
+    if (!errors || typeof errors !== "object") return false;
+
+    const fields = Object.entries(errors)
+        .filter(([, messages]) => Array.isArray(messages) && messages.length)
+        .map(([name, messages]) => ({ name, errors: messages }));
+
+    if (!fields.length) return false;
+    form.setFields(fields);
+
+    return true;
 }
 
 function covers(event, day) {
@@ -500,7 +573,20 @@ export default function ScheduleCalendar() {
         queryFn: () => api.get("school-years").then((response) => response.data),
     });
 
+    const activeYear = years.find((item) => item.is_active) ?? null;
+
+    useEffect(() => {
+        if (!activeYear?.start_date || !activeYear?.end_date) return;
+        const start = dayjs(activeYear.start_date);
+        const end = dayjs(activeYear.end_date);
+        const today = dayjs();
+        if (today.isBefore(start, "day") || today.isAfter(end, "day")) {
+            setCursor(start);
+        }
+    }, [activeYear?.id, activeYear?.start_date, activeYear?.end_date]);
+
     const year = schoolYearFor(years, cursor);
+    const canPickMonth = orderedYears(years).length > 0;
     const span = useMemo(() => visibleSpan(view, cursor, year), [view, cursor, year]);
     const rangeFrom = span.from.format("YYYY-MM-DD");
     const rangeTo = span.to.format("YYYY-MM-DD");
@@ -564,7 +650,6 @@ export default function ScheduleCalendar() {
             }
             setDraft(null);
         },
-        onError: (error) => message.error(errorText(error, "Could not save that event.")),
     });
 
     const remove = useMutation({
@@ -589,7 +674,29 @@ export default function ScheduleCalendar() {
                     >
                         ‹
                     </button>
-                    <strong>{title}</strong>
+                    {canPickMonth ? (
+                        <DatePicker
+                            className="gs-month-picker"
+                            picker="month"
+                            value={cursor}
+                            format={() => title}
+                            allowClear={false}
+                            inputReadOnly
+                            suffixIcon={null}
+                            variant="borderless"
+                            aria-label="Choose a month"
+                            style={{ width: `calc(${Math.max(title.length, 11)}ch + 16px)` }}
+                            disabledDate={(date) => !schoolYearTouching(years, date)}
+                            onChange={(value) => {
+                                if (!value) return;
+                                const match = schoolYearTouching(years, value);
+                                setCursor(match ? clampToYear(value.startOf("month"), match) : value.startOf("month"));
+                                if (view === "year" || view === "schedule") setView("month");
+                            }}
+                        />
+                    ) : (
+                        <strong>{title}</strong>
+                    )}
                     <button
                         type="button"
                         aria-label="Next"
@@ -664,7 +771,7 @@ export default function ScheduleCalendar() {
                 saving={save.isPending}
                 removing={remove.isPending}
                 onCancel={() => setDraft(null)}
-                onSubmit={(values) => save.mutate(values)}
+                onSubmit={(values) => save.mutateAsync(values)}
                 onDelete={(id) => remove.mutate(id)}
                 onOpen={(event) => setDraft({ event })}
             />
@@ -719,6 +826,9 @@ function EventDrawer({ draft, people, leads, collegeWide, scheduleOnly, onlyMe, 
     });
 
     const shown = detail ?? event;
+    const periodLocked = years.some((year) =>
+        (year.periods ?? []).some((period) => period.id === shown?.rating_period_id && period.is_locked)
+    );
     const activePeriodId = useMemo(() => {
         const activeYear = years.find((item) => item.is_active) ?? years[0];
         const list = activeYear?.periods ?? [];
@@ -776,11 +886,51 @@ function EventDrawer({ draft, people, leads, collegeWide, scheduleOnly, onlyMe, 
         try {
             const values = await form.validateFields();
             if (values.ends_at.isBefore(values.starts_at)) {
-                message.error("The end has to be on or after the start.");
+                form.setFields([{ name: "ends_at", errors: ["The end has to be on or after the start."] }]);
                 return;
             }
+            if (orderedYears(years).length > 0) {
+                const outside = [
+                    !schoolYearOn(years, values.starts_at) && { name: "starts_at", errors: ["Pick a date inside a school year."] },
+                    !schoolYearOn(years, values.ends_at) && { name: "ends_at", errors: ["Pick a date inside a school year."] },
+                ].filter(Boolean);
+                if (outside.length) {
+                    form.setFields(outside);
+                    return;
+                }
+            }
             const counts = !scheduleOnly && values.visibility !== "only_me" && values.category_id;
-            onSubmit({
+            if (counts && values.rating_period_id) {
+                const span = spanForPeriod(years, values.rating_period_id);
+                const first = values.starts_at.startOf("day");
+                const last = values.ends_at.startOf("day");
+                if (!span || first.isBefore(span[0], "day") || last.isAfter(span[1], "day")) {
+                    form.setFields([{ name: "starts_at", errors: ["The event has to fall inside the review period."] }]);
+                    return;
+                }
+            }
+            const keptMarks = (shown?.marks ?? []).filter((mark) => mark.status);
+            const losesCategory = Boolean(shown?.category_id) && !counts;
+            const losesDays = keptMarks.some((mark) => {
+                const day = dayjs(mark.day);
+                return day.isBefore(values.starts_at, "day") || day.isAfter(values.ends_at, "day");
+            });
+            if (keptMarks.length && (losesCategory || losesDays)) {
+                const proceed = await new Promise((resolve) => {
+                    Modal.confirm({
+                        title: "Attendance marks will be removed",
+                        content: losesCategory
+                            ? "Removing the category clears the marks already saved on this event."
+                            : "Marks on days outside the new dates will be removed.",
+                        okText: "Save anyway",
+                        okButtonProps: { danger: true },
+                        onOk: () => resolve(true),
+                        onCancel: () => resolve(false),
+                    });
+                });
+                if (!proceed) return;
+            }
+            await onSubmit({
                 ...(event ? { id: event.id } : {}),
                 title: values.title,
                 notes: values.notes || null,
@@ -793,8 +943,11 @@ function EventDrawer({ draft, people, leads, collegeWide, scheduleOnly, onlyMe, 
                 category_id: counts ? values.category_id : null,
                 rating_period_id: counts ? values.rating_period_id : null,
             });
-        } catch {
-            // The drawer stays open so the missing fields can be filled.
+        } catch (error) {
+            if (error?.errorFields) return;
+            if (!applyFieldErrors(form, error)) {
+                message.error(errorText(error, "Could not save that event."));
+            }
         }
     };
 
@@ -852,7 +1005,7 @@ function EventDrawer({ draft, people, leads, collegeWide, scheduleOnly, onlyMe, 
                 <div className={withAttendance ? "cal-event-split" : "cal-event-single"}>
                     <Form form={form} layout="vertical" requiredMark={false}>
                         {onlyMe && <p className="cal-private">Only you can see this.</p>}
-                        <Form.Item name="title" label="Title" rules={[{ required: true, message: "Name the event." }]}>
+                        <Form.Item name="title" label="Title" rules={[{ required: true, whitespace: true, message: "Name the event." }]}>
                             <Input placeholder="Department meeting" maxLength={200} />
                         </Form.Item>
                         <Form.Item name="all_day" label="All day" valuePropName="checked">
@@ -868,6 +1021,7 @@ function EventDrawer({ draft, people, leads, collegeWide, scheduleOnly, onlyMe, 
                                                 style={{ width: "100%" }}
                                                 showTime={allDay ? false : { format: "h:mm A" }}
                                                 format={allDay ? "MMMM D, YYYY" : "MMMM D, YYYY h:mm A"}
+                                                disabledDate={(date) => orderedYears(years).length > 0 && !schoolYearOn(years, date)}
                                             />
                                         </Form.Item>
                                         <Form.Item name="ends_at" label="Ends" rules={[{ required: true, message: "Pick an end." }]}>
@@ -875,6 +1029,7 @@ function EventDrawer({ draft, people, leads, collegeWide, scheduleOnly, onlyMe, 
                                                 style={{ width: "100%" }}
                                                 showTime={allDay ? false : { format: "h:mm A" }}
                                                 format={allDay ? "MMMM D, YYYY" : "MMMM D, YYYY h:mm A"}
+                                                disabledDate={(date) => orderedYears(years).length > 0 && !schoolYearOn(years, date)}
                                             />
                                         </Form.Item>
                                     </>
@@ -886,7 +1041,7 @@ function EventDrawer({ draft, people, leads, collegeWide, scheduleOnly, onlyMe, 
                         <Form.Item name="visibility" label="Who can see this" rules={[{ required: true, message: "Choose who can see this." }]}>
                             <Radio.Group className="cal-visibility">
                                 {(collegeWide ? COLLEGE_VISIBILITY : VISIBILITY)
-                                    .filter((option) => option.value !== "everyone" || collegeWide || scheduleOnly || leads || event?.visibility === "everyone")
+                                    .filter((option) => option.value !== "everyone" || collegeWide || leads || event?.visibility === "everyone")
                                     .map((option) => (
                                         <Radio key={option.value} value={option.value}>{option.label}</Radio>
                                     ))}
@@ -947,7 +1102,8 @@ function EventDrawer({ draft, people, leads, collegeWide, scheduleOnly, onlyMe, 
                     {withAttendance && (
                         <MarkGrid
                             event={shown}
-                            locked={!shown.mine}
+                            locked={!shown.mine || periodLocked}
+                            lockedReason={periodLocked ? "This review period is locked." : ""}
                             saving={mark.isPending}
                             onMark={(payload) => mark.mutate(payload)}
                         />
@@ -987,7 +1143,7 @@ function EventRead({ event, viewerId }) {
     );
 }
 
-function MarkGrid({ event, locked, saving, onMark }) {
+function MarkGrid({ event, locked, lockedReason, saving, onMark }) {
     const days = eventDays(event);
     const roster = event.roster ?? [];
     const marks = event.marks ?? [];
@@ -1008,7 +1164,7 @@ function MarkGrid({ event, locked, saving, onMark }) {
     return (
         <div className="cal-marks">
             <strong>Attendance</strong>
-            <p>Present and absent count. Excused stays out of the percentage. A day already marked Leave on the everyday sheet stays Leave.</p>
+            <p>{lockedReason || "Present and absent count. Excused stays out of the percentage. A day already marked Leave on the everyday sheet stays Leave."}</p>
             <div className="cal-marks-scroll">
                 <table>
                     <thead>
@@ -1061,9 +1217,17 @@ function MarkGrid({ event, locked, saving, onMark }) {
     );
 }
 
+function categoryTaken(categories, label, ignoreId) {
+    const needle = label.trim().toLowerCase();
+
+    return categories.some((item) => item.id !== ignoreId && item.name.trim().toLowerCase() === needle);
+}
+
 function CategoryDrawer({ open, list, onClose }) {
     const queryClient = useQueryClient();
     const [name, setName] = useState("");
+    const [nameError, setNameError] = useState("");
+    const [renameError, setRenameError] = useState(null);
     const categories = list?.categories ?? [];
     const canManage = Boolean(list?.can_manage);
 
@@ -1073,15 +1237,22 @@ function CategoryDrawer({ open, list, onClose }) {
         mutationFn: (label) => api.post("attendance-categories", { name: label }).then((response) => response.data),
         onSuccess: () => {
             setName("");
+            setNameError("");
             refresh();
         },
-        onError: (error) => message.error(errorText(error, "Could not add that category.")),
+        onError: (error) => setNameError(errorText(error, "Could not add that category.")),
     });
 
     const rename = useMutation({
         mutationFn: ({ id, label }) => api.patch(`attendance-categories/${id}`, { name: label }),
-        onSuccess: refresh,
-        onError: (error) => message.error(errorText(error, "Could not rename that category.")),
+        onSuccess: () => {
+            setRenameError(null);
+            refresh();
+        },
+        onError: (error, variables) => setRenameError({
+            id: variables.id,
+            message: errorText(error, "Could not rename that category."),
+        }),
     });
 
     const remove = useMutation({
@@ -1098,11 +1269,23 @@ function CategoryDrawer({ open, list, onClose }) {
                     <div key={item.id} className="cal-category">
                         {canManage ? (
                             <Input
+                                key={`${item.id}-${item.name}`}
                                 defaultValue={item.name}
                                 maxLength={120}
+                                status={renameError?.id === item.id ? "error" : undefined}
                                 onBlur={(blur) => {
                                     const next = blur.target.value.trim();
-                                    if (next && next !== item.name) rename.mutate({ id: item.id, label: next });
+                                    if (!next) {
+                                        blur.target.value = item.name;
+                                        setRenameError({ id: item.id, message: "Name the category." });
+                                        return;
+                                    }
+                                    if (categoryTaken(categories, next, item.id)) {
+                                        setRenameError({ id: item.id, message: "That category already exists." });
+                                        return;
+                                    }
+                                    setRenameError(null);
+                                    if (next !== item.name) rename.mutate({ id: item.id, label: next });
                                 }}
                             />
                         ) : (
@@ -1110,8 +1293,16 @@ function CategoryDrawer({ open, list, onClose }) {
                         )}
                         {item.source === "daily" && <span className="cal-category-note">Daily sheet</span>}
                         {canManage && !item.system && (
-                            <button type="button" onClick={() => remove.mutate(item.id)}>Remove</button>
+                            <Popconfirm
+                                title="Remove this category?"
+                                okText="Remove"
+                                okButtonProps={{ danger: true }}
+                                onConfirm={() => remove.mutate(item.id)}
+                            >
+                                <button type="button">Remove</button>
+                            </Popconfirm>
                         )}
+                        {renameError?.id === item.id && <span className="cal-field-error">{renameError.message}</span>}
                     </div>
                 ))}
             </div>
@@ -1120,13 +1311,38 @@ function CategoryDrawer({ open, list, onClose }) {
                     <Input
                         value={name}
                         maxLength={120}
+                        status={nameError ? "error" : undefined}
                         placeholder="Accreditation, research forum…"
-                        onChange={(change) => setName(change.target.value)}
-                        onPressEnter={() => name.trim() && add.mutate(name.trim())}
+                        onChange={(change) => {
+                            setName(change.target.value);
+                            if (nameError) setNameError("");
+                        }}
+                        onPressEnter={() => {
+                            const label = name.trim();
+                            if (!label) return;
+                            if (categoryTaken(categories, label)) {
+                                setNameError("That category already exists.");
+                                return;
+                            }
+                            add.mutate(label);
+                        }}
                     />
-                    <Button type="primary" loading={add.isPending} disabled={!name.trim()} onClick={() => add.mutate(name.trim())}>
+                    <Button
+                        type="primary"
+                        loading={add.isPending}
+                        disabled={!name.trim()}
+                        onClick={() => {
+                            const label = name.trim();
+                            if (categoryTaken(categories, label)) {
+                                setNameError("That category already exists.");
+                                return;
+                            }
+                            add.mutate(label);
+                        }}
+                    >
                         Add
                     </Button>
+                    {nameError && <span className="cal-field-error">{nameError}</span>}
                 </div>
             )}
         </Drawer>

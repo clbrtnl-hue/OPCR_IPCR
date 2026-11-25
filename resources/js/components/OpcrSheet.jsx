@@ -64,6 +64,10 @@ function siblingsOf(outputs, output) {
  * rather than opening a dialog for every line — the paper form is the mental
  * model, so the screen should not fight it.
  */
+function sheetError(error, fallback) {
+    message.error(error?.response?.data?.message ?? fallback);
+}
+
 export default function OpcrSheet({ form, periodId, canEdit, canAssign, canRecordProgress, showScores = false, showProgress = true, scoreEdit = null, scoreLegend = null, showAccomplishments = true, summary, focusLineId = null, focusOutputId = null, openFocusedLine = true, returnMarks = [], onExpand, onReplaceUi = null }) {
     const { user } = useAuth();
     const dimensions = ratingRules(user).dimensions;
@@ -95,6 +99,7 @@ export default function OpcrSheet({ form, periodId, canEdit, canAssign, canRecor
             setDrafts({});
             refresh();
         },
+        onError: (error) => sheetError(error, "Could not send those changes."),
     });
 
     const decideReplacement = useMutation({
@@ -109,6 +114,7 @@ export default function OpcrSheet({ form, periodId, canEdit, canAssign, canRecor
             setSendBackNote("");
             refresh();
         },
+        onError: (error) => sheetError(error, "Could not decide those changes."),
     });
 
     const { data: people = [] } = useQuery({
@@ -156,6 +162,7 @@ export default function OpcrSheet({ form, periodId, canEdit, canAssign, canRecor
 
             refresh();
         },
+        onError: (error) => sheetError(error, "Could not save that row."),
     });
 
     /** Numbering is positional, so moving a row is how you renumber it. */
@@ -184,6 +191,7 @@ export default function OpcrSheet({ form, periodId, canEdit, canAssign, canRecor
             await api.post(url, { ...base(b), id: b.id, sort_order: a.sort_order });
         },
         onSuccess: refresh,
+        onError: (error) => sheetError(error, "Could not move that row."),
     });
 
     const removeOutput = useMutation({
@@ -192,6 +200,7 @@ export default function OpcrSheet({ form, periodId, canEdit, canAssign, canRecor
             message.success("Row removed.");
             refresh();
         },
+        onError: (error) => sheetError(error, "Could not remove that row."),
     });
 
     const saveIndicator = useMutation({
@@ -236,6 +245,7 @@ export default function OpcrSheet({ form, periodId, canEdit, canAssign, canRecor
 
             refresh();
         },
+        onError: (error) => sheetError(error, "Could not save that line."),
     });
 
     /**
@@ -260,6 +270,7 @@ export default function OpcrSheet({ form, periodId, canEdit, canAssign, canRecor
             message.success("Row removed.");
             refresh();
         },
+        onError: (error) => sheetError(error, "Could not remove that line."),
     });
 
     const withdraw = useMutation({
@@ -268,6 +279,7 @@ export default function OpcrSheet({ form, periodId, canEdit, canAssign, canRecor
             message.success("Assignment withdrawn.");
             refresh();
         },
+        onError: (error) => sheetError(error, "Could not withdraw that assignment."),
     });
 
     const assign = useMutation({
@@ -287,6 +299,7 @@ export default function OpcrSheet({ form, periodId, canEdit, canAssign, canRecor
             setAssigning(null);
             refresh();
         },
+        onError: (error) => sheetError(error, "Could not assign that."),
     });
 
     useEffect(() => {

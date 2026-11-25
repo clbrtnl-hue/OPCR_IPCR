@@ -611,6 +611,75 @@ body {
     font-style: italic;
 }
 
+/* IPCR paper — Madriaga sheet, columns A–M */
+.pms-print-ipcr {
+    background: #fff;
+    color: #000;
+    font-family: Calibri, Carlito, "Segoe UI", sans-serif;
+    font-size: 14px;
+    padding: 24px;
+}
+
+.pms-print-sheet.pms-print-ipcr .pms-ipcr {
+    width: 100%;
+    border-collapse: collapse;
+    table-layout: fixed;
+    font-size: 14px;
+    color: #000;
+    background: #fff;
+}
+
+.pms-print-sheet.pms-print-ipcr .pms-ipcr td {
+    border: none;
+    padding: 2px 4px;
+    vertical-align: top;
+    text-align: left;
+    font-weight: 400;
+    background: #fff;
+    color: #000;
+    overflow-wrap: anywhere;
+}
+
+.pms-print-sheet.pms-print-ipcr .pms-ipcr td.b-a { border: 1px solid #000; }
+.pms-print-sheet.pms-print-ipcr .pms-ipcr td.b-t { border-top: 1px solid #000; }
+.pms-print-sheet.pms-print-ipcr .pms-ipcr td.b-b { border-bottom: 1px solid #000; }
+.pms-print-sheet.pms-print-ipcr .pms-ipcr td.b-l { border-left: 1px solid #000; }
+.pms-print-sheet.pms-print-ipcr .pms-ipcr td.b-r { border-right: 1px solid #000; }
+.pms-print-sheet.pms-print-ipcr .pms-ipcr td.m-a { border: 1.5px solid #000; }
+.pms-print-sheet.pms-print-ipcr .pms-ipcr td.m-t { border-top: 1.5px solid #000; }
+.pms-print-sheet.pms-print-ipcr .pms-ipcr td.m-b { border-bottom: 1.5px solid #000; }
+.pms-print-sheet.pms-print-ipcr .pms-ipcr td.m-l { border-left: 1.5px solid #000; }
+.pms-print-sheet.pms-print-ipcr .pms-ipcr td.m-r { border-right: 1.5px solid #000; }
+
+.pms-print-ipcr .pms-ipcr-title {
+    text-align: center;
+    font-weight: 700;
+    vertical-align: bottom;
+}
+
+.pms-print-ipcr .pms-ipcr-lead {
+    text-align: left;
+    vertical-align: top;
+    line-height: 1.25;
+}
+
+.pms-print-ipcr .pms-ipcr-center { text-align: center; }
+.pms-print-ipcr .pms-ipcr-label { font-weight: 700; }
+.pms-print-ipcr .pms-ipcr-mid { vertical-align: middle; }
+.pms-print-ipcr .pms-ipcr-bottom { vertical-align: bottom; }
+.pms-print-ipcr .pms-ipcr-gap { height: 16px; }
+.pms-print-ipcr .pms-ipcr-signspace td { height: 18px; }
+.pms-print-ipcr .pms-ipcr-comments { min-height: 22px; }
+
+.pms-print-ipcr .pms-ipcr p {
+    margin: 0;
+}
+
+@page ipcr-sheet {
+    size: 13in 8.5in;
+    margin: 0.75in 0.7in;
+}
+
 @media print {
     @page {
         size: legal landscape;
@@ -618,6 +687,11 @@ body {
     }
 
     .pms-print-official {
+        padding: 0;
+    }
+
+    .pms-print-ipcr {
+        page: ipcr-sheet;
         padding: 0;
     }
 }
@@ -3280,6 +3354,44 @@ button.viz-bar-row:focus-visible,
     display: grid;
     gap: 16px;
     margin-bottom: 16px;
+}
+
+.pms-president .pms-status-ring-copy strong {
+    font-size: 36px;
+    letter-spacing: -0.04em;
+}
+
+.pms-president .pms-status-legend {
+    grid-template-columns: repeat(4, max-content);
+    justify-content: start;
+    gap: 16px 20px;
+}
+
+.pms-president .pms-status-legend button {
+    grid-template-columns: 10px auto;
+    width: auto;
+}
+
+.pms-president .pms-status-legend i {
+    width: 10px;
+    height: 10px;
+}
+
+.pms-president .pms-status-legend strong,
+.pms-president .pms-board-bars strong {
+    font-size: 20px;
+    font-weight: 700;
+}
+
+.pms-president .pms-board-pipe-count {
+    font-size: 26px;
+}
+
+.pms-president .pms-board-bands button span {
+    font-size: 15px;
+    font-weight: 700;
+    color: #0b0b0b;
+    font-variant-numeric: tabular-nums;
 }
 
 .pms-board-card {
@@ -6944,7 +7056,8 @@ html[data-theme="dark"] .pms-board-pipe-copy em {
 html[data-theme="dark"] .pms-board-queue-who strong,
 html[data-theme="dark"] .pms-board-queue-wait strong,
 html[data-theme="dark"] .pms-board-pipe-copy strong,
-html[data-theme="dark"] .pms-board-pipe-count {
+html[data-theme="dark"] .pms-board-pipe-count,
+html[data-theme="dark"] .pms-president .pms-board-bands button span {
     color: #f5f7fb;
 }
 
@@ -8358,6 +8471,46 @@ html[data-theme="dark"] .pms-rate-stick {
 
 /* Hierarchy. Compact top-down tree. Wheel zooms, drag pans. */
 
+.pms-content:has(.pms-org-page) {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.pms-page-shift:has(.pms-org-page) {
+    display: flex;
+    flex: 1 1 auto;
+    flex-direction: column;
+    min-height: 0;
+    overflow: hidden;
+}
+
+.pms-org-page {
+    display: flex;
+    flex: 1 1 auto;
+    flex-direction: column;
+    min-height: 0;
+    overflow: hidden;
+}
+
+.pms-org-page > .pms-page-head,
+.pms-org-page > .ant-alert {
+    flex: none;
+}
+
+.pms-org-page .pms-org-frame {
+    display: flex;
+    flex: 1 1 auto;
+    flex-direction: column;
+    min-height: 0;
+}
+
+.pms-org-page .pms-org-chart {
+    flex: 1 1 auto;
+    height: auto;
+    min-height: 0;
+}
+
 .pms-org-frame {
     position: relative;
 }
@@ -8593,6 +8746,10 @@ html[data-theme="dark"] .pms-org-people button:hover {
     width: max-content;
     transform-origin: 0 0;
     padding: 12px 12px 24px;
+}
+
+.pms-org-scale.is-revealing {
+    transition: transform 0.35s ease;
 }
 
 .pms-org-chart-loading {
@@ -9588,9 +9745,33 @@ html[data-theme="dark"] .pms-account-preview {
 
 .gs-month strong {
     min-width: 128px;
+    padding: 0 8px;
     text-align: center;
     font-size: 13px;
     font-weight: 700;
+}
+
+.gs-month .gs-month-picker.ant-picker {
+    height: 32px;
+    padding: 0 8px;
+    border-radius: 999px;
+    background: transparent;
+    box-shadow: none;
+}
+
+.gs-month .gs-month-picker.ant-picker:hover,
+.gs-month .gs-month-picker.ant-picker-focused {
+    background: rgba(30, 58, 114, 0.08);
+    border-color: transparent;
+    box-shadow: none;
+}
+
+.gs-month .gs-month-picker .ant-picker-input > input {
+    text-align: center;
+    font-size: 13px;
+    font-weight: 700;
+    color: #1e3a72;
+    cursor: pointer;
 }
 
 .gs-legend {
@@ -9963,6 +10144,24 @@ html[data-theme="dark"] .gs-status,
 html[data-theme="dark"] .gs-month {
     background: #222836;
     color: #d5dbe8;
+}
+
+html[data-theme="dark"] .gs-month .gs-month-picker.ant-picker,
+html[data-theme="dark"] .gs-month .gs-month-picker.ant-picker:hover,
+html[data-theme="dark"] .gs-month .gs-month-picker.ant-picker-focused {
+    background: transparent !important;
+    border-color: transparent !important;
+    box-shadow: none !important;
+    color: #d6e4ff !important;
+}
+
+html[data-theme="dark"] .gs-month .gs-month-picker.ant-picker:hover,
+html[data-theme="dark"] .gs-month .gs-month-picker.ant-picker-focused {
+    background: rgba(255, 255, 255, 0.08) !important;
+}
+
+html[data-theme="dark"] .gs-month .gs-month-picker .ant-picker-input > input {
+    color: #d6e4ff !important;
 }
 
 html[data-theme="dark"] .gs-month button,
@@ -10636,7 +10835,14 @@ html[data-theme="dark"] .gs-cell.is-outside {
 .cal-category {
     display: flex;
     align-items: center;
+    flex-wrap: wrap;
     gap: 8px;
+}
+
+.cal-field-error {
+    flex-basis: 100%;
+    color: #a33b3b;
+    font-size: 12px;
 }
 
 .cal-category .ant-input {
@@ -10658,6 +10864,7 @@ html[data-theme="dark"] .gs-cell.is-outside {
 
 .cal-category-add {
     display: flex;
+    flex-wrap: wrap;
     gap: 8px;
     margin-top: 16px;
 }

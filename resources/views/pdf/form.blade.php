@@ -54,6 +54,9 @@
     </style>
 </head>
 <body>
+@if (! $isOpcr)
+    @include('pdf.ipcr')
+@else
     <table class="letterhead">
         <tr>
             <td width="72">
@@ -294,5 +297,6 @@
     <p class="legend">
         Legend: Q &ndash; Quality &nbsp; E &ndash; Efficiency &nbsp; T &ndash; Timeliness &nbsp; A &ndash; Average
     </p>
+@endif
 </body>
 </html>
