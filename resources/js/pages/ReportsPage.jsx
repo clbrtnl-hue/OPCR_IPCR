@@ -439,8 +439,8 @@ export default function ReportsPage() {
     const query = searchParams.toString();
     const teamReport = TEAM_ROLES.has(user?.role);
     const tabs = useMemo(() => tabsFor(user?.role), [user?.role]);
-    const [yearId, setYearId] = useState(null);
-    const [periodId, setPeriodId] = useState(null);
+    const [yearId, setYearId] = useState(() => Number(searchParams.get("year")) || null);
+    const [periodId, setPeriodId] = useState(() => Number(searchParams.get("period")) || null);
     const [tab, setTab] = useState(() => defaultTab(user?.role, searchParams));
     const [search, setSearch] = useState(() => searchParams.get("q") ?? "");
     const [sort, setSort] = useState("az");
@@ -449,7 +449,11 @@ export default function ReportsPage() {
 
     useEffect(() => {
         const params = new URLSearchParams(query);
+        const paramYear = Number(params.get("year")) || null;
+        const paramPeriod = Number(params.get("period")) || null;
 
+        if (paramYear) setYearId(paramYear);
+        if (params.has("period")) setPeriodId(paramPeriod);
         setTab(defaultTab(user?.role, params));
         setKindByTab(kindsFromParams(params));
         setSearch(params.get("q") ?? "");

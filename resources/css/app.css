@@ -2722,6 +2722,22 @@ td.pms-flag {
     flex: none;
     width: 112px;
     height: 112px;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    font: inherit;
+    cursor: pointer;
+    border-radius: 50%;
+    transition: transform 0.18s ease;
+}
+
+.pms-team-donut:hover {
+    transform: scale(1.03);
+}
+
+.pms-team-donut:focus-visible {
+    outline: 2px solid #2a78d6;
+    outline-offset: 3px;
 }
 
 .pms-team-donut svg {
@@ -2877,6 +2893,16 @@ td.pms-flag {
     margin-bottom: 16px;
 }
 
+.pms-att.is-self {
+    display: flex;
+    flex-direction: column;
+}
+
+.pms-att.is-self .pms-att-body {
+    flex: 1;
+    grid-template-columns: minmax(0, 1fr);
+}
+
 .pms-att-body {
     display: grid;
     grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr);
@@ -2895,6 +2921,18 @@ td.pms-flag {
     gap: 8px;
     height: 100%;
     min-height: 190px;
+}
+
+.pms-att-empty {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 140px;
+    height: 100%;
+    margin: 0;
+    font-size: 13px;
+    color: #7b8494;
+    text-align: center;
 }
 
 .pms-att-col {
@@ -7620,6 +7658,25 @@ button.viz-meter:focus-visible {
     height: 208px;
 }
 
+button.pms-play-ring {
+    padding: 0;
+    border: 0;
+    background: transparent;
+    font: inherit;
+    cursor: pointer;
+    border-radius: 50%;
+    transition: transform 0.18s ease;
+}
+
+button.pms-play-ring:hover {
+    transform: scale(1.02);
+}
+
+button.pms-play-ring:focus-visible {
+    outline: 2px solid #2a78d6;
+    outline-offset: 4px;
+}
+
 .pms-play-ring svg {
     width: 208px;
     height: 208px;
@@ -12009,6 +12066,17 @@ html[data-theme="dark"] .gs-cell.is-outside {
     width: 100%;
     max-width: 16rem;
     margin-top: 6px;
+}
+
+.pms-drawer-attendance {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin-bottom: 16px;
+    padding: 10px 12px;
+    border: 1px solid #f0d58a;
+    border-radius: 8px;
+    background: #fffbe6;
 }
 
 .cal-pile-item span {

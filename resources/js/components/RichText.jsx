@@ -233,14 +233,18 @@ export default function RichText({
     }, [commitOnEnter, editor]);
 
     // Follow the field when it is reset or loaded from the server, without
-    // fighting the person mid-sentence.
+    // fighting the person mid-sentence. While the editor has focus, the editor
+    // is the source of truth: replacing its document here would throw the
+    // caret to the start or end on every keystroke.
     useEffect(() => {
-        if (!editor) return;
+        if (!editor || editor.isFocused) return;
 
         const incoming = value || "";
 
         if (incoming !== (editor.isEmpty ? "" : editor.getHTML())) {
-            editor.commands.setContent(incoming, false);
+            // Tiptap v3 takes an options object here. A bare `false` is ignored,
+            // so the replacement would also emit an update back to the parent.
+            editor.commands.setContent(incoming, { emitUpdate: false });
         }
     }, [value, editor]);
 

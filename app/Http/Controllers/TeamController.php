@@ -73,21 +73,28 @@ class TeamController extends Controller
             ->keyBy('user_id');
 
         $summaries = PcrPeriodSummary::whereIn('form_id', $forms->pluck('id'))->get()->keyBy('form_id');
+        $progress = $this->personProgress($members, $year, $period);
         $unitsById = $units->keyBy('id');
 
         return response()->json([
             'year'    => ['id' => $year->id, 'label' => $year->label],
             'period'  => $period ? ['id' => $period->id, 'label' => $period->label] : null,
             'units'   => $units->map(fn ($unit) => [
-                'id'   => $unit->id,
-                'name' => $unit->name,
-                'code' => $unit->code,
-                'as'   => $this->capacityOn($unit, $user),
+                'id'        => $unit->id,
+                'name'      => $unit->name,
+                'code'      => $unit->code,
+                'parent_id' => $unit->parent_id ? (int) $unit->parent_id : null,
+                'as'        => $this->capacityOn($unit, $user),
             ])->values(),
-            'members' => $members->map(function ($member) use ($forms, $summaries, $unitsById) {
-                $form    = $forms->get($member->id);
-                $summary = $form ? $summaries->get($form->id) : null;
-                $unit    = $unitsById->get($member->org_unit_id);
+            'members' => $members->map(function ($member) use ($forms, $summaries, $progress, $unitsById) {
+                $form        = $forms->get($member->id);
+                $summary     = $form ? $summaries->get($form->id) : null;
+                $unit        = $unitsById->get($member->org_unit_id);
+                $stat        = $progress[$member->id] ?? null;
+                $commitments = (int) ($stat['commitments'] ?? 0);
+                $completed   = (int) ($stat['completed'] ?? 0);
+                $overdue     = (int) ($stat['overdue'] ?? 0);
+                $open        = max(0, $commitments - $completed - $overdue);
 
                 return [
                     'id'             => $member->id,
@@ -96,6 +103,12 @@ class TeamController extends Controller
                     'position_title' => $member->position_title,
                     'image'          => $member->image,
                     'org_unit'       => $unit ? ['id' => $unit->id, 'name' => $unit->name, 'code' => $unit->code] : null,
+                    'progress'       => [
+                        'commitments' => $commitments,
+                        'completed'   => $completed,
+                        'open'        => $open,
+                        'overdue'     => $overdue,
+                    ],
                     'form'           => $form ? [
                         'id'            => $form->id,
                         'status'        => $form->status,

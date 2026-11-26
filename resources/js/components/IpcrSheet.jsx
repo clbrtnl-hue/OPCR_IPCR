@@ -67,6 +67,25 @@ function sheetError(error, fallback) {
     message.error(error?.response?.data?.message ?? fallback);
 }
 
+// The head's pick for a support line that has no attendance evidence yet.
+function AttendancePicker({ categories, onPick, loading = false }) {
+    return (
+        <Select
+            className="pms-attendance-category"
+            size="small"
+            placeholder="Link attendance evidence"
+            status="warning"
+            loading={loading}
+            options={categories.map((item) => ({
+                value: item.id,
+                label: item.source === "daily" ? `${item.name} · daily` : item.name,
+            }))}
+            onChange={(id) => id && onPick(id)}
+            popupMatchSelectWidth={false}
+        />
+    );
+}
+
 export default function IpcrSheet({
     form,
     periodId,
@@ -97,17 +116,14 @@ export default function IpcrSheet({
 }) {
     const { user } = useAuth();
     // The leader reviewing at their own stage (head, dean, or director) picks
-    // the attendance evidence. Later stages only read the percent.
-    const stageReviewerId =
-        form?.review_steps?.find((step) => step.status === form?.status)?.reviewer?.id ??
-        (form?.status === "head_review" ? form?.head_reviewer_id : null) ??
-        (form?.status === "dean_review" ? form?.dean_reviewer_id : null);
-    const canLinkAttendance =
-        form?.type === "ipcr" &&
-        ["head_review", "dean_review", "director_review"].includes(form?.status) &&
-        Boolean(stageReviewerId) &&
-        Number(stageReviewerId) === Number(user?.id) &&
-        Boolean(scoreEdit?.canEdit);
+    // the attendance evidence. The server decides who that is. Later stages
+    // only read the percent.
+    const canLinkAttendance = Boolean(form?.can_link_attendance);
+    // Only a support line with no evidence yet needs a pick. A title that
+    // already matches a default category, or a category already chosen,
+    // counts as linked.
+    const needsAttendanceLink = (output) =>
+        canLinkAttendance && output?.section === "support" && !output?.attendance_category;
     const { data: attendanceCategories = [] } = useQuery({
         queryKey: ["attendance-categories"],
         queryFn: () => api.get("attendance-categories").then((response) => response.data.categories ?? []),
@@ -209,6 +225,8 @@ export default function IpcrSheet({
             if (!values.id) {
                 message.success("MFO/PPA added — name it and add its success indicators.");
                 setJustAdded({ kind: "output", id: data.output.id });
+            } else if (values.attendance_category_id) {
+                message.success("Attendance evidence linked.");
             }
 
             refresh();
@@ -446,6 +464,12 @@ export default function IpcrSheet({
         return null;
     }, [openLineId, form.outputs]);
 
+    const openLineOutput = openLine
+        ? (form.outputs ?? []).find((output) =>
+              (output.indicators ?? []).some((item) => item.id === openLine.id)
+          )
+        : null;
+
     const accountableFor = (indicator) => {
         const assigned = (indicator.assignments ?? [])
             .filter((row) => row.user)
@@ -556,23 +580,15 @@ export default function IpcrSheet({
                             }
                         />
                     </div>
-                    {section === "support" && canLinkAttendance && (
-                        <Select
-                            className="pms-attendance-category"
-                            size="small"
-                            allowClear
-                            placeholder="Attendance evidence"
-                            value={output.attendance_category_id ?? undefined}
-                            options={attendanceCategories.map((item) => ({
-                                value: item.id,
-                                label: item.source === "daily" ? `${item.name} · daily` : item.name,
-                            }))}
-                            onChange={(id) => saveOutput.mutate({
+                    {needsAttendanceLink(output) && (
+                        <AttendancePicker
+                            categories={attendanceCategories}
+                            loading={saveOutput.isPending}
+                            onPick={(id) => saveOutput.mutate({
                                 id: output.id,
                                 section,
-                                attendance_category_id: id ?? null,
+                                attendance_category_id: id,
                             })}
-                            popupMatchSelectWidth={false}
                         />
                     )}
                     {showScores && <AttendancePct form={form} output={output} periodId={periodId} />}
@@ -1172,6 +1188,22 @@ export default function IpcrSheet({
                 open={Boolean(openLine)}
                 onClose={() => setOpenLineId(null)}
             >
+                {openLine && needsAttendanceLink(openLineOutput) && (
+                    <div className="pms-drawer-attendance">
+                        <Typography.Text type="secondary">
+                            No attendance is linked to this support function.
+                        </Typography.Text>
+                        <AttendancePicker
+                            categories={attendanceCategories}
+                            loading={saveOutput.isPending}
+                            onPick={(id) => saveOutput.mutate({
+                                id: openLineOutput.id,
+                                section: openLineOutput.section,
+                                attendance_category_id: id,
+                            })}
+                        />
+                    </div>
+                )}
                 {openLine && (
                     <IndicatorRow
                         key={openLine.id}

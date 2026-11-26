@@ -1,7 +1,7 @@
 import React from "react";
 import { Alert, Button, Card, Empty, Popconfirm, Select, Space, Table, Tag, Typography, message } from "antd";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import dayjs from "dayjs";
 import api from "~/utils/api";
 import { ADJECTIVAL_COLORS, statusMeta } from "~/utils/constants";
@@ -11,14 +11,82 @@ import UserAvatar from "~/components/UserAvatar";
 import { useAuth } from "~/hooks/useAuth";
 
 const OWNER_NUDGE_STATUSES = new Set(["draft", "returned", "commitments_approved"]);
+// Fixed slots so "Open" and "Remind" land at the same x-position in every row,
+// whether or not a row has an Open link.
+const ACTION_ROW_STYLE = { display: "inline-flex", alignItems: "center", gap: 8 };
+const ACTION_OPEN_SLOT_STYLE = { display: "inline-flex", alignItems: "center", minWidth: 44 };
+const ACTION_REMIND_SLOT_STYLE = { display: "inline-flex", alignItems: "center", minWidth: 68 };
+const PROGRESS_FILTERS = new Set(["done", "open", "late"]);
+const PROGRESS_FILTER_OPTIONS = [
+    { value: "all", label: "All progress" },
+    { value: "done", label: "Done" },
+    { value: "open", label: "Still open" },
+    { value: "late", label: "Past target" },
+];
+
+function shortUnitCode(code) {
+    const raw = String(code || "").trim();
+
+    if (!raw) {
+        return null;
+    }
+
+    return raw.split("-").filter(Boolean).pop() ?? raw;
+}
+
+function unitSubtreeIds(units, rootId) {
+    if (!rootId) return null;
+
+    const childrenByParent = new Map();
+
+    for (const unit of units) {
+        if (unit.parent_id == null) continue;
+        const list = childrenByParent.get(unit.parent_id) ?? [];
+        list.push(unit.id);
+        childrenByParent.set(unit.parent_id, list);
+    }
+
+    const ids = new Set([rootId]);
+    const queue = [rootId];
+
+    while (queue.length > 0) {
+        const current = queue.shift();
+
+        for (const childId of childrenByParent.get(current) ?? []) {
+            if (!ids.has(childId)) {
+                ids.add(childId);
+                queue.push(childId);
+            }
+        }
+    }
+
+    return ids;
+}
 
 export default function MyTeamPage() {
     const navigate = useNavigate();
+    const [searchParams, setSearchParams] = useSearchParams();
     const queryClient = useQueryClient();
     const { user } = useAuth();
     const canNudge = Boolean(user?.capabilities?.follow_up);
-    const [yearId, setYearId] = React.useState(null);
-    const [periodId, setPeriodId] = React.useState(null);
+    const [yearId, setYearId] = React.useState(() => Number(searchParams.get("year")) || null);
+    const [periodId, setPeriodId] = React.useState(() => Number(searchParams.get("period")) || null);
+
+    const rawFilter = searchParams.get("filter");
+    const progressFilter = PROGRESS_FILTERS.has(rawFilter) ? rawFilter : "all";
+    const unitFilter = Number(searchParams.get("unit")) || null;
+
+    const updateParam = (key, value) => {
+        const next = new URLSearchParams(searchParams);
+
+        if (value == null || value === "" || value === "all") {
+            next.delete(key);
+        } else {
+            next.set(key, String(value));
+        }
+
+        setSearchParams(next, { replace: true });
+    };
 
     const { data: years = [] } = useQuery({
         queryKey: ["school-years"],
@@ -77,6 +145,50 @@ export default function MyTeamPage() {
     const members = data?.members ?? [];
     const units = data?.units ?? [];
 
+    const activeUnitId = unitFilter && units.some((u) => u.id === unitFilter) ? unitFilter : null;
+    const allowedUnitIds = React.useMemo(
+        () => unitSubtreeIds(units, activeUnitId),
+        [units, activeUnitId]
+    );
+
+    const visibleMembers = React.useMemo(() => {
+        return members.filter((member) => {
+            if (allowedUnitIds && !allowedUnitIds.has(member.org_unit?.id)) {
+                return false;
+            }
+
+            if (progressFilter === "done") {
+                return (member.progress?.completed ?? 0) > 0;
+            }
+
+            if (progressFilter === "open") {
+                return (member.progress?.open ?? 0) > 0;
+            }
+
+            if (progressFilter === "late") {
+                return (member.progress?.overdue ?? 0) > 0;
+            }
+
+            return true;
+        });
+    }, [members, allowedUnitIds, progressFilter]);
+
+    const unitOptions = React.useMemo(
+        () => [
+            { value: "all", label: "All offices" },
+            ...units.map((u) => {
+                const short = shortUnitCode(u.code);
+                return {
+                    value: u.id,
+                    label: short ? `${short} — ${u.name}` : u.name,
+                };
+            }),
+        ],
+        [units]
+    );
+
+    const hasActiveFilters = Boolean(activeUnitId) || progressFilter !== "all";
+
     const columns = [
         {
             title: "Name",
@@ -98,7 +210,11 @@ export default function MyTeamPage() {
         {
             title: "Unit",
             dataIndex: ["org_unit", "code"],
-            render: (code, record) => <Tag>{code ?? record.org_unit?.name ?? "—"}</Tag>,
+            render: (code, record) => (
+                <Tag title={record.org_unit?.name}>
+                    {shortUnitCode(code) ?? record.org_unit?.name ?? "—"}
+                </Tag>
+            ),
             filters: units.map((u) => ({ text: u.name, value: u.id })),
             onFilter: (value, record) => record.org_unit?.id === value,
         },
@@ -160,17 +276,22 @@ export default function MyTeamPage() {
                     }
 
                     return (
-                        <Popconfirm
-                            title={`Ask ${record.name} to start their IPCR?`}
-                            description="They get a notification linking to My IPCR. One follow-up per person per day."
-                            okText="Remind"
-                            onConfirm={() => remindStart.mutate(record.id)}
-                            disabled={followUpBusy}
-                        >
-                            <Button type="link" size="small" disabled={followUpBusy}>
-                                Remind
-                            </Button>
-                        </Popconfirm>
+                        <span style={ACTION_ROW_STYLE}>
+                            <span style={ACTION_OPEN_SLOT_STYLE} />
+                            <span style={ACTION_REMIND_SLOT_STYLE}>
+                                <Popconfirm
+                                    title={`Ask ${record.name} to start their IPCR?`}
+                                    description="They get a notification linking to My IPCR. One follow-up per person per day."
+                                    okText="Remind"
+                                    onConfirm={() => remindStart.mutate(record.id)}
+                                    disabled={followUpBusy}
+                                >
+                                    <Button type="link" size="small" disabled={followUpBusy}>
+                                        Remind
+                                    </Button>
+                                </Popconfirm>
+                            </span>
+                        </span>
                     );
                 }
 
@@ -178,24 +299,28 @@ export default function MyTeamPage() {
                     canNudge && OWNER_NUDGE_STATUSES.has(record.form.status) && !periodLocked;
 
                 return (
-                    <Space size={8}>
-                        <a onClick={() => navigate(`/forms/${record.form.id}`, { state: { from: "/my-team" } })}>
-                            Open
-                        </a>
-                        {showNudge && (
-                            <Popconfirm
-                                title={`Follow up with ${record.name}?`}
-                                description="They get a notification asking them to finish their IPCR. One follow-up per form per day."
-                                okText="Remind"
-                                onConfirm={() => nudge.mutate(record.form.id)}
-                                disabled={followUpBusy}
-                            >
-                                <Button type="link" size="small" disabled={followUpBusy}>
-                                    Remind
-                                </Button>
-                            </Popconfirm>
-                        )}
-                    </Space>
+                    <span style={ACTION_ROW_STYLE}>
+                        <span style={ACTION_OPEN_SLOT_STYLE}>
+                            <a onClick={() => navigate(`/forms/${record.form.id}`, { state: { from: "/my-team" } })}>
+                                Open
+                            </a>
+                        </span>
+                        <span style={ACTION_REMIND_SLOT_STYLE}>
+                            {showNudge && (
+                                <Popconfirm
+                                    title={`Follow up with ${record.name}?`}
+                                    description="They get a notification asking them to finish their IPCR. One follow-up per form per day."
+                                    okText="Remind"
+                                    onConfirm={() => nudge.mutate(record.form.id)}
+                                    disabled={followUpBusy}
+                                >
+                                    <Button type="link" size="small" disabled={followUpBusy}>
+                                        Remind
+                                    </Button>
+                                </Popconfirm>
+                            )}
+                        </span>
+                    </span>
                 );
             },
         },
@@ -212,10 +337,36 @@ export default function MyTeamPage() {
     const onYear = (value) => {
         setYearId(value);
         setPeriodId(null);
+        const next = new URLSearchParams(searchParams);
+        next.set("year", String(value));
+        next.delete("period");
+        setSearchParams(next, { replace: true });
     };
 
-    const switcher = (
+    const onPeriod = (value) => {
+        setPeriodId(value);
+        updateParam("period", value);
+    };
+
+    const filterControls = (
         <Space wrap>
+            {units.length > 1 && (
+                <Select
+                    className="pms-filter-select"
+                    style={{ minWidth: 160 }}
+                    value={activeUnitId ?? "all"}
+                    onChange={(value) => updateParam("unit", value === "all" ? null : value)}
+                    options={unitOptions}
+                    popupMatchSelectWidth={false}
+                />
+            )}
+            <Select
+                className="pms-filter-select"
+                style={{ minWidth: 130 }}
+                value={progressFilter}
+                onChange={(value) => updateParam("filter", value)}
+                options={PROGRESS_FILTER_OPTIONS}
+            />
             {years.length > 1 && (
                 <Select
                     className="pms-filter-select"
@@ -228,7 +379,7 @@ export default function MyTeamPage() {
                 <Select
                     className="pms-filter-select"
                     value={chosenPeriodId}
-                    onChange={setPeriodId}
+                    onChange={onPeriod}
                     options={periodOptions}
                 />
             )}
@@ -244,29 +395,10 @@ export default function MyTeamPage() {
                         ? `${units.map((u) => u.name).join(" · ")} — everyone you review, and where their IPCR stands.`
                         : "Everyone you review, and where their IPCR stands."
                 }
-                extra={
-                    <Space className="pms-team-filters" wrap>
-                        {years.length > 1 && (
-                            <Select
-                                className="pms-filter-select"
-                                value={year?.id}
-                                onChange={onYear}
-                                options={yearOptions}
-                            />
-                        )}
-                        {periods.length > 0 && (
-                            <Select
-                                className="pms-filter-select"
-                                value={chosenPeriodId}
-                                onChange={setPeriodId}
-                                options={periodOptions}
-                            />
-                        )}
-                    </Space>
-                }
+                extra={<div className="pms-team-filters">{filterControls}</div>}
             />
 
-            <div className="pms-team-switch">{switcher}</div>
+            <div className="pms-team-switch">{filterControls}</div>
 
             {!isLoading && units.length === 0 && (
                 <Alert
@@ -279,16 +411,34 @@ export default function MyTeamPage() {
             )}
 
             <Card className="pms-list-panel pms-list-fill">
-                {members.length === 0 && !isLoading ? (
+                {visibleMembers.length === 0 && !isLoading ? (
                     <Empty
                         image={Empty.PRESENTED_IMAGE_SIMPLE}
-                        description="No one is placed under the offices you lead yet."
-                    />
+                        description={
+                            hasActiveFilters
+                                ? "No team members match the current filter."
+                                : "No one is placed under the offices you lead yet."
+                        }
+                    >
+                        {hasActiveFilters && (
+                            <Button
+                                size="small"
+                                onClick={() => {
+                                    const next = new URLSearchParams(searchParams);
+                                    next.delete("unit");
+                                    next.delete("filter");
+                                    setSearchParams(next, { replace: true });
+                                }}
+                            >
+                                Clear filters
+                            </Button>
+                        )}
+                    </Empty>
                 ) : (
                     <Table
                         rowKey="id"
                         loading={isLoading}
-                        dataSource={members}
+                        dataSource={visibleMembers}
                         columns={columns}
                         pagination={tablePager(15)}
                         scroll={{ x: 900 }}

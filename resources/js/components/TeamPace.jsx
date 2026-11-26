@@ -7,7 +7,7 @@ const SLICES = [
     { key: "late", label: "Past target", color: VIZ.critical },
 ];
 
-function Donut({ slices, percent }) {
+function Donut({ slices, percent, onClick }) {
     const active = slices.filter((slice) => slice.value > 0);
     const sum = active.reduce((count, slice) => count + slice.value, 0);
     const radius = 42;
@@ -16,8 +16,13 @@ function Donut({ slices, percent }) {
     let cursor = 0;
 
     return (
-        <div className="pms-team-donut" role="img" aria-label={percent == null ? "No team progress yet" : `${percent}% done`}>
-            <svg viewBox="0 0 120 120">
+        <button
+            type="button"
+            className="pms-team-donut"
+            aria-label={percent == null ? "No team progress yet — open My Team" : `${percent}% done — open My Team`}
+            onClick={onClick}
+        >
+            <svg viewBox="0 0 120 120" aria-hidden="true">
                 <g transform="rotate(-90 60 60)">
                     {sum === 0 ? (
                         <circle cx="60" cy="60" r={radius} fill="none" stroke="#e6ebf4" strokeWidth="12" />
@@ -50,7 +55,7 @@ function Donut({ slices, percent }) {
                 <strong>{percent == null ? "—" : `${percent}%`}</strong>
                 <em>done</em>
             </span>
-        </div>
+        </button>
     );
 }
 
@@ -78,7 +83,8 @@ function tag(row) {
     const code = String(row.code || "").trim();
 
     if (code) {
-        return code.toUpperCase();
+        const short = code.split("-").filter(Boolean).pop() ?? code;
+        return short.toUpperCase();
     }
 
     const words = String(row.name || "")
@@ -120,16 +126,34 @@ function flagFor(row) {
     return { text: "In review", color: "#2a78d6" };
 }
 
-function openRow(row, onOpen) {
+function buildTeamUrl({ yearId, periodId, unit, filter } = {}) {
+    const params = new URLSearchParams();
+
+    if (yearId) params.set("year", String(yearId));
+    if (periodId) params.set("period", String(periodId));
+    if (unit) params.set("unit", String(unit));
+    if (filter) params.set("filter", filter);
+
+    const query = params.toString();
+
+    return query ? `/my-team?${query}` : "/my-team";
+}
+
+function openRow(row, onOpen, context) {
     if (row.kind === "person" && row.form_id) {
         onOpen(`/forms/${row.form_id}`, { state: { from: "/" } });
         return;
     }
 
-    onOpen("/my-team");
+    if (row.kind === "unit") {
+        onOpen(buildTeamUrl({ ...context, unit: row.id }));
+        return;
+    }
+
+    onOpen(buildTeamUrl(context));
 }
 
-export default function TeamPace({ data, onOpen }) {
+export default function TeamPace({ data, yearId, periodId, onOpen }) {
     // The parent office's own people are counted in the totals but not listed
     // as a row. Only its child units (CIT, BSBA, ...) get a bar.
     const rows = (data?.rows ?? []).filter((row) => !row.direct);
@@ -139,6 +163,7 @@ export default function TeamPace({ data, onOpen }) {
         return null;
     }
 
+    const context = { yearId, periodId };
     const done = totals.completed ?? 0;
     const late = totals.overdue ?? 0;
     const open = Math.max(0, (totals.commitments ?? 0) - done - late);
@@ -155,15 +180,23 @@ export default function TeamPace({ data, onOpen }) {
                     <div className="pms-play-kicker">Your team</div>
                     <h2>{data.view === "units" ? "Offices you lead" : "People you lead"}</h2>
                 </div>
-                <button type="button" onClick={() => onOpen("/my-team")}>
+                <button type="button" onClick={() => onOpen(buildTeamUrl(context))}>
                     My Team
                 </button>
             </div>
             <div className="pms-team-chart-top">
-                <Donut slices={slices} percent={totals.progress_pct} />
+                <Donut
+                    slices={slices}
+                    percent={totals.progress_pct}
+                    onClick={() => onOpen(buildTeamUrl(context))}
+                />
                 <div className="pms-team-legend">
                     {slices.map((slice) => (
-                        <button key={slice.key} type="button" onClick={() => onOpen("/my-team")}>
+                        <button
+                            key={slice.key}
+                            type="button"
+                            onClick={() => onOpen(buildTeamUrl({ ...context, filter: slice.key }))}
+                        >
                             <i style={{ background: slice.color }} />
                             <span>{slice.label}</span>
                             <strong>{slice.value}</strong>
@@ -182,7 +215,12 @@ export default function TeamPace({ data, onOpen }) {
                     const flag = flagFor(row);
 
                     return (
-                        <button key={`${row.kind}-${row.id}`} type="button" className="pms-pace-row" onClick={() => openRow(row, onOpen)}>
+                        <button
+                            key={`${row.kind}-${row.id}`}
+                            type="button"
+                            className="pms-pace-row"
+                            onClick={() => openRow(row, onOpen, context)}
+                        >
                             <span className="pms-pace-name">
                                 <span title={row.name}>{tag(row)}</span>
                             </span>

@@ -511,15 +511,14 @@ class AttendanceController extends Controller
     private function summary(User $user, ?SchoolYear $year, ?int $periodId): array
     {
         $empty = [
+            'scope'        => 'none',
             'daily_pct'    => null,
             'activity_pct' => null,
             'rows'         => [],
             'categories'   => [],
         ];
 
-        $led = $this->ledUnits($user);
-
-        if (! $year || $led->isEmpty()) {
+        if (! $year) {
             return $empty;
         }
 
@@ -529,13 +528,35 @@ class AttendanceController extends Controller
             return $empty;
         }
 
+        $led = $this->ledUnits($user);
+        $daily = AttendanceRate::forPeriod((int) $period->id, 'daily');
+        $activities = AttendanceRate::forPeriod((int) $period->id, 'activities');
+        $byCategory = AttendanceRate::categoriesForPeriod((int) $period->id);
+
+        if ($led->isEmpty()) {
+            $categories = [];
+
+            foreach (AttendanceMeeting::CATEGORIES as $key => $label) {
+                $categories[] = [
+                    'key'   => $key,
+                    'label' => $label,
+                    'pct'   => $byCategory[$user->id][$key]['pct'] ?? null,
+                ];
+            }
+
+            return [
+                'scope'        => 'self',
+                'daily_pct'    => $daily[$user->id]['pct'] ?? null,
+                'activity_pct' => $activities[$user->id]['pct'] ?? null,
+                'rows'         => [],
+                'categories'   => $categories,
+            ];
+        }
+
         $members = $this->peopleIn(
             OrgUnit::subtreeIds($led->pluck('id')->map(fn ($id) => (int) $id)->all()),
             $user
         );
-        $daily = AttendanceRate::forPeriod((int) $period->id, 'daily');
-        $activities = AttendanceRate::forPeriod((int) $period->id, 'activities');
-        $byCategory = AttendanceRate::categoriesForPeriod((int) $period->id);
         $rows = $members->map(function (User $member) use ($daily, $activities) {
             return [
                 'id'           => $member->id,
@@ -566,6 +587,7 @@ class AttendanceController extends Controller
         }
 
         return [
+            'scope'        => 'team',
             'daily_pct'    => $this->mean($rows->pluck('daily_pct')->all()),
             'activity_pct' => $this->mean($rows->pluck('activity_pct')->all()),
             'rows'         => $rows,

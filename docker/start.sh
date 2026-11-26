@@ -21,6 +21,30 @@ exit($ready ? 0 : 1);
     php artisan db:seed --force
 fi
 
+if ! php -r '
+require "vendor/autoload.php";
+$app = require "bootstrap/app.php";
+$kernel = $app->make(Illuminate\Contracts\Console\Kernel::class);
+$kernel->bootstrap();
+$ready = Illuminate\Support\Facades\Schema::hasTable("users")
+    && Illuminate\Support\Facades\DB::table("users")->where("email", "like", "unit.%@occ.edu.ph")->exists();
+exit($ready ? 0 : 1);
+'; then
+    php artisan db:seed --class=PanelUnitCoverageSeeder --force
+fi
+
+if ! php -r '
+require "vendor/autoload.php";
+$app = require "bootstrap/app.php";
+$kernel = $app->make(Illuminate\Contracts\Console\Kernel::class);
+$kernel->bootstrap();
+$ready = Illuminate\Support\Facades\Schema::hasTable("school_years")
+    && Illuminate\Support\Facades\DB::table("school_years")->where("label", "2025")->where("status", "closed")->exists();
+exit($ready ? 0 : 1);
+'; then
+    php artisan db:seed --class=PanelYear2025Seeder --force
+fi
+
 if [ ! -f storage/oauth-private.key ]; then
     php artisan passport:keys --force
 fi

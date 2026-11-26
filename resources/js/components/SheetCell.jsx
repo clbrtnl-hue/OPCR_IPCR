@@ -12,6 +12,19 @@ import dayjs from "dayjs";
  * Escape abandons the edit, which is what people expect when they change their
  * mind mid-cell.
  */
+// A number cell holds numbers from the input ("1000") and strings from the
+// server ("1000.00"). Comparing them as text calls every save a change and
+// leaves the cell spinning, so numbers are compared as numbers.
+function sameValue(type, a, b) {
+    if (type === "number") {
+        const numeric = (v) => (v === "" || v == null ? null : Number(v));
+
+        return numeric(a) === numeric(b);
+    }
+
+    return (a ?? "") === (b ?? "");
+}
+
 function frame(mark, node) {
     if (!mark) return node;
 
@@ -46,7 +59,7 @@ export default function SheetCell({
         // Once the cell is closed, a newer server value can take its place.
         if (editing) return;
 
-        if (pending && (value ?? "") !== (draft ?? "")) return;
+        if (pending && !sameValue(type, value, draft)) return;
 
         setDraft(value ?? "");
         setPending(false);
@@ -72,9 +85,9 @@ export default function SheetCell({
     const commit = () => {
         setEditing(false);
 
-        if ((draft ?? "") !== (value ?? "")) {
+        if (!sameValue(type, draft, value)) {
             setPending(true);
-            onCommit(draft === "" ? null : draft);
+            onCommit(draft === "" ? null : String(draft));
         }
     };
 
@@ -166,7 +179,7 @@ export default function SheetCell({
                 min={0}
                 formatter={(v) => (v == null ? "" : `${v}`.replace(/\B(?=(\d{3})+(?!\d))/g, ","))}
                 parser={(v) => v.replace(/,/g, "")}
-                onChange={(v) => setDraft(v ?? "")}
+                onChange={(v) => setDraft(v == null ? "" : String(v))}
                 onBlur={commit}
                 onPressEnter={commit}
                 onKeyDown={(e) => e.key === "Escape" && abandon()}

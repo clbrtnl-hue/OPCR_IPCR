@@ -77,7 +77,10 @@ function initials(name) {
 function unitTag(name, code) {
     const saved = String(code || "").trim();
 
-    if (saved) return saved.toUpperCase();
+    if (saved) {
+        const short = saved.split("-").filter(Boolean).pop() ?? saved;
+        return short.toUpperCase();
+    }
 
     const words = String(name || "")
         .split(/[^A-Za-z0-9]+/)
@@ -158,7 +161,7 @@ function BoardCard({ title, children, className, aside }) {
     );
 }
 
-export default function PresidentGlance({ data, periodLocked = false }) {
+export default function PresidentGlance({ data, yearId = null, periodId = null, periodLocked = false }) {
     const navigate = useNavigate();
     const queryClient = useQueryClient();
     const { user } = useAuth();
@@ -166,7 +169,13 @@ export default function PresidentGlance({ data, periodLocked = false }) {
     const collegePct = totals.progress_pct ?? null;
     const lines = data?.commitments ?? [];
 
-    const open = (href) => navigate(href);
+    const open = (href, options) => navigate(href, options);
+    const toReport = (tab, q, extra) =>
+        reportPath(tab, q, {
+            ...(yearId ? { year: yearId } : {}),
+            ...(periodId ? { period: periodId } : {}),
+            ...extra,
+        });
 
     const nudge = useMutation({
         mutationFn: (formId) => api.post(`pcr-forms/${formId}/nudge`),
@@ -279,7 +288,7 @@ export default function PresidentGlance({ data, periodLocked = false }) {
             label: "Completed",
             value: completed,
             color: VIZ.good,
-            href: reportPath("commitments", null, { progress: "completed" }),
+            href: toReport("commitments", null, { progress: "completed" }),
             hint: `${completed} finished`,
         },
         {
@@ -287,7 +296,7 @@ export default function PresidentGlance({ data, periodLocked = false }) {
             label: "Ongoing",
             value: ongoing,
             color: VIZ.series[0],
-            href: reportPath("commitments", null, { progress: "ongoing", standing: "ontime" }),
+            href: toReport("commitments", null, { progress: "ongoing", standing: "ontime" }),
             hint: `${ongoing} in progress`,
         },
         {
@@ -295,7 +304,7 @@ export default function PresidentGlance({ data, periodLocked = false }) {
             label: "Not started",
             value: notStarted,
             color: VIZ.muted,
-            href: reportPath("commitments", null, { progress: "not_started", standing: "ontime" }),
+            href: toReport("commitments", null, { progress: "not_started", standing: "ontime" }),
             hint: `${notStarted} not started`,
         },
         {
@@ -303,7 +312,7 @@ export default function PresidentGlance({ data, periodLocked = false }) {
             label: "Overdue",
             value: overdue,
             color: VIZ.critical,
-            href: "/reports?tab=commitments&late=1",
+            href: toReport("commitments", null, { late: 1 }),
             hint: `${overdue} commitment${overdue === 1 ? "" : "s"} past the target date`,
         },
     ];
@@ -331,7 +340,7 @@ export default function PresidentGlance({ data, periodLocked = false }) {
                     label: shortPerson(group.name),
                     value,
                     color: paceAgainst(value, collegePct, group.overdue),
-                    href: reportPath("vps", group.name),
+                    href: toReport("vps", group.name),
                     hint:
                         value != null
                             ? `${group.name} — ${value}% · ${group.units.join(", ")}`
@@ -339,7 +348,7 @@ export default function PresidentGlance({ data, periodLocked = false }) {
                 };
             })
             .sort((a, b) => (b.value ?? -1) - (a.value ?? -1) || a.label.localeCompare(b.label));
-    }, [data, collegePct]);
+    }, [data, collegePct, yearId, periodId]);
 
     const formRows = data?.forms ?? [];
     const ipcrForms = formRows.filter((form) => form.type === "IPCR");
@@ -386,7 +395,7 @@ export default function PresidentGlance({ data, periodLocked = false }) {
                 forms: row.forms,
                 oldest,
                 tone,
-                href: reportPath("forms", row.status),
+                href: toReport("forms", row.status),
             };
         });
     const pendingReviewers = [...(data?.turnaround?.reviewers ?? [])]
@@ -414,7 +423,7 @@ export default function PresidentGlance({ data, periodLocked = false }) {
                                     type="button"
                                     className="pms-board-table-row"
                                     title={unit.parent_name ? `${unit.name} · ${unit.parent_name}` : unit.name}
-                                    onClick={() => open(reportPath("units", unit.name))}
+                                    onClick={() => open(toReport("units", unit.name))}
                                 >
                                     <span className="pms-board-unit">
                                         <span className="pms-board-unit-name">{unit.tag}</span>
@@ -481,15 +490,24 @@ export default function PresidentGlance({ data, periodLocked = false }) {
                 aside={
                     <span className="pms-board-chips">
                         {opcrChip && (
-                            <span className="pms-board-chip" title="OPCR">
+                            <button
+                                type="button"
+                                className="pms-board-chip is-link"
+                                title="Open OPCR"
+                                onClick={() =>
+                                    opcr?.id
+                                        ? open(`/forms/${opcr.id}`, { state: { from: "/" } })
+                                        : open(toReport("forms", null, { type: "OPCR" }))
+                                }
+                            >
                                 OPCR · {opcrChip}
-                            </span>
+                            </button>
                         )}
                         <button
                             type="button"
                             className="pms-board-chip is-link"
                             title="IPCRs submitted"
-                            onClick={() => open(reportPath("forms", null, { type: "IPCR" }))}
+                            onClick={() => open(toReport("forms", null, { type: "IPCR" }))}
                         >
                             IPCR · {ipcrSent}/{ipcrTotal}
                         </button>
@@ -531,7 +549,7 @@ export default function PresidentGlance({ data, periodLocked = false }) {
                     type="button"
                     className="pms-status-meter"
                     title="On time"
-                    onClick={() => open(reportPath("commitments", null, { standing: "ontime" }))}
+                    onClick={() => open(toReport("commitments", null, { standing: "ontime" }))}
                 >
                     <span className="pms-status-meter-label">On time</span>
                     <span className="pms-status-meter-track">
@@ -541,7 +559,7 @@ export default function PresidentGlance({ data, periodLocked = false }) {
                     </span>
                 </button>
                 <div className="pms-status-piles">
-                    <button type="button" title="Ahead of the college" onClick={() => open(reportPath("people", null, { pace: "ahead" }))}>
+                    <button type="button" title="Ahead of the college" onClick={() => open(toReport("people", null, { pace: "ahead" }))}>
                         <i className="is-ahead" />
                         <span className="pms-board-faces" aria-hidden="true">
                             {aheadPeople.slice(0, 3).map((person) => (
@@ -553,7 +571,7 @@ export default function PresidentGlance({ data, periodLocked = false }) {
                         <span>Ahead</span>
                         <strong>+{peopleAhead}</strong>
                     </button>
-                    <button type="button" title="Not started" onClick={() => open(reportPath("people", null, { pace: "idle" }))}>
+                    <button type="button" title="Not started" onClick={() => open(toReport("people", null, { pace: "idle" }))}>
                         <i />
                         <span className="pms-pile-list">
                             {idlePeople.slice(0, 3).map((person) => {
@@ -581,7 +599,7 @@ export default function PresidentGlance({ data, periodLocked = false }) {
                             key={section.key}
                             type="button"
                             title={`${section.label} · ${section.commitments} commitments`}
-                            onClick={() => open(reportPath("commitments", section.key))}
+                            onClick={() => open(toReport("commitments", section.key))}
                         >
                             <em>{section.label}</em>
                             <strong style={{ color: paceAgainst(section.progress_pct, collegePct) }}>
@@ -641,7 +659,7 @@ export default function PresidentGlance({ data, periodLocked = false }) {
                                             <button
                                                 type="button"
                                                 className="pms-board-queue-person"
-                                                onClick={() => row.name && open(reportPath("people", row.name))}
+                                                onClick={() => row.name && open(toReport("people", row.name))}
                                                 disabled={!row.name}
                                                 title={`${who} · ${row.pending} waiting · oldest ${oldestDays}d`}
                                             >
@@ -707,7 +725,7 @@ export default function PresidentGlance({ data, periodLocked = false }) {
                             maxWidth={44}
                             valueName="Progress"
                             format={(value) => `${value}%`}
-                            onSelect={(datum) => open(datum?.href ?? reportPath("vps"))}
+                            onSelect={(datum) => open(datum?.href ?? toReport("vps"))}
                         />
                     </div>
                 )}

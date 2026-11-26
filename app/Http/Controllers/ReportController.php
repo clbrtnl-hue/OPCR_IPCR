@@ -283,6 +283,7 @@ class ReportController extends Controller
                 'due_soon'     => $work['due_soon'],
             ],
             'latest' => $latest ? [
+                'form_id'    => (int) $latest->form_id,
                 'average'    => (float) $latest->final_average,
                 'adjectival' => $latest->adjectival,
             ] : null,

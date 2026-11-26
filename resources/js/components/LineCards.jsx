@@ -88,7 +88,7 @@ function SectionCards({
                     </button>
                 ))}
             {open &&
-                group.lines.map(({ line, outputId, outputTitle }) => {
+                group.lines.map(({ line, outputId, outputTitle, needsAttendance }) => {
                     const accomplishment = (line.accomplishments ?? []).find(
                         (row) => row.rating_period_id === periodId
                     );
@@ -149,6 +149,7 @@ function SectionCards({
                                 </span>
                             )}
                             {line.target_date && <Tag>{line.target_date}</Tag>}
+                            {needsAttendance && <Tag color="warning">Tap to link attendance</Tag>}
                         </button>
                     );
                 })}
@@ -183,6 +184,10 @@ export default function LineCards({
                         line,
                         outputId: output.id,
                         outputTitle: toPlainText(output.title || output.description),
+                        needsAttendance:
+                            Boolean(form.can_link_attendance) &&
+                            section === "support" &&
+                            !output.attendance_category,
                     }))
             ),
         };

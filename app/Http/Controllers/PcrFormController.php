@@ -207,6 +207,9 @@ class PcrFormController extends Controller
 
         $payload['return_marks'] = $this->openReturnMarks($form);
         $this->attachAttendance($form, $payload);
+        // The server decides who may pick the attendance evidence, so the
+        // sheet does not have to rebuild the rule from the review steps.
+        $payload['can_link_attendance'] = PcrWorkflow::canLinkAttendance($request->user(), $form);
 
         return response()->json($payload);
     }

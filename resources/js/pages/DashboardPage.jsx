@@ -142,7 +142,9 @@ export default function DashboardPage() {
     const leadsTheCollege = ["admin", "president", "qa"].includes(user?.role);
     const playsOwnGame = ["program_head", "vp", "employee"].includes(user?.role);
     const reviewsOwnQueue = ["program_head", "vp"].includes(user?.role);
-    const seesAttendanceDash = user?.role === "program_head";
+    // Any leader of an office sees the block. The server returns no rows for
+    // an account that leads nothing, and the block then stays hidden.
+    const seesAttendanceDash = Boolean(user) && !["admin", "president", "vp"].includes(user.role);
     const roleSeesTeam = ["program_head", "vp"].includes(user?.role);
 
     const waitingCount = shownYear
@@ -261,6 +263,9 @@ export default function DashboardPage() {
     const showHeroExtra = years.length > 1 || showPeriodSwitch;
     const hello = `${greeting()}${greetedAs ? `, ${greetedAs}` : ""}`;
     const typed = useTypedGreeting(hello);
+    const withPeriod = (path) => (shownPeriodId ? `${path}?period=${shownPeriodId}` : path);
+    const hasTeamCard = seesTeamPace && Boolean(teamPace?.rows?.some((row) => !row.direct));
+    const hasSelfAttendanceCard = !hasTeamCard && seesAttendanceDash && attendance?.scope === "self";
 
     return (
         <div className="pms-dash">
@@ -342,9 +347,24 @@ export default function DashboardPage() {
                         <Typography.Title level={5} style={{ margin: 0 }}>
                             College progress — {shownYear?.label}
                         </Typography.Title>
-                        <a onClick={() => navigate("/reports")}>Open the report tables</a>
+                        <a
+                            onClick={() => {
+                                const params = new URLSearchParams();
+                                if (shownYear?.id) params.set("year", String(shownYear.id));
+                                if (shownPeriodId) params.set("period", String(shownPeriodId));
+                                const query = params.toString();
+                                navigate(query ? `/reports?${query}` : "/reports");
+                            }}
+                        >
+                            Open the report tables
+                        </a>
                     </div>
-                    <PresidentGlance data={insights} periodLocked={periodLocked} />
+                    <PresidentGlance
+                        data={insights}
+                        yearId={shownYear?.id ?? null}
+                        periodId={shownPeriodId}
+                        periodLocked={periodLocked}
+                    />
                 </>
             )}
 
@@ -365,14 +385,15 @@ export default function DashboardPage() {
 
             {showsOwnCycle && (
             <div className="pms-rise">
-            <div className={playsOwnGame && mySummary && teamPace?.rows?.length ? "pms-season-row" : undefined}>
+            <div className={playsOwnGame && mySummary && (hasTeamCard || hasSelfAttendanceCard) ? "pms-season-row" : undefined}>
             {playsOwnGame && mySummary && (
                 <PlayBoard
-                    kicker="Your season"
+                    kicker="Your progress"
                     score={myWork?.progress_pct}
                     caption="done"
                     title={paceTitle(myWork?.progress_pct)}
-                    badge={mySummary.latest?.adjectival || "Unranked"}
+                    badge={mySummary.latest?.adjectival || "Not yet rated"}
+                    scoreHref={ownWorkPath}
                     onOpen={navigate}
                     quests={[
                         {
@@ -400,7 +421,7 @@ export default function DashboardPage() {
                                       ((myForms.total - myForms.drafts - (myForms.returned ?? 0)) / myForms.total) * 100
                                   )
                                 : 0,
-                            href: "/my-forms",
+                            href: withPeriod("/my-forms"),
                         },
                         {
                             key: "late",
@@ -425,7 +446,7 @@ export default function DashboardPage() {
                                       : "Nothing is sitting at your step",
                                   done: waitingCount === 0,
                                   pct: waitingCount === 0 ? 100 : 0,
-                                  href: "/review-queue",
+                                  href: withPeriod("/review-queue"),
                               }
                             : {
                                   key: "rate",
@@ -435,14 +456,38 @@ export default function DashboardPage() {
                                       : "Nothing of yours has been rated yet",
                                   done: Boolean(mySummary.latest),
                                   pct: mySummary.latest ? 100 : 0,
-                                  href: "/my-forms",
+                                  href: mySummary.latest?.form_id
+                                      ? `/forms/${mySummary.latest.form_id}`
+                                      : withPeriod("/my-forms"),
                               },
                     ]}
                 />
             )}
-            {seesTeamPace && <TeamPace data={teamPace} onOpen={navigate} />}
+            {seesTeamPace && (
+                <TeamPace
+                    data={teamPace}
+                    yearId={shownYear?.id}
+                    periodId={shownPeriodId}
+                    onOpen={navigate}
+                />
+            )}
+            {hasSelfAttendanceCard && (
+                <AttendanceGlance
+                    data={attendance}
+                    yearId={shownYear?.id}
+                    periodId={shownPeriodId}
+                    onOpen={navigate}
+                />
+            )}
             </div>
-            {seesAttendanceDash && <AttendanceGlance data={attendance} onOpen={navigate} />}
+            {seesAttendanceDash && attendance?.scope !== "self" && (
+                <AttendanceGlance
+                    data={attendance}
+                    yearId={shownYear?.id}
+                    periodId={shownPeriodId}
+                    onOpen={navigate}
+                />
+            )}
             <Typography.Title level={5} className="pms-section-title" style={{ margin: "4px 0 12px" }}>
                 My cycle
             </Typography.Title>
@@ -457,7 +502,7 @@ export default function DashboardPage() {
                             ? `${myForms.drafts} draft · ${myForms.returned} returned · ${myForms.rated} rated`
                             : undefined
                     }
-                    onClick={() => navigate("/my-forms")}
+                    onClick={() => navigate(withPeriod("/my-forms"))}
                 />
                 {!roleSeesTeam && (
                 <StatTile
@@ -521,7 +566,7 @@ export default function DashboardPage() {
                             ? `${myForms.in_review} with a reviewer · ${myForms.with_qa} with QA`
                             : undefined
                     }
-                    onClick={() => navigate("/my-forms")}
+                    onClick={() => navigate(withPeriod("/my-forms"))}
                 />
                 )}
                 <StatTile
@@ -537,7 +582,11 @@ export default function DashboardPage() {
                         ) : null
                     }
                     hint={mySummary?.latest ? undefined : "Nothing of yours has been rated yet"}
-                    onClick={() => navigate("/my-forms")}
+                    onClick={() =>
+                        mySummary?.latest?.form_id
+                            ? navigate(`/forms/${mySummary.latest.form_id}`, { state: { from: "/" } })
+                            : navigate(withPeriod("/my-forms"))
+                    }
                 />
             </div>
             </div>

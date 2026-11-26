@@ -491,6 +491,11 @@ class AttendanceTest extends PmsTestCase
             ->assertJsonPath('daily_pct', 100)
             ->assertJsonPath('rows.0.name', 'HRMO Staff')
             ->assertJsonPath('rows.0.daily_pct', 100);
+
+        $this->actingAsUser($staff);
+        $this->getJson('/api/attendance?summary=1&school_year_id='.$year->id.'&rating_period_id='.$period->id)
+            ->assertOk()
+            ->assertJsonPath('rows', []);
     }
 
     public function test_the_head_links_support_evidence_while_rating(): void
@@ -537,14 +542,28 @@ class AttendanceTest extends PmsTestCase
         $form->forceFill(['status' => 'head_review', 'head_reviewer_id' => $hr->id])->save();
 
         $this->actingAsUser($hr);
+        // Nothing is linked yet, so the head is offered the pick.
+        $this->getJson("/api/pcr-forms/{$form->id}")
+            ->assertOk()
+            ->assertJsonPath('can_link_attendance', true)
+            ->assertJsonPath('outputs.0.attendance_category', null);
         $this->postJson('/api/pcr-outputs', $payload)->assertOk();
         $this->assertSame($category->id, (int) $output->fresh()->attendance_category_id);
+        $this->getJson("/api/pcr-forms/{$form->id}")
+            ->assertOk()
+            ->assertJsonPath('outputs.0.attendance_category', 'meeting');
+
+        $this->actingAsUser($staff);
+        $this->getJson("/api/pcr-forms/{$form->id}")
+            ->assertOk()
+            ->assertJsonPath('can_link_attendance', false);
 
         $qa = User::factory()->create(['role' => 'qa']);
         $form->forceFill(['status' => 'qa_rating'])->save();
         $this->actingAsUser($qa);
         $this->getJson("/api/pcr-forms/{$form->id}")
             ->assertOk()
+            ->assertJsonPath('can_link_attendance', false)
             ->assertJsonPath('outputs.0.attendance_category', 'meeting')
             ->assertJsonPath("attendance.{$period->id}.meeting.pct", 100)
             ->assertJsonPath("attendance.{$period->id}.meeting.suggested", 5);

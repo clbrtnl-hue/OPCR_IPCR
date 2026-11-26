@@ -1,13 +1,13 @@
 import React, { useEffect, useState } from "react";
 
 export function paceTitle(pct) {
-    if (pct == null) return "Warming up";
-    if (pct >= 100) return "Cycle cleared";
-    if (pct >= 90) return "Closing in";
-    if (pct >= 70) return "Strong pace";
-    if (pct >= 40) return "In motion";
+    if (pct == null) return "Not started";
+    if (pct >= 100) return "Completed";
+    if (pct >= 90) return "Almost done";
+    if (pct >= 70) return "On track";
+    if (pct >= 40) return "In progress";
 
-    return "Getting started";
+    return "Just started";
 }
 
 export default function PlayBoard({
@@ -18,6 +18,7 @@ export default function PlayBoard({
     badge,
     quests = [],
     podium,
+    scoreHref,
     onOpen,
 }) {
     const pct = score == null ? 0 : Math.max(0, Math.min(100, Number(score)));
@@ -33,26 +34,43 @@ export default function PlayBoard({
     const radius = 46;
     const circumference = 2 * Math.PI * radius;
 
+    const ringContent = (
+        <>
+            <svg viewBox="0 0 120 120" aria-hidden="true">
+                <circle className="pms-ring-track" cx="60" cy="60" r={radius} />
+                <circle
+                    className="pms-ring-value"
+                    cx="60"
+                    cy="60"
+                    r={radius}
+                    strokeDasharray={circumference}
+                    strokeDashoffset={circumference * (1 - drawn / 100)}
+                />
+            </svg>
+            <span>
+                <strong>{score == null ? "—" : `${Math.round(pct)}%`}</strong>
+                <em>{caption}</em>
+            </span>
+        </>
+    );
+
     return (
         <section className={solo ? "pms-play is-solo" : "pms-play"}>
             <div className="pms-play-score">
-                <div className="pms-play-ring" aria-hidden="true">
-                    <svg viewBox="0 0 120 120">
-                        <circle className="pms-ring-track" cx="60" cy="60" r={radius} />
-                        <circle
-                            className="pms-ring-value"
-                            cx="60"
-                            cy="60"
-                            r={radius}
-                            strokeDasharray={circumference}
-                            strokeDashoffset={circumference * (1 - drawn / 100)}
-                        />
-                    </svg>
-                    <span>
-                        <strong>{score == null ? "—" : `${Math.round(pct)}%`}</strong>
-                        <em>{caption}</em>
-                    </span>
-                </div>
+                {scoreHref && onOpen ? (
+                    <button
+                        type="button"
+                        className="pms-play-ring"
+                        aria-label={score == null ? `${title} — open your commitments` : `${Math.round(pct)}% ${caption} — open your commitments`}
+                        onClick={() => onOpen(scoreHref)}
+                    >
+                        {ringContent}
+                    </button>
+                ) : (
+                    <div className="pms-play-ring" aria-hidden="true">
+                        {ringContent}
+                    </div>
+                )}
                 <div>
                     <div className="pms-play-kicker">{kicker}</div>
                     <h2>{title}</h2>

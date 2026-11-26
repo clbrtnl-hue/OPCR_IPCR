@@ -425,8 +425,8 @@ export default function AttendancePage() {
     const calendarOnly = CALENDAR_ONLY.includes(user?.role);
     const [params, setParams] = useSearchParams();
     const tab = params.get("tab") === "calendar" ? "calendar" : "everyday";
-    const [yearId, setYearId] = useState(null);
-    const [periodId, setPeriodId] = useState(null);
+    const [yearId, setYearId] = useState(() => Number(params.get("year")) || null);
+    const [periodId, setPeriodId] = useState(() => Number(params.get("period")) || null);
 
     const { data: years = [] } = useQuery({
         queryKey: ["school-years"],
