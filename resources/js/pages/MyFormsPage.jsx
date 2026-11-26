@@ -2,7 +2,7 @@ import React, { useState } from "react";
 import { Button, Card, Drawer, Empty, Form, Popconfirm, Select, Space, Table, Tabs, Tag, message } from "antd";
 import { PlusOutlined /* , TeamOutlined */ } from "@ant-design/icons";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import api from "~/utils/api";
 import { statusMeta } from "~/utils/constants";
 import { formIsWithReviewer } from "~/utils/formReviewer";
@@ -36,6 +36,8 @@ export default function MyFormsPage() {
     const viewOnly = isAdmin || collegeList;
     const canNudge = Boolean(user?.capabilities?.follow_up) && collegeList;
     const navigate = useNavigate();
+    const [searchParams] = useSearchParams();
+    const periodParam = Number(searchParams.get("period")) || null;
     const queryClient = useQueryClient();
     const [form] = Form.useForm();
     const [open, setOpen] = useState(false);
@@ -82,10 +84,21 @@ export default function MyFormsPage() {
     });
 
     const activeYear = years.find((y) => y.is_active);
-    const resolvedYear = yearsLoading ? "all" : (yearFilter ?? (activeYear ? String(activeYear.id) : "all"));
+    const periodYear = periodParam
+        ? years.find((y) => (y.periods ?? []).some((p) => Number(p.id) === periodParam))
+        : null;
+    const resolvedYear = yearsLoading
+        ? "all"
+        : (yearFilter ?? (periodYear ? String(periodYear.id) : activeYear ? String(activeYear.id) : "all"));
     const yearRows = yearsLoading
         ? []
-        : forms.filter((row) => matchesListKind(row, "all", "all", resolvedYear));
+        : forms.filter((row) => {
+              if (!matchesListKind(row, "all", "all", resolvedYear)) return false;
+              if (periodParam && !yearFilter && row.type === "ipcr" && row.rating_period_id) {
+                  return Number(row.rating_period_id) === periodParam;
+              }
+              return true;
+          });
     const activeFormKind = formKind === "all" || yearRows.some((row) => row.type === formKind) ? formKind : "all";
     const activeStatus =
         statusFilter === "all" || yearRows.some((row) => row.status === statusFilter) ? statusFilter : "all";

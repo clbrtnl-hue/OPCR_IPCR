@@ -379,4 +379,117 @@ class TargetReplacementTest extends PmsTestCase
             Notification::where('user_id', $head->id)->where('type', 'approved')->count()
         );
     }
+
+    public function test_approving_a_replacement_notifies_the_president_and_handles_added_and_removed_people(): void
+    {
+        $this->makeOrganization();
+        $unit = $this->makeUnit();
+        $year = $this->makeSchoolYear();
+        $period = $this->makePeriod($year);
+
+        $opcr = $this->makeForm([
+            'type' => 'opcr', 'status' => 'published',
+            'org_unit_id' => $unit->id, 'school_year_id' => $year->id,
+        ]);
+        $target = $this->makeIndicator($opcr, 'core');
+
+        $vp = User::factory()->create(['role' => 'vp', 'org_unit_id' => $unit->id]);
+        $removed = User::factory()->create(['role' => 'program_head', 'org_unit_id' => $unit->id]);
+        $added = User::factory()->create(['role' => 'program_head', 'org_unit_id' => $unit->id]);
+        $president = $this->actingAsRole('president', ['org_unit_id' => $unit->id]);
+
+        app(PcrAssignmentService::class)->assignIndicator($target, $removed, $president, null, false);
+        $removedLine = $this->commitAgainst($target, $removed, ['rating_period_id' => $period->id]);
+        $this->approveCommitments($removedLine->output->form, $vp);
+
+        $addedForm = $this->makeForm([
+            'type' => 'ipcr', 'status' => 'commitments_approved',
+            'user_id' => $added->id, 'org_unit_id' => $unit->id,
+            'school_year_id' => $year->id, 'rating_period_id' => $period->id,
+            'commitment_approver_id' => $vp->id, 'commitment_approved_at' => now(),
+        ]);
+
+        $this->actingAsUser($president);
+        $this->postJson('/api/target-replacements', [
+            'indicator_id' => $target->id,
+            'description'  => 'Updated college target.',
+            'user_ids'     => [$added->id],
+        ])->assertStatus(201);
+
+        $this->actingAsRole('qa', ['org_unit_id' => $unit->id]);
+        $this->postJson("/api/pcr-forms/{$opcr->id}/target-replacements", [
+            'approve' => true,
+        ])->assertOk();
+
+        // President gets the approval notification.
+        $this->assertSame(
+            1,
+            Notification::where('user_id', $president->id)->where('type', 'approved')->count()
+        );
+
+        // Removed person's line is closed and gets no new blank commitment.
+        $this->assertNotNull($removedLine->fresh()->closed_at);
+        $this->assertNull(PcrIndicator::where('replaces_indicator_id', $removedLine->id)->first());
+
+        // Newly added person with an approved IPCR gets an editable restarted blank line.
+        $newTarget = PcrIndicator::where('replaces_indicator_id', $target->id)->first();
+        $addedBlank = PcrIndicator::where('parent_indicator_id', $newTarget->id)
+            ->whereHas('output', fn ($q) => $q->where('form_id', $addedForm->id))
+            ->first();
+
+        $this->assertNotNull($addedBlank);
+        $this->assertTrue($addedBlank->needs_commitment_approval);
+
+        // The added person can edit that blank commitment even though their IPCR is already approved.
+        $this->actingAsUser($added);
+        $this->postJson('/api/pcr-indicators', [
+            'id'          => $addedBlank->id,
+            'output_id'   => $addedBlank->output_id,
+            'description' => 'My new commitment for the replaced target.',
+        ])->assertOk();
+
+        // Cannot submit the IPCR for rating while the restarted commitment is still unapproved.
+        $this->postJson("/api/pcr-forms/{$addedForm->id}/status", [
+            'status' => 'vp_review',
+        ])->assertStatus(422);
+    }
+
+    public function test_updating_only_date_or_budget_notifies_open_commitment_owners_and_requester(): void
+    {
+        $this->makeOrganization();
+        $unit = $this->makeUnit();
+        $year = $this->makeSchoolYear();
+        $period = $this->makePeriod($year);
+
+        $opcr = $this->makeForm([
+            'type' => 'opcr', 'status' => 'published',
+            'org_unit_id' => $unit->id, 'school_year_id' => $year->id,
+        ]);
+        $target = $this->makeIndicator($opcr, 'core', ['allotted_budget' => 1000]);
+        $head = User::factory()->create(['role' => 'program_head', 'org_unit_id' => $unit->id]);
+        $this->commitAgainst($target, $head, ['rating_period_id' => $period->id]);
+
+        $president = $this->actingAsRole('president', ['org_unit_id' => $unit->id]);
+        $this->postJson('/api/target-replacements', [
+            'indicator_id'    => $target->id,
+            'description'     => $target->description,
+            'allotted_budget' => 3000,
+        ])->assertStatus(201);
+
+        $replacementId = PcrTargetReplacement::where('old_indicator_id', $target->id)->value('id');
+
+        $this->actingAsRole('qa', ['org_unit_id' => $unit->id]);
+        $this->postJson("/api/target-replacements/{$replacementId}/approve")->assertOk();
+
+        $this->assertSame(
+            1,
+            Notification::where('user_id', $president->id)->where('type', 'approved')->count()
+        );
+        $this->assertSame(
+            1,
+            Notification::where('user_id', $head->id)
+                ->where('title', 'A target linked to your IPCR was updated')
+                ->count()
+        );
+    }
 }

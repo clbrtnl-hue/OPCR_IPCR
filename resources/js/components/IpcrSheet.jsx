@@ -71,6 +71,7 @@ export default function IpcrSheet({
     form,
     periodId,
     canEdit,
+    canEditRestarted = false,
     canRecordProgress,
     canAssign,
     canAssignHeadings,
@@ -667,28 +668,27 @@ export default function IpcrSheet({
                 const handedTo = accountableFor(line);
                 const restarted =
                     Boolean(line.needs_commitment_approval) && !line.line_approved_at && !line.closed_at;
-                const lineEditable = !line.closed_at && (canEdit || (restarted && !line.line_submitted_at));
+                const lineEditable =
+                    !line.closed_at &&
+                    (canEdit || (canEditRestarted && restarted && !line.line_submitted_at));
                 const markNew =
                     restarted ||
                     (canEdit && !line.closed_at && line.replaces_indicator_id && !line.line_approved_at);
                 const replaced = line.replaces_indicator_id
                     ? (output.indicators ?? []).find((item) => item.id === line.replaces_indicator_id)
                     : null;
-                const oldStillOpen =
-                    line.closed_at &&
-                    line.closed_reason === "target_replaced" &&
-                    (output.indicators ?? []).some(
-                        (item) =>
-                            item.replaces_indicator_id === line.id &&
-                            !item.closed_at &&
-                            !item.line_approved_at
-                    );
 
                 rows.push(
                     <tr key={`line-${line.id}`} data-row={`indicator-${line.id}`}>
                         {lineIndex === 0 && outputCell}
 
-                        <td className={(isOwner ? oldStillOpen : markNew) ? "pms-flag" : undefined}>
+                        <td
+                            className={
+                                (isOwner ? restarted && !line.line_submitted_at : markNew)
+                                    ? "pms-flag"
+                                    : undefined
+                            }
+                        >
                             <div className="pms-sheet-number">
                                 <span>
                                     {number}.{lineIndex + 1}.
@@ -1097,7 +1097,7 @@ export default function IpcrSheet({
                 showAccomplishments={showAccomplishments}
                 vpLinkByTarget={vpLinkByTarget}
                 onOpen={setOpenLineId}
-                onEnter={canEdit && onExpand ? () => onExpand() : undefined}
+                onEnter={(canEdit || (canEditRestarted && toSend.length > 0)) && onExpand ? () => onExpand() : undefined}
                 addSections={canEdit ? ["core", "support"] : []}
                 onAdd={(section) => {
                     saveOutput.mutate({ section, title: "" });
@@ -1167,6 +1167,14 @@ export default function IpcrSheet({
                         formId={form.id}
                         periodId={periodId}
                         canEditCommitment={canEdit && !openLine.closed_at}
+                        canEditLine={
+                            !openLine.closed_at &&
+                            (canEdit ||
+                                (canEditRestarted &&
+                                    Boolean(openLine.needs_commitment_approval) &&
+                                    !openLine.line_approved_at &&
+                                    !openLine.line_submitted_at))
+                        }
                         canRecordProgress={
                             canRecordProgress &&
                             !openLine.closed_at &&

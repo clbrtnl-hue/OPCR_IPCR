@@ -748,6 +748,17 @@ class PcrFormController extends Controller
                 ], 422);
             }
 
+            if ($form->type === 'ipcr' && $form->indicators()
+                ->whereNull('closed_at')
+                ->where('needs_commitment_approval', true)
+                ->whereNull('line_approved_at')
+                ->exists()
+            ) {
+                return response()->json([
+                    'message' => 'Finish and get approval for your replaced commitments before submitting for rating.',
+                ], 422);
+            }
+
             // A reviewer should not be the one to discover a blank narrative or a
             // missing file. The writer finishes both before the form leaves them.
             if ($form->type === 'ipcr' && $message = $this->unfinishedWriteUp($form)) {

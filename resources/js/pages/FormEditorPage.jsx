@@ -847,6 +847,12 @@ export default function FormEditorPage({ formId = null, periodBar = null, yearSe
         !periodLocked &&
         !cycleClosed &&
         (isOpcr ? form.status === "draft" || (form.status === "returned" && !returnedFromRating) : planningOpen);
+    const canEditRestarted =
+        isOwner &&
+        !isOpcr &&
+        !periodLocked &&
+        !cycleClosed &&
+        !["rated", "final", "appeal"].includes(form.status);
     const workOpen =
         isOpcr ||
         commitmentsApproved ||
@@ -1689,6 +1695,7 @@ export default function FormEditorPage({ formId = null, periodBar = null, yearSe
                                 form={form}
                                 periodId={activePeriodId}
                                 canEdit={canEditCommitment}
+                                canEditRestarted={canEditRestarted}
                                 canRecordProgress={canRecordProgress}
                                 canAssign={canAssign}
                                 canAssignHeadings={canAssignHeadings}
@@ -1797,6 +1804,7 @@ export default function FormEditorPage({ formId = null, periodBar = null, yearSe
                         form={form}
                         periodId={activePeriodId}
                         canEdit={canEditCommitment}
+                        canEditRestarted={canEditRestarted}
                         canRecordProgress={canRecordProgress}
                         canAssign={canAssign}
                         canAssignHeadings={canAssignHeadings}

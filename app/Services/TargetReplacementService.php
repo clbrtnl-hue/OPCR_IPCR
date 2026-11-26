@@ -6,8 +6,10 @@ use App\Models\ActivityLog;
 use App\Models\Notification;
 use App\Models\PcrForm;
 use App\Models\PcrIndicator;
+use App\Models\PcrOutput;
 use App\Models\PcrTargetAssignment;
 use App\Models\PcrTargetReplacement;
+use App\Models\RatingPeriod;
 use App\Models\User;
 use App\Support\Html;
 use Illuminate\Support\Facades\DB;
@@ -146,11 +148,22 @@ class TargetReplacementService
 
         foreach ($pending as $replacement) {
             $approve
-                ? $this->approve($actor, $replacement)
+                ? $this->approve($actor, $replacement, false)
                 : $this->reject($actor, $replacement, false);
         }
 
         if ($approve) {
+            foreach ($pending->pluck('requested_by')->unique() as $userId) {
+                Notification::send(
+                    $userId,
+                    'approved',
+                    'The target changes were approved',
+                    'The published OPCR now uses the lines you sent.',
+                    $formId,
+                    "/forms/{$formId}"
+                );
+            }
+
             return;
         }
 
@@ -181,15 +194,18 @@ class TargetReplacementService
         );
     }
 
-    public function approve(User $actor, PcrTargetReplacement $replacement): void
+    public function approve(User $actor, PcrTargetReplacement $replacement, bool $notifyRequester = true): void
     {
         $this->guardDecision($actor, $replacement, true);
 
-        DB::transaction(function () use ($actor, $replacement) {
+        $formId = null;
+
+        DB::transaction(function () use ($actor, $replacement, &$formId) {
             $old = PcrIndicator::with('output.form')->findOrFail($replacement->old_indicator_id);
             $new = PcrIndicator::findOrFail($replacement->new_indicator_id);
             // QA only approves. The president who sent the change stays the assigner.
             $assigner = User::find($replacement->requested_by) ?? $actor;
+            $formId = $old->output?->form_id;
 
             $replacement->update([
                 'status'     => 'approved',
@@ -205,13 +221,22 @@ class TargetReplacementService
                 $old->update([
                     'target_date'     => $new->target_date,
                     'allotted_budget' => $new->allotted_budget,
+                    'accountable'     => is_array($replacement->proposed_user_ids)
+                        ? $this->accountableNames($replacement->proposed_user_ids)
+                        : $old->accountable,
                 ]);
 
                 if (is_array($replacement->proposed_user_ids)) {
-                    $this->syncAssignments($old, $replacement->proposed_user_ids, $assigner);
+                    $this->syncAssignments($old, $replacement->proposed_user_ids, $assigner, true);
+                    $this->ensureCommitments($old, $replacement->proposed_user_ids, $assigner);
                 }
 
                 if ($note !== []) {
+                    $this->tellOpenOwners(
+                        $old,
+                        'A target linked to your IPCR was updated',
+                        'The date, the budget, or who is accountable changed. Your commitment on that line stays.'
+                    );
                     $this->remember($old->output->form, $actor, $note);
                 }
 
@@ -226,7 +251,12 @@ class TargetReplacementService
                 $this->changeRows($old, $new, $replacement->proposed_user_ids, true)
             );
 
-            $new->update(['replacement_status' => 'approved']);
+            $new->update([
+                'replacement_status' => 'approved',
+                'accountable'        => is_array($replacement->proposed_user_ids)
+                    ? $this->accountableNames($replacement->proposed_user_ids)
+                    : $old->accountable,
+            ]);
             $old->update([
                 'closed_at'     => now(),
                 'closed_reason' => 'target_replaced',
@@ -234,13 +264,21 @@ class TargetReplacementService
 
             if (is_array($replacement->proposed_user_ids)) {
                 PcrTargetAssignment::where('indicator_id', $new->id)->delete();
-                $this->syncAssignments($new, $replacement->proposed_user_ids, $assigner);
+                $this->syncAssignments($new, $replacement->proposed_user_ids, $assigner, true);
             } else {
                 $this->copyAssignments($old, $new);
             }
 
             $seen = [];
-            $this->restartChildren($old, $new, $seen, $actor);
+            $this->restartChildren($old, $new, $seen, $actor, $replacement->proposed_user_ids);
+
+            $assignedIds = is_array($replacement->proposed_user_ids)
+                ? $replacement->proposed_user_ids
+                : PcrTargetAssignment::where('indicator_id', $new->id)->pluck('user_id')->all();
+
+            if ($assignedIds !== []) {
+                $this->ensureCommitments($new, $assignedIds, $assigner);
+            }
 
             $child = $new->openChildren()->first();
 
@@ -248,6 +286,17 @@ class TargetReplacementService
                 app(IndicatorProgressService::class)->recalculateFrom($child);
             }
         });
+
+        if ($notifyRequester && $formId) {
+            Notification::send(
+                $replacement->requested_by,
+                'approved',
+                'The target replacement was approved',
+                'The published OPCR now uses the line you sent.',
+                $formId,
+                "/forms/{$formId}"
+            );
+        }
     }
 
     public function reject(User $actor, PcrTargetReplacement $replacement, bool $notify = true): void
@@ -306,29 +355,44 @@ class TargetReplacementService
 
     /**
      * Close every open commitment hanging off the old line and hand its owner
-     * a blank one pointed at the live replacement. A form that is already
+     * a blank one pointed at the live replacement. Someone taken off the
+     * accountable list is closed without a new line. A form that is already
      * rated keeps the commitment it was scored on.
+     *
+     * @param  list<int>|null  $keptUserIds
      */
-    private function restartChildren(PcrIndicator $old, PcrIndicator $liveParent, array &$seen, ?User $actor = null): void
+    private function restartChildren(PcrIndicator $old, PcrIndicator $liveParent, array &$seen, ?User $actor = null, ?array $keptUserIds = null): void
     {
         $children = PcrIndicator::with('output.form')
             ->where('parent_indicator_id', $old->id)
             ->whereNull('closed_at')
             ->get();
+        $officeLine = $old->output?->form?->type === 'opcr';
+        $kept = is_array($keptUserIds)
+            ? array_map('intval', $keptUserIds)
+            : null;
 
         foreach ($children as $child) {
             if (isset($seen[$child->id])) {
                 continue;
             }
 
-            $seen[$child->id] = true;
             $form = $child->output?->form;
 
             if (! $form || in_array($form->status, ['rated', 'final', 'appeal'], true)) {
-                $this->restartChildren($child, $liveParent, $seen, $actor);
+                $seen[$child->id] = true;
+                $this->restartChildren($child, $liveParent, $seen, $actor, $keptUserIds);
 
                 continue;
             }
+
+            if ($officeLine && $kept !== null && ! in_array((int) $form->user_id, $kept, true)) {
+                $this->closeBranch($child, $seen, 'removed');
+
+                continue;
+            }
+
+            $seen[$child->id] = true;
 
             $child->update([
                 'closed_at'     => now(),
@@ -351,7 +415,7 @@ class TargetReplacementService
             ]);
 
             $this->copyAssignments($child, $blank);
-            $this->restartChildren($child, $blank, $seen, $actor);
+            $this->restartChildren($child, $blank, $seen, $actor, $keptUserIds);
 
             if (! $needsApproval && $actor) {
                 $this->remember($form, $actor, [[
@@ -523,15 +587,24 @@ class TargetReplacementService
         }
     }
 
-    private function syncAssignments(PcrIndicator $line, array $userIds, User $actor): void
+    private function syncAssignments(PcrIndicator $line, array $userIds, User $actor, bool $releaseWritten = false): void
     {
         $wanted = collect($userIds)->map(fn ($id) => (int) $id)->unique();
         $current = PcrTargetAssignment::where('indicator_id', $line->id)->get();
 
         foreach ($current as $row) {
-            if (! $wanted->contains((int) $row->user_id)) {
-                app(PcrAssignmentService::class)->withdrawAssignment($row);
+            if ($wanted->contains((int) $row->user_id)) {
+                continue;
             }
+
+            if ($releaseWritten) {
+                $this->releasePerson($line, (int) $row->user_id);
+                $row->delete();
+
+                continue;
+            }
+
+            app(PcrAssignmentService::class)->withdrawAssignment($row);
         }
 
         $still = PcrTargetAssignment::where('indicator_id', $line->id)
@@ -549,6 +622,206 @@ class TargetReplacementService
                 app(PcrAssignmentService::class)->assignIndicator($line, $person, $actor);
             }
         }
+    }
+
+    /** Close this person's open commitments on the line, including work they handed on. */
+    private function releasePerson(PcrIndicator $line, int $userId): void
+    {
+        $children = PcrIndicator::with('output.form')
+            ->where('parent_indicator_id', $line->id)
+            ->whereNull('closed_at')
+            ->whereHas('output.form', fn ($query) => $query->where('user_id', $userId))
+            ->get();
+        $seen = [];
+
+        foreach ($children as $child) {
+            $this->closeBranch($child, $seen, 'removed');
+        }
+    }
+
+    /**
+     * @param  'removed'|'cascade'  $notice
+     */
+    private function closeBranch(PcrIndicator $line, array &$seen, string $notice): void
+    {
+        if (isset($seen[$line->id])) {
+            return;
+        }
+
+        $seen[$line->id] = true;
+        $line->loadMissing('output.form');
+        $form = $line->output?->form;
+
+        if ($form && in_array($form->status, ['rated', 'final', 'appeal'], true)) {
+            return;
+        }
+
+        if (! $line->closed_at) {
+            $line->update([
+                'closed_at'     => now(),
+                'closed_reason' => 'target_replaced',
+            ]);
+        }
+
+        if ($form?->user_id) {
+            Notification::send(
+                $form->user_id,
+                'approval',
+                $notice === 'removed'
+                    ? 'You are no longer accountable for an office target'
+                    : 'A commitment linked to yours was closed',
+                $notice === 'removed'
+                    ? 'That commitment is closed. It will not be rated.'
+                    : 'The office target changed, so this line is closed and will not be rated.',
+                $form->id,
+                "/forms/{$form->id}"
+            );
+        }
+
+        $children = PcrIndicator::with('output.form')
+            ->where('parent_indicator_id', $line->id)
+            ->whereNull('closed_at')
+            ->get();
+
+        foreach ($children as $child) {
+            $this->closeBranch($child, $seen, 'cascade');
+        }
+    }
+
+    /** People newly named, who have no open line yet, get a blank they can write. */
+    private function ensureCommitments(PcrIndicator $live, array $userIds, User $actor): void
+    {
+        $live->loadMissing('output.form');
+        $parentForm = $live->output?->form;
+
+        if (! $parentForm || $live->output?->section === 'support') {
+            return;
+        }
+
+        $covered = PcrIndicator::with('output.form:id,user_id')
+            ->where('parent_indicator_id', $live->id)
+            ->whereNull('closed_at')
+            ->get()
+            ->map(fn (PcrIndicator $line) => (int) $line->output?->form?->user_id)
+            ->filter()
+            ->all();
+
+        $preferred = $live->rating_period_id
+            ?? RatingPeriod::where('school_year_id', $parentForm->school_year_id)
+                ->orderByDesc('is_active')
+                ->orderBy('seq')
+                ->value('id');
+
+        foreach (array_unique(array_map('intval', $userIds)) as $userId) {
+            if (in_array($userId, $covered, true)) {
+                continue;
+            }
+
+            $person = User::whereKey($userId)->where('status', 'active')->first();
+
+            if (! $person || $person->role === 'president') {
+                continue;
+            }
+
+            $forms = PcrForm::query()
+                ->where('type', 'ipcr')
+                ->where('user_id', $person->id)
+                ->where('school_year_id', $parentForm->school_year_id)
+                ->whereNotIn('status', ['rated', 'final', 'appeal'])
+                ->get();
+            $form = $forms->firstWhere('rating_period_id', $preferred) ?? $forms->first();
+
+            if ($form) {
+                $this->startBlank($form, $live, $actor);
+            }
+        }
+    }
+
+    private function startBlank(PcrForm $form, PcrIndicator $parent, User $actor): void
+    {
+        $parent->loadMissing('output');
+        $source = $parent->output;
+        $section = $source->section === 'strategic' ? 'core' : $source->section;
+        $output = PcrOutput::query()
+            ->where('form_id', $form->id)
+            ->where(function ($query) use ($source, $section) {
+                $query->where('parent_output_id', $source->id)
+                    ->orWhere('section', $section);
+            })
+            ->get()
+            ->sortBy(fn (PcrOutput $row) => (int) $row->parent_output_id === (int) $source->id ? 0 : 1)
+            ->first();
+
+        if (! $output) {
+            $output = PcrOutput::create([
+                'form_id'          => $form->id,
+                'parent_output_id' => $source->id,
+                'section'          => $section,
+                'title'            => $source->title,
+                'assigned_by'      => $actor->id,
+                'assigned_by_name' => $actor->name,
+                'sort_order'       => (PcrOutput::where('form_id', $form->id)->max('sort_order') ?? 0) + 1,
+            ]);
+        }
+
+        $needsApproval = (bool) $form->commitment_approved_at
+            || ! in_array($form->status, ['draft', 'returned'], true);
+
+        PcrIndicator::create([
+            'output_id'                 => $output->id,
+            'description'               => '',
+            'parent_indicator_id'       => $parent->id,
+            'rating_period_id'          => $form->rating_period_id,
+            'sort_order'                => (PcrIndicator::where('output_id', $output->id)->max('sort_order') ?? 0) + 1,
+            'needs_commitment_approval' => $needsApproval,
+            'line_approver_id'          => $needsApproval ? $this->approverFor($form)?->id : null,
+        ]);
+
+        Notification::send(
+            $form->user_id,
+            'approval',
+            'A target linked to your IPCR was replaced',
+            $needsApproval
+                ? 'Write a commitment against it and send it for approval.'
+                : 'Write your commitment against it on this form.',
+            $form->id,
+            "/forms/{$form->id}"
+        );
+    }
+
+    private function tellOpenOwners(PcrIndicator $line, string $title, string $body): void
+    {
+        $children = PcrIndicator::with('output.form')
+            ->where('parent_indicator_id', $line->id)
+            ->whereNull('closed_at')
+            ->get();
+        $told = [];
+
+        foreach ($children as $child) {
+            $form = $child->output?->form;
+
+            if (! $form || isset($told[$form->user_id])) {
+                continue;
+            }
+
+            $told[$form->user_id] = true;
+            Notification::send($form->user_id, 'approval', $title, $body, $form->id, "/forms/{$form->id}");
+        }
+    }
+
+    private function accountableNames(?array $userIds): ?string
+    {
+        if (! is_array($userIds)) {
+            return null;
+        }
+
+        $names = User::query()->whereIn('id', $userIds)->orderBy('name')->pluck('name')->filter()->values();
+
+        if ($names->isEmpty()) {
+            return null;
+        }
+
+        return mb_substr($names->implode(', '), 0, 255);
     }
 
     private function copyAssignments(PcrIndicator $from, PcrIndicator $to): void

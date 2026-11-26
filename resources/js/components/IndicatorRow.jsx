@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from "react";
 import {
     Alert,
     Button,
+    DatePicker,
     Descriptions,
     Input,
     Modal,
@@ -41,6 +42,7 @@ export default function IndicatorRow({
     formId,
     periodId,
     canEditCommitment,
+    canEditLine = false,
     canRecordProgress,
     canAssign,
     showAccomplishments = true,
@@ -59,6 +61,10 @@ export default function IndicatorRow({
 
     const serverText = accomplishment?.actual_accomplishment ?? "";
     const [text, setText] = useState(serverText);
+    const [lineDesc, setLineDesc] = useState(toPlainText(indicator.description));
+    const [lineDate, setLineDate] = useState(
+        indicator.target_date ? String(indicator.target_date).slice(0, 10) : ""
+    );
     const [actionError, setActionError] = useState("");
     const seenServer = useRef(serverText);
 
@@ -66,12 +72,34 @@ export default function IndicatorRow({
         setText((current) => (current === seenServer.current ? serverText : current));
         seenServer.current = serverText;
     }, [serverText, indicator.id, periodId]);
+    useEffect(() => {
+        setLineDesc(toPlainText(indicator.description));
+        setLineDate(indicator.target_date ? String(indicator.target_date).slice(0, 10) : "");
+    }, [indicator.id, indicator.description, indicator.target_date]);
     const [showRemarks, setShowRemarks] = useState(remarksOpen);
     const [assignOpen, setAssignOpen] = useState(false);
     const [picked, setPicked] = useState([]);
     const [uploading, setUploading] = useState({});
 
     const refresh = () => queryClient.invalidateQueries({ queryKey: ["pcr-form", String(formId)] });
+
+    const saveLine = useMutation({
+        mutationFn: () =>
+            api.post("pcr-indicators", {
+                id: indicator.id,
+                output_id: indicator.output_id,
+                description: lineDesc,
+                target_date: lineDate || null,
+                parent_indicator_id: indicator.parent_indicator_id,
+                rating_period_id: indicator.rating_period_id ?? periodId ?? null,
+            }),
+        onSuccess: () => {
+            setActionError("");
+            message.success("Commitment saved.");
+            refresh();
+        },
+        onError: (error) => setActionError(errorText(error)),
+    });
 
     const saveAccomplishment = useMutation({
         mutationFn: () =>
@@ -235,7 +263,41 @@ export default function IndicatorRow({
                 </Descriptions>
             )}
 
-            {indicator.target_date && (
+            {canEditLine && !isOpcr && (
+                <div style={{ marginBottom: 14 }}>
+                    <Typography.Text strong style={{ display: "block", marginBottom: 4 }}>
+                        Success indicator
+                    </Typography.Text>
+                    <Input.TextArea
+                        rows={3}
+                        value={lineDesc}
+                        maxLength={NARRATIVE_MAX}
+                        showCount
+                        placeholder="Target + measure + timeframe"
+                        onChange={(event) => setLineDesc(event.target.value)}
+                    />
+                    <Space style={{ marginTop: 8 }} wrap>
+                        <DatePicker
+                            size="small"
+                            format="MMM D, YYYY"
+                            placeholder="Target date"
+                            value={lineDate ? dayjs(lineDate) : null}
+                            onChange={(d) => setLineDate(d ? d.format("YYYY-MM-DD") : "")}
+                        />
+                        <Button
+                            size="small"
+                            type="primary"
+                            icon={<SaveOutlined />}
+                            loading={saveLine.isPending}
+                            onClick={() => saveLine.mutate()}
+                        >
+                            Save commitment
+                        </Button>
+                    </Space>
+                </div>
+            )}
+
+            {indicator.target_date && !canEditLine && (
                 <Typography.Text type="secondary" style={{ display: "block", marginBottom: 8 }}>
                     Target date: {dayjs(indicator.target_date).format("MMM D, YYYY")}
                     {indicator.completed_on &&

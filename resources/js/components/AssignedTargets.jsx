@@ -10,7 +10,7 @@ import { commitmentHomes, commitmentSection } from "~/utils/commitmentHome";
 function linesAgainst(form, targetId) {
     return (form?.outputs ?? []).flatMap((output) =>
         (output.indicators ?? [])
-            .filter((line) => Number(line.parent_indicator_id) === Number(targetId))
+            .filter((line) => !line.closed_at && Number(line.parent_indicator_id) === Number(targetId))
             .map((line) => ({
                 id: line.id,
                 label: toPlainText(line.description) || "Blank commitment",
@@ -70,7 +70,7 @@ function TargetList({ targets, notedIds, form, canWrite, writingId, onWrite, onO
                             ) : (
                                 <span>{text}</span>
                             )}
-                            {canWrite && written.length > 0 && (
+                            {written.length > 0 && (
                                 <span className="pms-assigned-open">
                                     {written.length === 1 ? (
                                         <Button type="link" size="small" onClick={() => onOpen(written[0].id)}>
