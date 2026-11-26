@@ -1,12 +1,9 @@
 import React, { useMemo, useState } from "react";
 import {
-    Button,
     Card,
-    Col,
     DatePicker,
     Empty,
     Input,
-    Row,
     Select,
     Space,
     Table,
@@ -37,6 +34,7 @@ import PageHeader from "~/components/PageHeader";
 import ListPager, { tablePager, usePaged } from "~/components/ListPager";
 import UserAvatar from "~/components/UserAvatar";
 import { STATUS_META } from "~/utils/constants";
+import FilterMenu, { FilterField } from "~/components/FilterMenu";
 
 dayjs.extend(relativeTime);
 
@@ -99,21 +97,10 @@ export default function AuditLogPage() {
         return query.toString();
     }, [filters, term]);
 
-    const [refreshing, setRefreshing] = useState(false);
-    const { data, isLoading, refetch } = useQuery({
+    const { data, isLoading } = useQuery({
         queryKey: ["audit-logs", params],
         queryFn: () => api.get(`audit-logs?${params}`).then((r) => r.data),
     });
-
-    const refresh = async () => {
-        setRefreshing(true);
-
-        try {
-            await refetch();
-        } finally {
-            setRefreshing(false);
-        }
-    };
 
     const logs = data?.logs ?? [];
     const logPage = usePaged(logs, 25);
@@ -126,12 +113,17 @@ export default function AuditLogPage() {
         return counts;
     }, [logs]);
 
-    const clear = () => {
+    const clearFilters = () => {
         setFilters({ actions: [], subject: null, actor: null, range: null });
-        setTerm("");
     };
 
-    const filtered = filters.actions.length || filters.subject || filters.actor || filters.range || term;
+    const activeFilters = [
+        filters.actions.length > 0,
+        Boolean(filters.subject),
+        Boolean(filters.actor),
+        Boolean(filters.range),
+    ].filter(Boolean).length;
+    const filtered = activeFilters > 0 || Boolean(term);
 
     const columns = [
         {
@@ -216,29 +208,21 @@ export default function AuditLogPage() {
             <PageHeader
                 title="Audit Trail"
                 subtitle="Every account change, form movement and rating — who did it, and when."
-                extra={
-                    <Button icon={<ReloadOutlined />} loading={refreshing} onClick={refresh}>
-                        Refresh
-                    </Button>
-                }
             />
 
-            <Card style={{ marginBottom: 16 }}>
-                <Row gutter={[12, 12]}>
-                    <Col xs={24} md={6}>
-                        <Input
-                            allowClear
-                            prefix={<SearchOutlined />}
-                            placeholder="Search what happened, or who did it"
-                            value={term}
-                            onChange={(e) => setTerm(e.target.value)}
-                        />
-                    </Col>
-                    <Col xs={24} sm={12} md={5}>
+            <div className="pms-account-tools">
+                <Input
+                    allowClear
+                    prefix={<SearchOutlined />}
+                    placeholder="Search what happened, or who did it"
+                    value={term}
+                    onChange={(e) => setTerm(e.target.value)}
+                />
+                <FilterMenu active={activeFilters} onClear={clearFilters}>
+                    <FilterField label="Action">
                         <Select
                             mode="multiple"
                             allowClear
-                            style={{ width: "100%" }}
                             placeholder="Any action"
                             value={filters.actions}
                             onChange={(actions) => setFilters((f) => ({ ...f, actions }))}
@@ -246,12 +230,12 @@ export default function AuditLogPage() {
                                 value: a,
                                 label: `${ACTIONS[a]?.label ?? a}${busiest[a] ? ` (${busiest[a]})` : ""}`,
                             }))}
+                            getPopupContainer={(node) => node.parentElement}
                         />
-                    </Col>
-                    <Col xs={24} sm={12} md={4}>
+                    </FilterField>
+                    <FilterField label="Record">
                         <Select
                             allowClear
-                            style={{ width: "100%" }}
                             placeholder="Anything"
                             value={filters.subject}
                             onChange={(subject) => setFilters((f) => ({ ...f, subject }))}
@@ -259,14 +243,14 @@ export default function AuditLogPage() {
                                 value: s,
                                 label: SUBJECTS[s] ?? s,
                             }))}
+                            getPopupContainer={(node) => node.parentElement}
                         />
-                    </Col>
-                    <Col xs={24} sm={12} md={4}>
+                    </FilterField>
+                    <FilterField label="Person">
                         <Select
                             allowClear
                             showSearch
                             optionFilterProp="label"
-                            style={{ width: "100%" }}
                             placeholder="Anyone"
                             value={filters.actor}
                             onChange={(actor) => setFilters((f) => ({ ...f, actor }))}
@@ -274,30 +258,21 @@ export default function AuditLogPage() {
                                 value: a.user_id,
                                 label: a.user_name,
                             }))}
+                            getPopupContainer={(node) => node.parentElement}
                         />
-                    </Col>
-                    <Col xs={24} md={5}>
+                    </FilterField>
+                    <FilterField label="Dates">
                         <DatePicker.RangePicker
                             style={{ width: "100%" }}
                             inputReadOnly={window.matchMedia("(max-width: 991px)").matches}
                             classNames={{ popup: { root: "pms-range-popup" } }}
                             value={filters.range}
                             onChange={(range) => setFilters((f) => ({ ...f, range }))}
+                            getPopupContainer={(node) => node.parentElement}
                         />
-                    </Col>
-                </Row>
-
-                {filtered && (
-                    <Space style={{ marginTop: 12 }}>
-                        <Typography.Text type="secondary">
-                            {logs.length} {logs.length === 1 ? "entry" : "entries"} match
-                        </Typography.Text>
-                        <Button size="small" type="link" onClick={clear}>
-                            Clear filters
-                        </Button>
-                    </Space>
-                )}
-            </Card>
+                    </FilterField>
+                </FilterMenu>
+            </div>
 
             <Card className="pms-list-panel pms-list-fill">
                 <div className="pms-mobile-only pms-pds-cards">

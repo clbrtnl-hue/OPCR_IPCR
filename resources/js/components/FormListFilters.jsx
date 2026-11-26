@@ -1,6 +1,7 @@
 import React from "react";
 import { Select, Space } from "antd";
 import { STATUS_META, statusMeta } from "~/utils/constants";
+import FilterMenu, { FilterField } from "~/components/FilterMenu";
 
 export const STATUS_ORDER = Object.keys(STATUS_META);
 
@@ -94,47 +95,82 @@ export default function FormListFilters({
         return null;
     }
 
+    const yearOptions = [
+        { value: "all", label: "All years" },
+        ...listedYears.map((year) => ({
+            value: String(year.id),
+            label: year.is_active ? `${year.label} ★` : year.label,
+        })),
+    ];
+    const typeOptions = [
+        { value: "all", label: "All forms" },
+        ...types.map((type) => ({ value: type, label: type.toUpperCase() })),
+    ];
+    const statusOptions = [
+        { value: "all", label: "All statuses" },
+        ...statuses.map((status) => ({
+            value: status,
+            label: statusMeta(status).label,
+        })),
+    ];
+    const fields = [
+        showYear ? "year" : null,
+        showType ? "type" : null,
+        showStatus ? "status" : null,
+    ].filter(Boolean);
+    const active = [
+        showYear && yearFilter !== "all",
+        showType && formKind !== "all",
+        showStatus && statusFilter !== "all",
+    ].filter(Boolean).length;
+
+    if (fields.length < 2) {
+        return (
+            <Space wrap className="pms-form-filters">
+                {showYear && (
+                    <Select value={yearFilter} onChange={onYearFilter} style={{ minWidth: 180 }} options={yearOptions} />
+                )}
+                {showType && (
+                    <Select value={formKind} onChange={onFormKind} style={{ minWidth: 150 }} options={typeOptions} />
+                )}
+                {showStatus && (
+                    <Select
+                        value={statusFilter}
+                        onChange={onStatusFilter}
+                        style={{ minWidth: 200 }}
+                        options={statusOptions}
+                    />
+                )}
+            </Space>
+        );
+    }
+
     return (
-        <Space wrap className="pms-form-filters">
-            {showYear && (
-                <Select
-                    value={yearFilter}
-                    onChange={onYearFilter}
-                    style={{ minWidth: 180 }}
-                    options={[
-                        { value: "all", label: "All years" },
-                        ...listedYears.map((year) => ({
-                            value: String(year.id),
-                            label: year.is_active ? `${year.label} ★` : year.label,
-                        })),
-                    ]}
-                />
-            )}
-            {showType && (
-                <Select
-                    value={formKind}
-                    onChange={onFormKind}
-                    style={{ minWidth: 150 }}
-                    options={[
-                        { value: "all", label: "All forms" },
-                        ...types.map((type) => ({ value: type, label: type.toUpperCase() })),
-                    ]}
-                />
-            )}
-            {showStatus && (
-                <Select
-                    value={statusFilter}
-                    onChange={onStatusFilter}
-                    style={{ minWidth: 200 }}
-                    options={[
-                        { value: "all", label: "All statuses" },
-                        ...statuses.map((status) => ({
-                            value: status,
-                            label: statusMeta(status).label,
-                        })),
-                    ]}
-                />
-            )}
-        </Space>
+        <div className="pms-form-filters">
+            <FilterMenu
+                active={active}
+                onClear={() => {
+                    if (showYear) onYearFilter?.("all");
+                    if (showType) onFormKind?.("all");
+                    if (showStatus) onStatusFilter?.("all");
+                }}
+            >
+                {showYear && (
+                    <FilterField label="Year">
+                        <Select value={yearFilter} onChange={onYearFilter} options={yearOptions} />
+                    </FilterField>
+                )}
+                {showType && (
+                    <FilterField label="Form">
+                        <Select value={formKind} onChange={onFormKind} options={typeOptions} />
+                    </FilterField>
+                )}
+                {showStatus && (
+                    <FilterField label="Status">
+                        <Select value={statusFilter} onChange={onStatusFilter} options={statusOptions} />
+                    </FilterField>
+                )}
+            </FilterMenu>
+        </div>
     );
 }

@@ -15,10 +15,12 @@ import api from "~/utils/api";
 import { ADJECTIVAL_COLORS, VIZ } from "~/utils/constants";
 import { formYearId } from "~/components/FormListFilters";
 import { useAuth } from "~/hooks/useAuth";
+import AdminGlance from "~/components/AdminGlance";
 import InsightsBoard from "~/components/InsightsBoard";
 import PlayBoard, { paceTitle } from "~/components/PlayBoard";
 import PresidentGlance from "~/components/PresidentGlance";
 import TeamPace from "~/components/TeamPace";
+import AttendanceGlance from "~/components/AttendanceGlance";
 import StatTile from "~/components/charts/StatTile";
 
 function useTypedGreeting(text) {
@@ -80,16 +82,33 @@ export default function DashboardPage() {
 
         if (!hero || !scroller) return undefined;
 
+        const GAP = 22;
+        let fullHeight = 0;
+
         const onScroll = () => {
             const shrink = Math.min(1, Math.max(0, scroller.scrollTop / 80));
             hero.style.setProperty("--shrink", shrink.toFixed(3));
             hero.classList.toggle("is-compact", shrink > 0.65);
+
+            const height = hero.offsetHeight;
+
+            // The hero is sticky and shrinks as you scroll. If the page got
+            // shorter with it, the browser would clamp scrollTop at the very
+            // end and the page would bounce. Hand the lost height to the
+            // margin so the total page height never changes.
+            if (shrink === 0) fullHeight = height;
+            const gap = fullHeight ? fullHeight + GAP - height : GAP - 8 * shrink;
+            hero.style.setProperty("--hero-gap", `${gap.toFixed(1)}px`);
         };
 
         onScroll();
         scroller.addEventListener("scroll", onScroll, { passive: true });
+        window.addEventListener("resize", onScroll);
 
-        return () => scroller.removeEventListener("scroll", onScroll);
+        return () => {
+            scroller.removeEventListener("scroll", onScroll);
+            window.removeEventListener("resize", onScroll);
+        };
     }, []);
 
     const { data: years = [], isFetched: yearsFetched } = useQuery({
@@ -123,6 +142,7 @@ export default function DashboardPage() {
     const leadsTheCollege = ["admin", "president", "qa"].includes(user?.role);
     const playsOwnGame = ["program_head", "vp", "employee"].includes(user?.role);
     const reviewsOwnQueue = ["program_head", "vp"].includes(user?.role);
+    const seesAttendanceDash = user?.role === "program_head";
     const roleSeesTeam = ["program_head", "vp"].includes(user?.role);
 
     const waitingCount = shownYear
@@ -181,6 +201,21 @@ export default function DashboardPage() {
                 })
                 .then((r) => r.data),
         enabled: seesTeamPace && Boolean(shownYear?.id),
+    });
+
+    const { data: attendance } = useQuery({
+        queryKey: ["attendance-summary", shownYear?.id, shownPeriodId],
+        queryFn: () =>
+            api
+                .get("attendance", {
+                    params: {
+                        summary: 1,
+                        school_year_id: shownYear.id,
+                        ...(shownPeriodId ? { rating_period_id: shownPeriodId } : {}),
+                    },
+                })
+                .then((r) => r.data),
+        enabled: seesAttendanceDash && Boolean(shownYear?.id),
     });
 
     const mine = forms.filter(
@@ -290,6 +325,17 @@ export default function DashboardPage() {
                 />
             )}
 
+            {isAdmin && (
+                <AdminGlance
+                    data={insights}
+                    yearId={shownYear?.id ?? null}
+                    periodId={shownPeriodId}
+                    liveYear={activeYear}
+                    livePeriod={activePeriod}
+                    yearsFetched={yearsFetched}
+                />
+            )}
+
             {isPresident && insights?.totals && (
                 <>
                     <div className="pms-board-head">
@@ -302,7 +348,7 @@ export default function DashboardPage() {
                 </>
             )}
 
-            {leadsTheCollege && !isPresident && insights?.totals && (
+            {user?.role === "qa" && insights?.totals && (
                 <>
                     <div className="pms-board-head">
                         <Typography.Title level={5} style={{ margin: 0 }}>
@@ -331,23 +377,36 @@ export default function DashboardPage() {
                     quests={[
                         {
                             key: "drafts",
-                            title: "Drafts are cleared",
-                            detail: myForms?.drafts
-                                ? `${myForms.drafts} still in draft`
-                                : myForms?.total
-                                  ? "No drafts waiting"
-                                  : "You have not opened a form yet",
-                            done: (myForms?.total ?? 0) > 0 && (myForms?.drafts ?? 0) === 0,
+                            title:
+                                (myForms?.drafts ?? 0) + (myForms?.returned ?? 0) > 0
+                                    ? "Finish your drafts"
+                                    : "Drafts are cleared",
+                            detail:
+                                (myForms?.drafts ?? 0) + (myForms?.returned ?? 0) > 0
+                                    ? [
+                                          myForms.drafts ? `${myForms.drafts} still in draft` : null,
+                                          myForms.returned ? `${myForms.returned} returned to you` : null,
+                                      ]
+                                          .filter(Boolean)
+                                          .join(" · ")
+                                    : myForms?.total
+                                      ? "No drafts waiting"
+                                      : "You have not opened a form yet",
+                            done:
+                                (myForms?.total ?? 0) > 0 &&
+                                (myForms?.drafts ?? 0) + (myForms?.returned ?? 0) === 0,
                             pct: myForms?.total
-                                ? Math.round(((myForms.total - myForms.drafts) / myForms.total) * 100)
+                                ? Math.round(
+                                      ((myForms.total - myForms.drafts - (myForms.returned ?? 0)) / myForms.total) * 100
+                                  )
                                 : 0,
                             href: "/my-forms",
                         },
                         {
                             key: "late",
-                            title: "Nothing of yours is late",
+                            title: myWork?.overdue ? "Catch up on what is late" : "Nothing of yours is late",
                             detail: myWork?.overdue
-                                ? `${myWork.overdue} past the target date`
+                                ? `${myWork.overdue} of yours past the target date`
                                 : myWork?.due_soon
                                   ? `${myWork.due_soon} due within seven days`
                                   : "On time",
@@ -360,7 +419,7 @@ export default function DashboardPage() {
                         reviewsOwnQueue
                             ? {
                                   key: "queue",
-                                  title: "Your review queue is clear",
+                                  title: waitingCount ? "Review what is waiting" : "Your review queue is clear",
                                   detail: waitingCount
                                       ? `${waitingCount} form${waitingCount === 1 ? "" : "s"} waiting on you`
                                       : "Nothing is sitting at your step",
@@ -383,6 +442,7 @@ export default function DashboardPage() {
             )}
             {seesTeamPace && <TeamPace data={teamPace} onOpen={navigate} />}
             </div>
+            {seesAttendanceDash && <AttendanceGlance data={attendance} onOpen={navigate} />}
             <Typography.Title level={5} className="pms-section-title" style={{ margin: "4px 0 12px" }}>
                 My cycle
             </Typography.Title>
@@ -399,6 +459,7 @@ export default function DashboardPage() {
                     }
                     onClick={() => navigate("/my-forms")}
                 />
+                {!roleSeesTeam && (
                 <StatTile
                     label="My commitments"
                     icon={<CheckSquareOutlined />}
@@ -411,6 +472,7 @@ export default function DashboardPage() {
                     }
                     onClick={() => navigate(ownWorkPath)}
                 />
+                )}
                 <StatTile
                     label="My progress"
                     icon={<RiseOutlined />}
@@ -420,6 +482,7 @@ export default function DashboardPage() {
                     hint="Average across every line you own"
                     onClick={() => navigate(ownWorkPath)}
                 />
+                {!roleSeesTeam && (
                 <StatTile
                     label="Past their target date"
                     icon={<ClockCircleOutlined />}
@@ -429,7 +492,8 @@ export default function DashboardPage() {
                     hint={`${myWork?.due_soon ?? 0} of mine fall due within seven days`}
                     onClick={() => navigate(ownWorkPath)}
                 />
-                {(reviews || isAdmin) && (
+                )}
+                {(reviews || isAdmin) && !roleSeesTeam && (
                     <StatTile
                         label={isAdmin ? "In review" : "Waiting for me to review"}
                         icon={<TeamOutlined />}
@@ -446,6 +510,7 @@ export default function DashboardPage() {
                         }
                     />
                 )}
+                {!roleSeesTeam && (
                 <StatTile
                     label="In the review chain"
                     icon={<TeamOutlined />}
@@ -458,6 +523,7 @@ export default function DashboardPage() {
                     }
                     onClick={() => navigate("/my-forms")}
                 />
+                )}
                 <StatTile
                     label="My latest rating"
                     icon={<TrophyOutlined />}

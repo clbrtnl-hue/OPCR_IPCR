@@ -2,11 +2,14 @@ import React from "react";
 import { Space } from "antd";
 import { useLocation, useNavigate } from "react-router-dom";
 import NavIcon from "~/components/NavIcon";
+import { useSetPageTitle } from "~/hooks/usePageTitle";
 
 export default function PageHeader({ title, subtitle, extra }) {
     const navigate = useNavigate();
     const location = useLocation();
     const showBack = location.pathname !== "/";
+
+    useSetPageTitle(title);
 
     const goBack = () => {
         if (location.key !== "default") {
@@ -17,17 +20,23 @@ export default function PageHeader({ title, subtitle, extra }) {
         navigate("/");
     };
 
+    if (!title && !subtitle && !extra) {
+        return null;
+    }
+
     return (
-        <div className="pms-page-head">
+        <div className={`pms-page-head${!subtitle && !extra ? " pms-page-head-title-only" : ""}`}>
             <div>
-                <div className="pms-page-title-row">
-                    {showBack && (
-                        <button type="button" className="pms-back" aria-label="Back" onClick={goBack}>
-                            <NavIcon name="back" />
-                        </button>
-                    )}
-                    {title ? <h1 className="pms-page-title">{title}</h1> : null}
-                </div>
+                {title && (
+                    <div className="pms-page-title-row">
+                        {showBack && (
+                            <button type="button" className="pms-back" aria-label="Back" onClick={goBack}>
+                                <NavIcon name="back" />
+                            </button>
+                        )}
+                        <h1 className="pms-page-title">{title}</h1>
+                    </div>
+                )}
                 {subtitle && <p className="pms-page-subtitle">{subtitle}</p>}
             </div>
             {extra && <Space wrap>{extra}</Space>}

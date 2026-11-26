@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { Badge, Button, Drawer, Layout, Menu, Dropdown, Modal, Space, Tag, Tooltip, Typography } from "antd";
+import { Badge, Button, Drawer, Layout, Menu, Modal, Space, Tag, Tooltip } from "antd";
 import { useQuery } from "@tanstack/react-query";
 import { useLocation, useNavigate } from "react-router-dom";
 import api from "~/utils/api";
@@ -15,6 +15,7 @@ import NavIcon from "~/components/NavIcon";
 import ThemeToggle from "~/components/ThemeToggle";
 import { useTheme } from "~/hooks/useTheme";
 import { PersonProvider } from "~/hooks/usePerson";
+import { PageTitleProvider, usePageTitle } from "~/hooks/usePageTitle";
 
 const { Sider, Header, Content } = Layout;
 
@@ -82,7 +83,13 @@ const MENUS = {
             key: "setup",
             icon: <NavIcon name="setup" />,
             label: "Setup",
-            children: [ITEMS.users, ITEMS.orgUnits, ITEMS.schoolYears, ITEMS.workflow, ITEMS.audit],
+            children: [
+                ITEMS.users,
+                ITEMS.orgUnits,
+                ITEMS.schoolYears,
+                ITEMS.workflow,
+                ITEMS.audit,
+            ],
         },
     ],
     president: [ITEMS.dashboard, ITEMS.collegeOpcr, ITEMS.forms, ITEMS.reviewQueue, ITEMS.reports],
@@ -92,12 +99,14 @@ const MENUS = {
     employee: [ITEMS.dashboard, ITEMS.myIpcr, ITEMS.myForms],
 };
 
-export default function AppLayout({ children }) {
+function AppShell({ children }) {
     const { user, logout } = useAuth();
     const organization = useOrganization();
     const navigate = useNavigate();
     const location = useLocation();
     const { mode } = useTheme();
+    const { title: pageTitle } = usePageTitle();
+    const showBack = location.pathname !== "/";
     const menuTheme = mode === "dark" ? "dark" : "light";
     const [collapsed, setCollapsed] = useState(false);
     const [navOpen, setNavOpen] = useState(false);
@@ -149,7 +158,9 @@ export default function AppLayout({ children }) {
               if (formYearId(form) !== Number(activeYear.id)) return false;
 
               return user?.role === "president"
-                  ? APPROVAL_QUEUE_STATUSES.includes(form.status) || qaIpcrWithPresident(form)
+                  ? APPROVAL_QUEUE_STATUSES.includes(form.status) ||
+                        qaIpcrWithPresident(form) ||
+                        (isRater && form.type === "ipcr" && form.status === "qa_rating")
                   : true;
           }).length
         : 0;
@@ -324,7 +335,16 @@ export default function AppLayout({ children }) {
         navigate(key);
     };
 
-    const rail = (isCollapsed, menuItems = items, pmsBrand = false) => (
+    const goBack = () => {
+        if (location.key !== "default") {
+            navigate(-1);
+            return;
+        }
+
+        navigate("/");
+    };
+
+    const rail = (isCollapsed, menuItems = items) => (
         <div className="pms-sider">
             <div
                 className={isCollapsed ? "pms-brand is-collapsed" : "pms-brand"}
@@ -340,14 +360,10 @@ export default function AppLayout({ children }) {
                 />
                 {!isCollapsed && (
                     <span className="pms-brand-words">
-                        <span className={pmsBrand ? "pms-brand-name is-pms" : "pms-brand-name"}>
-                            {pmsBrand ? "PMS" : `${organization.short_name ?? "OCC"} PMS`}
+                        <span className="pms-brand-name">
+                            {organization.name ?? "Opol Community College"}
                         </span>
-                        {!pmsBrand && (
-                            <span className="pms-brand-sub">
-                                {organization.name ?? "Opol Community College"}
-                            </span>
-                        )}
+                        <span className="pms-brand-sub">Performance Commitment and Review</span>
                     </span>
                 )}
             </div>
@@ -436,9 +452,9 @@ export default function AppLayout({ children }) {
                 collapsed={collapsed}
                 onCollapse={setCollapsed}
                 theme={menuTheme}
-                width={248}
+                width={280}
             >
-                {rail(collapsed, items, true)}
+                {rail(collapsed, items)}
             </Sider>
             <Drawer
                 className="pms-nav-drawer"
@@ -478,13 +494,15 @@ export default function AppLayout({ children }) {
                         aria-label="Open menu"
                         onClick={() => setNavOpen(true)}
                     />
-                    <div className="pms-header-title">
-                        <span className="pms-header-org">
-                            {organization.name ?? "Opol Community College"}
-                        </span>
-                        <span className="pms-header-sub">Performance Commitment and Review</span>
+                    <div className="pms-header-lead">
+                        {showBack && (
+                            <button type="button" className="pms-header-back" aria-label="Back" onClick={goBack}>
+                                <NavIcon name="back" />
+                            </button>
+                        )}
+                        {pageTitle ? <h1 className="pms-header-page">{pageTitle}</h1> : null}
                     </div>
-                    <Space size={16}>
+                    <Space className="pms-header-tools" size={16}>
                         {activeYear && (
                             <Tag className="pms-header-cycle" bordered={false}>
                                 {activeYear.label}
@@ -495,34 +513,6 @@ export default function AppLayout({ children }) {
                         <span className="pms-desktop-only">
                             <NotificationBell />
                         </span>
-                        <Dropdown
-                            menu={{
-                                items: [
-                                    {
-                                        key: "logout",
-                                        icon: <NavIcon name="logout" />,
-                                        label: "Sign out",
-                                        onClick: () => confirmLogout(),
-                                    },
-                                ],
-                            }}
-                        >
-                            <Space className="pms-header-account" style={{ cursor: "pointer" }}>
-                                <UserAvatar
-                                    user={user}
-                                    showTooltip={false}
-                                    size={{ lg: 40, xl: 40, xxl: 40 }}
-                                />
-                                <span className="pms-header-user">
-                                    <div style={{ lineHeight: 1.2 }}>{user?.name}</div>
-                                    <div style={{ lineHeight: 1.2 }}>
-                                        <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                                            {ROLE_LABELS[user?.role] ?? user?.role}
-                                        </Typography.Text>
-                                    </div>
-                                </span>
-                            </Space>
-                        </Dropdown>
                     </Space>
                 </Header>
                 <Content className="pms-content">
@@ -559,5 +549,13 @@ export default function AppLayout({ children }) {
             </Layout>
         </Layout>
         </PersonProvider>
+    );
+}
+
+export default function AppLayout({ children }) {
+    return (
+        <PageTitleProvider>
+            <AppShell>{children}</AppShell>
+        </PageTitleProvider>
     );
 }

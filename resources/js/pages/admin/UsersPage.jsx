@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useMemo, useRef, useState } from "react";
 import {
     Button,
     Card,
@@ -11,6 +11,7 @@ import {
     Popconfirm,
     Segmented,
     Select,
+    Space,
     Spin,
     Table,
     Tag,
@@ -18,6 +19,7 @@ import {
     message,
 } from "antd";
 import { PlusOutlined, SearchOutlined } from "@ant-design/icons";
+import FilterMenu, { FilterField } from "~/components/FilterMenu";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import api from "~/utils/api";
 import { ROLE_LABELS } from "~/utils/constants";
@@ -48,6 +50,13 @@ function matchesSearch(user, term) {
     return [user.name, user.email, user.position_title, user.org_unit?.name, ROLE_LABELS[user.role]]
         .filter(Boolean)
         .some((value) => String(value).toLowerCase().includes(term));
+}
+
+function suggestEmail(first, last) {
+    const clean = (part) => (part ?? "").toLowerCase().replace(/[^a-z0-9]/g, "");
+    const parts = [clean(first), clean(last)].filter(Boolean);
+
+    return parts.length === 2 ? `${parts.join(".")}@occ.edu.ph` : "";
 }
 
 function printedName(values) {
@@ -114,7 +123,10 @@ export default function UsersPage() {
         },
     });
 
+    const emailEdited = useRef(false);
+
     const openDrawer = (record) => {
+        emailEdited.current = false;
         setEditing(record ?? null);
         setOpen(true);
         form.setFieldsValue(
@@ -241,36 +253,18 @@ export default function UsersPage() {
                 }
             />
 
-            <div className="pms-account-filters">
-                <button type="button" className={!role ? "is-on" : undefined} onClick={() => chooseRole(null)}>
-                    All
-                    <em>{users.length}</em>
-                </button>
-                {Object.entries(ROLE_LABELS).map(([value, label]) => (
-                    <button
-                        key={value}
-                        type="button"
-                        className={role === value ? "is-on" : undefined}
-                        onClick={() => chooseRole(value)}
-                    >
-                        {label}
-                        <em>{roleCounts[value] ?? 0}</em>
-                    </button>
-                ))}
-            </div>
-
-            <Card className="pms-list-panel pms-list-fill pms-accounts">
-                <div className="pms-account-tools">
-                    <Input
-                        allowClear
-                        prefix={<SearchOutlined />}
-                        placeholder="Search name, email, role, or unit"
-                        value={search}
-                        onChange={(event) => {
-                            setSearch(event.target.value);
-                            setPage(1);
-                        }}
-                    />
+            <div className="pms-account-tools">
+                <Input
+                    allowClear
+                    prefix={<SearchOutlined />}
+                    placeholder="Search name, email, role, or unit"
+                    value={search}
+                    onChange={(event) => {
+                        setSearch(event.target.value);
+                        setPage(1);
+                    }}
+                />
+                <Space size={8}>
                     <Segmented
                         value={status}
                         onChange={(value) => {
@@ -283,7 +277,25 @@ export default function UsersPage() {
                             { label: "Inactive", value: "inactive" },
                         ]}
                     />
-                </div>
+                    <FilterMenu active={role ? 1 : 0} onClear={() => chooseRole(null)}>
+                        <FilterField label="Role">
+                            <Select
+                                value={role ?? "all"}
+                                onChange={(value) => chooseRole(value === "all" ? null : value)}
+                                options={[
+                                    { value: "all", label: `All (${users.length})` },
+                                    ...Object.entries(ROLE_LABELS).map(([value, label]) => ({
+                                        value,
+                                        label: `${label} (${roleCounts[value] ?? 0})`,
+                                    })),
+                                ]}
+                            />
+                        </FilterField>
+                    </FilterMenu>
+                </Space>
+            </div>
+
+            <Card className="pms-list-panel pms-list-fill pms-accounts">
                 <div className="pms-mobile-only">
                     {isLoading ? (
                         <div className="pms-account-loading">
@@ -342,6 +354,23 @@ export default function UsersPage() {
                     layout="vertical"
                     requiredMark={false}
                     onFinish={(values) => save.mutate({ ...values, id: editing?.id })}
+                    onValuesChange={(changed, all) => {
+                        if (editing) return;
+
+                        if (changed.email !== undefined) {
+                            emailEdited.current = true;
+
+                            return;
+                        }
+
+                        // Suggest first.last@occ.edu.ph until the email is typed by hand.
+                        if (
+                            !emailEdited.current &&
+                            (changed.first_name !== undefined || changed.last_name !== undefined)
+                        ) {
+                            form.setFieldsValue({ email: suggestEmail(all.first_name, all.last_name) });
+                        }
+                    }}
                 >
                     <Typography.Text className="pms-account-section">Name</Typography.Text>
                     <Row gutter={12}>

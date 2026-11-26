@@ -64,7 +64,6 @@ import CopyPreviousPeriod from "~/components/CopyPreviousPeriod";
 import CommentThread from "~/components/CommentThread";
 import FormHistory from "~/components/FormHistory";
 import ReturnPlacesModal from "~/components/ReturnPlacesModal";
-import FormSupportDesk from "~/components/FormSupportDesk";
 import { RETURN_FIELD_LABELS, displayReturnMarks } from "~/utils/returnMarks";
 
 /**
@@ -1461,18 +1460,6 @@ export default function FormEditorPage({ formId = null, periodBar = null, yearSe
             />
 
             {periodBar}
-
-            {user?.role === "admin" && (
-                <FormSupportDesk
-                    form={form}
-                    onDone={() => {
-                        refresh();
-                        queryClient.invalidateQueries({ queryKey: ["review-queue"] });
-                        queryClient.invalidateQueries({ queryKey: ["qa-queue"] });
-                        queryClient.invalidateQueries({ queryKey: ["my-forms"] });
-                    }}
-                />
-            )}
 
             <FormStatusAlerts
                 form={form}

@@ -30,7 +30,7 @@ export const lightTheme = {
         },
         Menu: {
             itemBg: "#ffffff",
-            itemBorderRadius: 12,
+            itemBorderRadius: 10,
             itemHeight: 42,
             itemMarginInline: 12,
             itemMarginBlock: 4,
@@ -53,7 +53,7 @@ export const lightTheme = {
             iconSize: 16,
         },
         Card: {
-            borderRadiusLG: 18,
+            borderRadiusLG: 10,
         },
     },
 };
@@ -92,7 +92,7 @@ export const darkTheme = {
         colorFillSecondary: "rgba(255, 255, 255, 0.1)",
         colorFillTertiary: "rgba(255, 255, 255, 0.06)",
         colorBgSpotlight: heroLift,
-        borderRadius: 16,
+        borderRadius: 10,
         fontFamily,
     },
     components: {
@@ -104,7 +104,7 @@ export const darkTheme = {
             bodyBg: "transparent",
         },
         Menu: {
-            itemBorderRadius: 12,
+            itemBorderRadius: 10,
             itemHeight: 42,
             itemMarginInline: 12,
             itemMarginBlock: 4,
@@ -128,7 +128,7 @@ export const darkTheme = {
             iconSize: 16,
         },
         Card: {
-            borderRadiusLG: 22,
+            borderRadiusLG: 10,
             colorBgContainer: heroMid,
             colorBorderSecondary: heroLine,
             colorTextHeading: heroInk,

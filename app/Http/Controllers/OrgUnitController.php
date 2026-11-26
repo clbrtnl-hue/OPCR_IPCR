@@ -346,15 +346,9 @@ class OrgUnitController extends Controller
         $parentId = $unit->parent_id ? (int) $unit->parent_id : null;
         $hasForms = PcrForm::where('org_unit_id', $unit->id)->exists();
 
-        if ($unit->members_count > 0) {
+        if (! $parentId && ($unit->members_count > 0 || $unit->children_count > 0 || $hasForms)) {
             return response()->json([
-                'message' => 'This unit still has people. Move them out before deleting it.',
-            ], 409);
-        }
-
-        if (! $parentId && ($unit->children_count > 0 || $hasForms)) {
-            return response()->json([
-                'message' => 'The top unit stays while it still has people or sub-units.',
+                'message' => 'The top unit stays while it still has people, sub-units, or forms.',
             ], 409);
         }
 

@@ -66,7 +66,8 @@ function tabsFor(role) {
 }
 
 function defaultTab(role, params) {
-    if (params.has("late")) return "commitments";
+    if (params.has("late") || params.get("progress") || params.get("standing")) return "commitments";
+    if (params.get("pace")) return "people";
 
     const next = params.get("tab");
     const allowed = tabsFor(role);
@@ -74,6 +75,31 @@ function defaultTab(role, params) {
     if (next && allowed.some((item) => item.value === next)) return next;
 
     return TEAM_ROLES.has(role) ? "commitments" : "units";
+}
+
+const PROGRESS_PARAMS = new Set(["completed", "ongoing", "not_started", "deferred"]);
+const STANDING_PARAMS = new Set(["late", "due_soon", "on_track", "ontime"]);
+const PACE_PARAMS = new Set(["ahead", "idle", "behind"]);
+
+function kindsFromParams(params) {
+    const next = {};
+    const commitments = {};
+    const progress = params.get("progress");
+    const standing = params.has("late") ? "late" : params.get("standing");
+
+    if (progress && PROGRESS_PARAMS.has(progress)) commitments.progress = progress;
+    if (standing && STANDING_PARAMS.has(standing)) commitments.standing = standing;
+    if (Object.keys(commitments).length) next.commitments = commitments;
+
+    const pace = params.get("pace");
+
+    if (pace && PACE_PARAMS.has(pace)) next.people = { pace };
+
+    const type = params.get("type");
+
+    if (type) next.forms = { type: type.toUpperCase() };
+
+    return next;
 }
 
 const score = (value) => (value == null ? "—" : Number(value).toFixed(2));
@@ -218,12 +244,14 @@ function activeKindCount(fields, kind) {
     }).length;
 }
 
-function ReportKinds({ fields, kind, onChange }) {
+function ReportKinds({ fields, kind, onChange, sort, onSort }) {
     const visible = visibleKindFields(fields);
+    const active = activeKindCount(fields, kind) + (sort !== "az" ? 1 : 0);
 
-    if (visible.length === 0) return null;
-
-    const active = activeKindCount(fields, kind);
+    const clear = () => {
+        visible.forEach((field) => onChange(field.key, "all"));
+        onSort("az");
+    };
 
     return (
         <Popover
@@ -231,6 +259,19 @@ function ReportKinds({ fields, kind, onChange }) {
             placement="bottomRight"
             content={
                 <div className="pms-report-kind-panel">
+                    <label className="pms-report-kind-row">
+                        <span>Sort</span>
+                        <Select
+                            aria-label="Sort"
+                            value={sort}
+                            onChange={onSort}
+                            options={[
+                                { value: "az", label: "A–Z" },
+                                { value: "value", label: "Value" },
+                            ]}
+                            popupMatchSelectWidth={false}
+                        />
+                    </label>
                     {visible.map((field) => {
                         const selected = kind[field.key] ?? "all";
                         const current = field.options.some((item) => item.value === selected)
@@ -250,12 +291,7 @@ function ReportKinds({ fields, kind, onChange }) {
                         );
                     })}
                     {active > 0 && (
-                        <Button
-                            type="link"
-                            size="small"
-                            className="pms-report-kind-clear"
-                            onClick={() => visible.forEach((field) => onChange(field.key, "all"))}
-                        >
+                        <Button type="link" size="small" className="pms-report-kind-clear" onClick={clear}>
                             Clear filters
                         </Button>
                     )}
@@ -303,22 +339,7 @@ function ReportExport({ busy, onDownload }) {
     );
 }
 
-function ReportSort({ value, onChange }) {
-    return (
-        <Select
-            aria-label="Sort"
-            className="pms-filter-select"
-            value={value}
-            onChange={onChange}
-            options={[
-                { value: "az", label: "A–Z" },
-                { value: "value", label: "Value" },
-            ]}
-        />
-    );
-}
-
-function ReportFilters({ search, onSearch, sort, onSort, children }) {
+function ReportFilters({ search, onSearch, children }) {
     return (
         <>
             <Input.Search
@@ -327,7 +348,6 @@ function ReportFilters({ search, onSearch, sort, onSort, children }) {
                 value={search}
                 onChange={(e) => onSearch(e.target.value)}
             />
-            <ReportSort value={sort} onChange={onSort} />
             {children}
         </>
     );
@@ -424,24 +444,14 @@ export default function ReportsPage() {
     const [tab, setTab] = useState(() => defaultTab(user?.role, searchParams));
     const [search, setSearch] = useState(() => searchParams.get("q") ?? "");
     const [sort, setSort] = useState("az");
-    const [kindByTab, setKindByTab] = useState(() =>
-        searchParams.has("late") ? { commitments: { standing: "late" } } : {}
-    );
+    const [kindByTab, setKindByTab] = useState(() => kindsFromParams(searchParams));
     const [busy, setBusy] = useState(false);
 
     useEffect(() => {
         const params = new URLSearchParams(query);
 
-        if (params.has("late")) {
-            setTab("commitments");
-            setKindByTab((prev) => ({
-                ...prev,
-                commitments: { ...prev.commitments, standing: "late" },
-            }));
-        } else {
-            setTab(defaultTab(user?.role, params));
-        }
-
+        setTab(defaultTab(user?.role, params));
+        setKindByTab(kindsFromParams(params));
         setSearch(params.get("q") ?? "");
     }, [query, user?.role]);
 
@@ -512,7 +522,30 @@ export default function ReportsPage() {
         }
 
         if (tab === "people") {
-            return [unitField(tabRows), ratingField(tabRows, { includeUnrated: true }), overdueStandingField()];
+            const collegePace = data?.totals?.progress_pct;
+
+            return [
+                unitField(tabRows),
+                ratingField(tabRows, { includeUnrated: true }),
+                overdueStandingField(),
+                {
+                    key: "pace",
+                    label: "Pace",
+                    all: "All pace",
+                    always: true,
+                    pick: (row) => {
+                        if (row.progress_pct == null || Number(row.progress_pct) === 0) return "idle";
+                        if (collegePace == null || Number(row.progress_pct) >= Number(collegePace)) return "ahead";
+
+                        return "behind";
+                    },
+                    options: [
+                        { value: "ahead", label: "Ahead" },
+                        { value: "idle", label: "Not started" },
+                        { value: "behind", label: "Behind" },
+                    ],
+                },
+            ];
         }
 
         if (tab === "forms") {
@@ -594,13 +627,16 @@ export default function ReportsPage() {
                     all: "All standing",
                     always: true,
                     pick: standingOf,
-                    options: STANDING_ORDER.map((value) => ({ value, label: STANDING_LABELS[value] })),
+                    options: [
+                        { value: "ontime", label: "On time" },
+                        ...STANDING_ORDER.map((value) => ({ value, label: STANDING_LABELS[value] })),
+                    ],
                 },
             ];
         }
 
         return [];
-    }, [tab, tabRows]);
+    }, [tab, tabRows, data?.totals?.progress_pct]);
 
     const kind = kindByTab[tab] ?? emptyKind;
     const setKindValue = (key, value) =>
@@ -617,7 +653,9 @@ export default function ReportsPage() {
             kindFields.every((field) => {
                 const selected = kind[field.key] ?? "all";
 
-                if (selected === "all" || !field.options.some((item) => item.value === selected)) return true;
+                if (selected === "all") return true;
+                if (field.key === "standing" && selected === "ontime") return !row.is_overdue;
+                if (!field.options.some((item) => item.value === selected)) return true;
 
                 return field.pick(row) === selected;
             })
@@ -1023,8 +1061,13 @@ export default function ReportsPage() {
                                     onChange={(e) => setSearch(e.target.value)}
                                     style={{ width: 220 }}
                                 />
-                                <ReportSort value={sort} onChange={setSort} />
-                                <ReportKinds fields={kindFields} kind={kind} onChange={setKindValue} />
+                                <ReportKinds
+                                    fields={kindFields}
+                                    kind={kind}
+                                    onChange={setKindValue}
+                                    sort={sort}
+                                    onSort={setSort}
+                                />
                                 <ReportExport busy={busy} onDownload={download} />
                             </Space>
                         </div>
@@ -1079,13 +1122,14 @@ export default function ReportsPage() {
                         </div>
 
                         <div className="pms-report-tools">
-                            <ReportFilters
-                                search={search}
-                                onSearch={setSearch}
-                                sort={sort}
-                                onSort={setSort}
-                            >
-                                <ReportKinds fields={kindFields} kind={kind} onChange={setKindValue} />
+                            <ReportFilters search={search} onSearch={setSearch}>
+                                <ReportKinds
+                                    fields={kindFields}
+                                    kind={kind}
+                                    onChange={setKindValue}
+                                    sort={sort}
+                                    onSort={setSort}
+                                />
                             </ReportFilters>
                             <ReportExport busy={busy} onDownload={download} />
                         </div>

@@ -22,6 +22,19 @@ import { usePerson } from "~/hooks/usePerson";
 
 const TYPE_LABELS = { college: "College", office: "Office", program: "Program" };
 
+const SMALL_WORDS = new Set(["of", "and", "the", "for", "in", "on", "to", "&"]);
+
+function suggestCode(name) {
+    return (name ?? "")
+        .split(/\s+/)
+        .filter((word) => word && !SMALL_WORDS.has(word.toLowerCase()))
+        .map((word) => word[0])
+        .join("")
+        .toUpperCase()
+        .replace(/[^A-Z0-9]/g, "")
+        .slice(0, 10);
+}
+
 function byName(a, b) {
     return a.name.localeCompare(b.name, undefined, { sensitivity: "base" });
 }
@@ -274,7 +287,10 @@ function chartPerson(node, depth) {
 const AVATAR_BY_RANK = { president: 80, vp: 56, head: 48, child: 42 };
 
 function UnitActions({ node, onAdd, onDelete }) {
-    const canDelete = !(node.direct_members_count > 0);
+    const isRoot = !node.parent_id;
+    const hasPeople = node.direct_members_count > 0;
+    const hasChildren = (node.children ?? []).length > 0;
+    const canDelete = !isRoot || (!hasPeople && !hasChildren);
     const [open, setOpen] = useState(false);
     const [pos, setPos] = useState({ top: 0, left: 0 });
 
@@ -978,7 +994,10 @@ export default function OrgUnitsPage() {
         window.addEventListener("pointerup", up);
     };
 
+    const codeEdited = useRef(false);
+
     const openDrawer = (record, parentId = null) => {
+        codeEdited.current = false;
         setEditing(record ?? null);
         if (record?.id) setFoundId(record.id);
         setOpen(true);
@@ -1109,6 +1128,16 @@ export default function OrgUnitsPage() {
                         ...values,
                         id: editing?.id,
                     })}
+                    onValuesChange={(changed, all) => {
+                        if (editing) return;
+
+                        if (changed.code !== undefined) {
+                            codeEdited.current = true;
+                        } else if (changed.name !== undefined && !codeEdited.current) {
+                            // BS Information Technology -> BSIT, until the code is typed by hand.
+                            form.setFieldsValue({ code: suggestCode(all.name) });
+                        }
+                    }}
                 >
                     <section className="pms-org-drawer-block is-unit">
                         <h3>The unit</h3>

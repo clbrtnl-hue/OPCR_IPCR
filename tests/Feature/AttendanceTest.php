@@ -473,6 +473,25 @@ class AttendanceTest extends PmsTestCase
         $this->assertContains($staff->id, collect($sheet->json('members'))->pluck('id')->all());
     }
 
+    public function test_a_head_dashboard_reads_attendance_averages(): void
+    {
+        ['hr' => $hr, 'staff' => $staff, 'year' => $year, 'period' => $period, 'monday' => $monday] = $this->office();
+
+        $this->actingAsUser($hr);
+        $this->putJson('/api/attendance/days', [
+            'rating_period_id' => $period->id,
+            'user_id'          => $staff->id,
+            'day'              => $monday->toDateString(),
+            'status'           => 'present',
+        ])->assertOk();
+
+        $this->getJson('/api/attendance?summary=1&school_year_id='.$year->id.'&rating_period_id='.$period->id)
+            ->assertOk()
+            ->assertJsonPath('daily_pct', 100)
+            ->assertJsonPath('rows.0.name', 'HRMO Staff')
+            ->assertJsonPath('rows.0.daily_pct', 100);
+    }
+
     private function office(): array
     {
         $this->makeOrganization();

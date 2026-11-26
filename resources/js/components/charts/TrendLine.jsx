@@ -14,10 +14,13 @@ export default function TrendLine({
     format = (value) => value,
     emptyText = "Nothing to show yet.",
     filled = false,
+    smooth = false,
+    valueName = "Value",
     onSelect,
 }) {
     const { viz } = useTheme();
     const selectRef = useRef(onSelect);
+    const picked = useRef(false);
     selectRef.current = onSelect;
     const signature = points.map((point) => `${point.label}:${point.value}`).join("|");
     const data = points.map((point) => ({
@@ -27,6 +30,7 @@ export default function TrendLine({
     }));
 
     const config = useMemo(() => {
+        const curve = smooth ? { shape: "smooth" } : {};
         const shared = {
             data,
             xField: "label",
@@ -43,32 +47,32 @@ export default function TrendLine({
             },
             tooltip: {
                 title: (datum) => datum.hint ?? datum.label,
-                items: [(datum) => ({ name: "Value", value: format(datum.value) })],
+                items: [(datum) => ({ name: valueName, value: format(datum.value) })],
             },
         };
 
         if (filled) {
             return {
                 ...shared,
+                ...curve,
                 style: { fill: color, fillOpacity: 0.22 },
-                line: { style: { stroke: color, lineWidth: 2 } },
-                point: { size: 3, style: { fill: color, stroke: "#ffffff", lineWidth: 1 } },
+                line: { ...curve, style: { stroke: color, lineWidth: 2 } },
+                point: { size: 4, style: { fill: color, stroke: "#ffffff", lineWidth: 1 } },
             };
         }
 
         return {
             ...shared,
+            ...curve,
             style: { stroke: color, lineWidth: 2 },
             point: { size: 3, style: { fill: color, stroke: "#ffffff", lineWidth: 1 } },
-            area: { style: { fill: color, fillOpacity: 0.16 } },
+            area: { ...curve, style: { fill: color, fillOpacity: 0.16 } },
         };
-    }, [signature, height, min, max, color, filled, format, Boolean(onSelect), viz]);
+    }, [signature, height, min, max, color, filled, smooth, valueName, format, Boolean(onSelect), viz]);
 
     if (!points.length) {
         return <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={emptyText} />;
     }
-
-    const picked = useRef(false);
 
     const onEvent = (chart, event) => {
         if (event?.type !== "element:click" || !selectRef.current) return;

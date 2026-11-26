@@ -9,12 +9,17 @@ export default function ColumnChart({
     data = [],
     height = 220,
     color = VIZ.series[0],
+    max,
+    maxWidth = 28,
+    showValues = false,
+    valueName = "Filed",
     format = (value) => value,
     emptyText = "Nothing to show yet.",
     onSelect,
 }) {
     const { viz } = useTheme();
     const selectRef = useRef(onSelect);
+    const picked = useRef(false);
     selectRef.current = onSelect;
     const signature = data.map((row) => `${row.key ?? row.label}:${row.value}:${row.color}`).join("|");
     const rows = data.map((row) => ({
@@ -35,27 +40,35 @@ export default function ColumnChart({
             axis: axisFor(viz),
             scale: {
                 color: colorScale(rows),
-                y: { domainMin: 0, nice: true },
+                y: { domainMin: 0, ...(max != null ? { domainMax: max } : { nice: true }) },
             },
             style: {
                 radiusTopLeft: 4,
                 radiusTopRight: 4,
-                maxWidth: 28,
+                maxWidth,
                 cursor: onSelect ? "pointer" : "default",
             },
+            ...(showValues
+                ? {
+                      label: {
+                          text: (datum) => `${format(datum.value)}`,
+                          fill: viz.ink ?? "#1f2a37",
+                          fontSize: 13,
+                          fontWeight: 700,
+                      },
+                  }
+                : {}),
             tooltip: {
                 title: (datum) => datum.hint ?? datum.label,
-                items: [(datum) => ({ name: "Filed", value: format(datum.value) })],
+                items: [(datum) => ({ name: valueName, value: format(datum.value) })],
             },
         }),
-        [signature, height, format, Boolean(onSelect), viz]
+        [signature, height, max, maxWidth, showValues, valueName, format, Boolean(onSelect), viz]
     );
 
     if (!data.length) {
         return <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={emptyText} />;
     }
-
-    const picked = useRef(false);
 
     const onEvent = (chart, event) => {
         if (event?.type !== "element:click" || !selectRef.current) return;

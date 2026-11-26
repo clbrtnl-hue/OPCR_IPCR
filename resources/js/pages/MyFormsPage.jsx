@@ -212,12 +212,19 @@ export default function MyFormsPage() {
                 }
                 extra={
                     viewOnly ? null : (
-                    <Space wrap>
-                    {/* {can("admin", "program_head", "vp") && (
-                        <Button icon={<TeamOutlined />} onClick={() => setBulkOpen(true)}>
-                            Open IPCRs for an office
-                        </Button>
-                    )} */}
+                    <>
+                    {forms.length > 0 && (
+                        <FormListFilters
+                            rows={yearRows}
+                            formKind={activeFormKind}
+                            onFormKind={setFormKind}
+                            statusFilter={activeStatus}
+                            onStatusFilter={setStatusFilter}
+                            years={years}
+                            yearFilter={resolvedYear}
+                            onYearFilter={setYearFilter}
+                        />
+                    )}
                     <Button
                         type="primary"
                         icon={<PlusOutlined />}
@@ -237,7 +244,7 @@ export default function MyFormsPage() {
                     >
                         New form
                     </Button>
-                    </Space>
+                    </>
                     )
                 }
             />
@@ -260,18 +267,6 @@ export default function MyFormsPage() {
             )}
 
             <Card className="pms-list-panel pms-list-fill">
-                {forms.length > 0 && (
-                    <FormListFilters
-                        rows={yearRows}
-                        formKind={activeFormKind}
-                        onFormKind={setFormKind}
-                        statusFilter={activeStatus}
-                        onStatusFilter={setStatusFilter}
-                        years={years}
-                        yearFilter={resolvedYear}
-                        onYearFilter={setYearFilter}
-                    />
-                )}
                 {shownForms.length === 0 && !isLoading && !yearsLoading ? (
                     <Empty
                         description={

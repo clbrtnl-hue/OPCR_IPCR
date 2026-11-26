@@ -114,7 +114,6 @@ Route::middleware('auth:api')->group(function () {
     Route::post('pcr-forms/{id}/apply-template', [PcrFormController::class, 'applyTemplate']);
     Route::post('pcr-forms/{id}/status', [PcrFormController::class, 'setStatus']);
     Route::post('pcr-forms/{id}/nudge', [PcrFormController::class, 'nudge']);
-    Route::post('pcr-forms/{id}/repair', [PcrFormController::class, 'repair'])->middleware($PMS_ADMIN);
     Route::delete('pcr-forms/{id}', [PcrFormController::class, 'destroy']);
 
     Route::post('pcr-outputs', [PcrOutputController::class, 'store']);

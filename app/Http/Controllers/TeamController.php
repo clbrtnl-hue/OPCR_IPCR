@@ -374,6 +374,8 @@ class TeamController extends Controller
                 'commitments'  => array_sum(array_column($rows, 'commitments')),
                 'completed'    => array_sum(array_column($rows, 'completed')),
                 'overdue'      => array_sum(array_column($rows, 'overdue')),
+                'returned'     => array_sum(array_column($rows, 'returned')),
+                'due_soon'     => array_sum(array_column($rows, 'due_soon')),
             ],
             'rows' => $rows,
         ]);
@@ -398,6 +400,8 @@ class TeamController extends Controller
                 'commitments'  => 0,
                 'completed'    => 0,
                 'overdue'      => 0,
+                'returned'     => 0,
+                'due_soon'     => 0,
             ],
             'rows' => [],
         ];
@@ -425,6 +429,9 @@ class TeamController extends Controller
                 'drafting'     => 1,
                 'submitted'    => 0,
                 'rated'        => 0,
+                'returned'     => 0,
+                'due_soon'     => 0,
+                'status'       => null,
             ];
         }
 
@@ -457,6 +464,8 @@ class TeamController extends Controller
             $stats[$userId]['drafting'] = $stage['drafting'];
             $stats[$userId]['submitted'] = $stage['submitted'];
             $stats[$userId]['rated'] = $stage['rated'];
+            $stats[$userId]['status'] = $latest->status;
+            $stats[$userId]['returned'] = $latest->status === 'returned' ? 1 : 0;
         }
 
         if ($forms->isEmpty()) {
@@ -487,6 +496,7 @@ class TeamController extends Controller
 
         $outputForm = $outputs->pluck('form_id', 'id');
         $today = now()->startOfDay();
+        $soon = $today->copy()->addDays(7);
         $pcts = [];
 
         foreach ($indicators as $line) {
@@ -508,6 +518,7 @@ class TeamController extends Controller
             $stats[$userId]['commitments']++;
             $stats[$userId]['completed'] += $done ? 1 : 0;
             $stats[$userId]['overdue'] += $late ? 1 : 0;
+            $stats[$userId]['due_soon'] += ($due && ! $done && ! $late && $due->copy()->startOfDay()->lte($soon)) ? 1 : 0;
             $pcts[$userId][] = (int) ($line->progress_pct ?? 0);
         }
 
@@ -604,6 +615,8 @@ class TeamController extends Controller
             'drafting'      => $summary['drafting'],
             'submitted'     => $summary['submitted'],
             'rated'         => $summary['rated'],
+            'returned'      => $summary['returned'],
+            'due_soon'      => $summary['due_soon'],
         ];
     }
 
@@ -629,6 +642,9 @@ class TeamController extends Controller
                 'drafting'       => $row['drafting'],
                 'submitted'      => $row['submitted'],
                 'rated'          => $row['rated'],
+                'returned'       => $row['returned'],
+                'due_soon'       => $row['due_soon'],
+                'status'         => $row['status'],
             ];
         })->all();
 
@@ -648,6 +664,8 @@ class TeamController extends Controller
         $drafting = 0;
         $submitted = 0;
         $rated = 0;
+        $returned = 0;
+        $dueSoon = 0;
 
         foreach ($people as $person) {
             $row = $stats[$person->id] ?? null;
@@ -662,6 +680,8 @@ class TeamController extends Controller
             $drafting += $row['drafting'];
             $submitted += $row['submitted'];
             $rated += $row['rated'];
+            $returned += $row['returned'];
+            $dueSoon += $row['due_soon'];
 
             if ($row['progress_pct'] !== null) {
                 $pcts[] = $row['progress_pct'];
@@ -676,6 +696,8 @@ class TeamController extends Controller
             'drafting'     => $drafting,
             'submitted'    => $submitted,
             'rated'        => $rated,
+            'returned'     => $returned,
+            'due_soon'     => $dueSoon,
         ];
     }
 

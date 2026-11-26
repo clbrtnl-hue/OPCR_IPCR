@@ -3,8 +3,9 @@ import { Empty, Popconfirm, message } from "antd";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import dayjs from "dayjs";
-import { RATING_LEGEND, VIZ } from "~/utils/constants";
+import { VIZ } from "~/utils/constants";
 import StatusRing from "~/components/charts/StatusRing";
+import ColumnChart from "~/components/charts/ColumnChart";
 import api from "~/utils/api";
 import { useAuth } from "~/hooks/useAuth";
 
@@ -22,14 +23,6 @@ const WAIT_SHORT = {
     director_review: "Director",
     vp_review: "VP",
     qa_rating: "QA",
-};
-
-const BAND_COLOR = {
-    Outstanding: VIZ.good,
-    "Very Satisfactory": VIZ.series[2],
-    Satisfactory: VIZ.series[0],
-    Unsatisfactory: VIZ.warning,
-    Poor: VIZ.critical,
 };
 
 const NAME_SKIP = new Set(["of", "the", "and", "for", "in", "a", "an"]);
@@ -57,10 +50,14 @@ function percent(part, whole) {
     return Math.round((part / whole) * 100);
 }
 
-function reportPath(tab, q) {
+function reportPath(tab, q, extra) {
     const params = new URLSearchParams({ tab });
 
     if (q) params.set("q", q);
+
+    for (const [key, value] of Object.entries(extra ?? {})) {
+        if (value != null && value !== "") params.set(key, String(value));
+    }
 
     return `/reports?${params.toString()}`;
 }
@@ -149,11 +146,12 @@ function hasWorkingDescendant(id, childrenOf, stats) {
     return false;
 }
 
-function BoardCard({ title, children, className }) {
+function BoardCard({ title, children, className, aside }) {
     return (
         <section className={["pms-board-card", className].filter(Boolean).join(" ")}>
             <header className="pms-board-card-head">
                 <h3>{title}</h3>
+                {aside}
             </header>
             {children}
         </section>
@@ -244,18 +242,36 @@ export default function PresidentGlance({ data, periodLocked = false }) {
     const overdue = lines.filter((line) => line.is_overdue).length;
     const notStarted = lines.filter((line) => line.progress_status === "not_started" && !line.is_overdue).length;
     const ongoing = Math.max(0, lines.length - completed - overdue - notStarted);
+    const workTotal = completed + ongoing + notStarted + overdue;
     const onTime = percent(Math.max(0, lines.length - overdue), lines.length);
 
     const people = data?.people ?? [];
-    const aheadPeople = people.filter(
-        (person) =>
-            person.progress_pct != null &&
-            person.progress_pct > 0 &&
-            (collegePct == null || person.progress_pct >= collegePct)
-    );
+    const aheadPeople = people
+        .filter(
+            (person) =>
+                person.progress_pct != null &&
+                person.progress_pct > 0 &&
+                (collegePct == null || person.progress_pct >= collegePct)
+        )
+        .sort(
+            (a, b) =>
+                b.progress_pct - a.progress_pct || String(a.name).localeCompare(String(b.name))
+        );
     const idlePeople = people.filter((person) => person.progress_pct == null || person.progress_pct === 0);
     const peopleAhead = aheadPeople.length;
     const peopleIdle = idlePeople.length;
+
+    const headByUnit = new Map((data?.heads ?? []).filter((row) => row.head).map((row) => [row.unit, row.head]));
+    const unitByName = new Map((data?.units ?? []).map((unit) => [unit.name, unit]));
+    const leaderOf = (person) => {
+        const own = headByUnit.get(person.unit);
+
+        if (own && own !== person.name) return own;
+
+        const parentName = unitByName.get(person.unit)?.parent_name;
+
+        return (parentName && headByUnit.get(parentName)) || null;
+    };
 
     const workSlices = [
         {
@@ -263,24 +279,24 @@ export default function PresidentGlance({ data, periodLocked = false }) {
             label: "Completed",
             value: completed,
             color: VIZ.good,
-            href: reportPath("commitments"),
-            hint: `${completed} commitment${completed === 1 ? "" : "s"} finished`,
+            href: reportPath("commitments", null, { progress: "completed" }),
+            hint: `${completed} finished`,
         },
         {
             key: "ongoing",
             label: "Ongoing",
             value: ongoing,
             color: VIZ.series[0],
-            href: reportPath("commitments"),
-            hint: `${ongoing} commitment${ongoing === 1 ? "" : "s"} in progress`,
+            href: reportPath("commitments", null, { progress: "ongoing", standing: "ontime" }),
+            hint: `${ongoing} in progress`,
         },
         {
             key: "not_started",
             label: "Not started",
             value: notStarted,
             color: VIZ.muted,
-            href: reportPath("commitments"),
-            hint: `${notStarted} commitment${notStarted === 1 ? "" : "s"} not started`,
+            href: reportPath("commitments", null, { progress: "not_started", standing: "ontime" }),
+            hint: `${notStarted} not started`,
         },
         {
             key: "overdue",
@@ -325,24 +341,44 @@ export default function PresidentGlance({ data, periodLocked = false }) {
             .sort((a, b) => (b.value ?? -1) - (a.value ?? -1) || a.label.localeCompare(b.label));
     }, [data, collegePct]);
 
-    const ratedTotal = Number(totals.rated ?? 0);
-    const bands = RATING_LEGEND.map((band) => ({
-        key: band.label,
-        label: band.label,
-        mark: band.value,
-        value: Number(data?.adjectival?.[band.label] ?? 0),
-        color: BAND_COLOR[band.label] ?? VIZ.series[0],
-        href: reportPath("ratings", band.label),
-    }));
+    const formRows = data?.forms ?? [];
+    const ipcrForms = formRows.filter((form) => form.type === "IPCR");
+    const ipcrSent = ipcrForms.filter((form) => form.status && form.status !== "draft").length;
+    const opcr = formRows.find((form) => form.type === "OPCR");
+    const opcrChip =
+        opcr?.status === "published"
+            ? "Published"
+            : opcr?.status === "final"
+              ? "Final"
+              : opcr?.status === "approved"
+                ? "Approved"
+                : opcr?.status === "draft"
+                  ? "Draft"
+                  : opcr?.status === "returned"
+                    ? "Returned"
+                    : opcr
+                      ? "In review"
+                      : null;
+    const sections = ["strategic", "core", "support"].map((key) => {
+        const row = (data?.sections ?? []).find((item) => item.section === key) ?? {};
+
+        return {
+            key,
+            label: key === "strategic" ? "Strategic" : key === "core" ? "Core" : "Support",
+            progress_pct: row.progress_pct ?? null,
+            commitments: Number(row.commitments ?? 0),
+        };
+    });
+    const ipcrTotal = Number(totals.ipcr ?? ipcrForms.length);
+
+    const deadline = data?.deadlines?.active ?? null;
+    const daysLeft = deadline?.days_left ?? null;
 
     const waitingStages = (data?.turnaround?.waiting ?? [])
-        .filter((row) => row.forms > 0)
+        .filter((row) => row.forms > 0 && Number(row.oldest_days ?? 0) >= 3)
         .map((row) => {
-            const oldest = row.oldest_days != null ? Number(row.oldest_days) : null;
-            let tone = "ok";
-
-            if (oldest != null && oldest >= 7) tone = "late";
-            else if (oldest != null && oldest >= 3) tone = "slow";
+            const oldest = Number(row.oldest_days);
+            const tone = oldest >= 7 ? "late" : "slow";
 
             return {
                 key: row.status,
@@ -354,9 +390,8 @@ export default function PresidentGlance({ data, periodLocked = false }) {
             };
         });
     const pendingReviewers = [...(data?.turnaround?.reviewers ?? [])]
-        .filter((row) => row.pending > 0 && row.oldest_form_id)
-        .sort((a, b) => (b.oldest_pending_days ?? 0) - (a.oldest_pending_days ?? 0))
-        .slice(0, 4);
+        .filter((row) => row.pending > 0 && row.oldest_form_id && Number(row.oldest_pending_days ?? 0) >= 3)
+        .sort((a, b) => (b.oldest_pending_days ?? 0) - (a.oldest_pending_days ?? 0));
 
     return (
         <div className="pms-president">
@@ -365,6 +400,13 @@ export default function PresidentGlance({ data, periodLocked = false }) {
                     <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="No offices or programs to compare yet." />
                 ) : (
                     <div className="pms-board-table">
+                        <div className="pms-board-table-head" aria-hidden="true">
+                            <span>Unit</span>
+                            <span>People</span>
+                            <span>Progress</span>
+                            <span>Due</span>
+                            <span>Score</span>
+                        </div>
                         <div className="pms-board-table-body">
                             {ranked.map((unit) => (
                                 <button
@@ -433,11 +475,40 @@ export default function PresidentGlance({ data, periodLocked = false }) {
                 )}
             </BoardCard>
 
-            <BoardCard title="Status" className="pms-board-status-card">
+            <BoardCard
+                title="Status"
+                className="pms-board-status-card"
+                aside={
+                    <span className="pms-board-chips">
+                        {opcrChip && (
+                            <span className="pms-board-chip" title="OPCR">
+                                OPCR · {opcrChip}
+                            </span>
+                        )}
+                        <button
+                            type="button"
+                            className="pms-board-chip is-link"
+                            title="IPCRs submitted"
+                            onClick={() => open(reportPath("forms", null, { type: "IPCR" }))}
+                        >
+                            IPCR · {ipcrSent}/{ipcrTotal}
+                        </button>
+                        {deadline && daysLeft != null && (
+                            <span
+                                className={daysLeft <= 7 ? "pms-board-chip is-late" : "pms-board-chip"}
+                                title={deadline.closes_at ? `${deadline.label} closes ${dayjs(deadline.closes_at).format("MMM D, YYYY")}` : deadline.label}
+                            >
+                                {deadline.label} · {daysLeft >= 0 ? `${daysLeft}d left` : `${Math.abs(daysLeft)}d past`}
+                            </span>
+                        )}
+                    </span>
+                }
+            >
                 <div className="pms-status-top">
                     <StatusRing
                         slices={workSlices}
-                        total={collegePct != null ? `${collegePct}%` : "—"}
+                        total={workTotal}
+                        caption="commitments"
                         onSelect={(slice) => open(slice.href)}
                     />
                     <div className="pms-status-legend">
@@ -450,12 +521,19 @@ export default function PresidentGlance({ data, periodLocked = false }) {
                                 onClick={() => slice.value > 0 && open(slice.href)}
                             >
                                 <i style={{ background: slice.color }} />
+                                <span>{slice.label}</span>
                                 <strong>{slice.value}</strong>
                             </button>
                         ))}
                     </div>
                 </div>
-                <button type="button" className="pms-status-meter" title="On time" onClick={() => open(reportPath("commitments"))}>
+                <button
+                    type="button"
+                    className="pms-status-meter"
+                    title="On time"
+                    onClick={() => open(reportPath("commitments", null, { standing: "ontime" }))}
+                >
+                    <span className="pms-status-meter-label">On time</span>
                     <span className="pms-status-meter-track">
                         <span className="pms-status-meter-fill" style={{ width: `${onTime ?? 0}%` }}>
                             <span className="pms-status-meter-pill">{onTime != null ? `${onTime}%` : "—"}</span>
@@ -463,7 +541,7 @@ export default function PresidentGlance({ data, periodLocked = false }) {
                     </span>
                 </button>
                 <div className="pms-status-piles">
-                    <button type="button" title="Ahead of the college" onClick={() => open(reportPath("people"))}>
+                    <button type="button" title="Ahead of the college" onClick={() => open(reportPath("people", null, { pace: "ahead" }))}>
                         <i className="is-ahead" />
                         <span className="pms-board-faces" aria-hidden="true">
                             {aheadPeople.slice(0, 3).map((person) => (
@@ -472,25 +550,51 @@ export default function PresidentGlance({ data, periodLocked = false }) {
                                 </span>
                             ))}
                         </span>
+                        <span>Ahead</span>
                         <strong>+{peopleAhead}</strong>
                     </button>
-                    <button type="button" title="Not started" onClick={() => open(reportPath("people"))}>
+                    <button type="button" title="Not started" onClick={() => open(reportPath("people", null, { pace: "idle" }))}>
                         <i />
-                        <span className="pms-board-faces" aria-hidden="true">
-                            {idlePeople.slice(0, 3).map((person) => (
-                                <span key={person.id} title={person.name}>
-                                    {initials(person.name)}
-                                </span>
-                            ))}
+                        <span className="pms-pile-list">
+                            {idlePeople.slice(0, 3).map((person) => {
+                                const leader = leaderOf(person);
+
+                                return (
+                                    <span
+                                        key={person.id}
+                                        className="pms-pile-row"
+                                        title={leader ? `${person.name} · under ${leader}` : person.name}
+                                    >
+                                        <span className="pms-pile-avatar" aria-hidden="true">{initials(person.name)}</span><b>{shortPerson(person.name)}</b>
+                                        {leader && <em>↳ {shortPerson(leader)}</em>}
+                                    </span>
+                                );
+                            })}
                         </span>
+                        <span>Not started</span>
                         <strong>+{peopleIdle}</strong>
                     </button>
+                </div>
+                <div className="pms-status-sections">
+                    {sections.map((section) => (
+                        <button
+                            key={section.key}
+                            type="button"
+                            title={`${section.label} · ${section.commitments} commitments`}
+                            onClick={() => open(reportPath("commitments", section.key))}
+                        >
+                            <em>{section.label}</em>
+                            <strong style={{ color: paceAgainst(section.progress_pct, collegePct) }}>
+                                {section.progress_pct != null ? `${section.progress_pct}%` : "—"}
+                            </strong>
+                        </button>
+                    ))}
                 </div>
             </BoardCard>
 
             <BoardCard title="Queue" className="pms-board-queue">
                 {waitingStages.length === 0 && pendingReviewers.length === 0 ? (
-                    <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="Nothing is waiting on a reviewer." />
+                    <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="Nothing needs a reminder right now." />
                 ) : (
                     <div className="pms-board-queue-body">
                         {waitingStages.length > 0 && (
@@ -594,40 +698,19 @@ export default function PresidentGlance({ data, periodLocked = false }) {
                 {vpBars.length === 0 ? (
                     <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="No VP is named on a unit yet." />
                 ) : (
-                    <div className="pms-board-bars">
-                        {vpBars.map((row) => (
-                            <button key={row.key} type="button" onClick={() => open(row.href)} title={row.hint}>
-                                <span>{row.label}</span>
-                                <span className="pms-board-track">
-                                    <span style={{ width: `${row.value ?? 0}%`, background: row.color }} />
-                                </span>
-                                <strong>{row.value != null ? `${row.value}%` : "—"}</strong>
-                            </button>
-                        ))}
+                    <div className="pms-board-chart">
+                        <ColumnChart
+                            data={vpBars.map((row) => ({ ...row, value: row.value ?? 0 }))}
+                            height={240}
+                            max={100}
+                            showValues
+                            maxWidth={44}
+                            valueName="Progress"
+                            format={(value) => `${value}%`}
+                            onSelect={(datum) => open(datum?.href ?? reportPath("vps"))}
+                        />
                     </div>
                 )}
-            </BoardCard>
-
-            <BoardCard title="Ratings" className="pms-board-ratings">
-                <div className="pms-board-bands">
-                    {bands.map((band) => (
-                        <button key={band.key} type="button" title={band.label} onClick={() => open(band.href)}>
-                            <i style={{ background: band.color }} />
-                            <span>{band.mark}</span>
-                            <span className="pms-board-track">
-                                <span
-                                    style={{
-                                        width: `${ratedTotal ? (band.value / ratedTotal) * 100 : 0}%`,
-                                        background: band.color,
-                                    }}
-                                />
-                            </span>
-                            <strong>
-                                {band.value}/{ratedTotal || 0}
-                            </strong>
-                        </button>
-                    ))}
-                </div>
             </BoardCard>
         </div>
     );

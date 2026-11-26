@@ -53,6 +53,10 @@ class DatabaseSeeder extends Seeder
         // Commitments, progress, the review chain, and ratings, so 2026
         // opens on a dashboard that already has something in every stage.
         $this->call(PanelHistorySeeder::class);
+
+        // Every office still without a form gets a staff member, commitments,
+        // and progress, so the unit charts are not blank.
+        $this->call(PanelUnitCoverageSeeder::class);
     }
 
     private function offices(): void

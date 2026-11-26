@@ -29,10 +29,15 @@ class AttendanceController extends Controller
             'org_unit_id'      => 'nullable|integer|exists:org_units,id',
         ]);
 
-        $user    = $request->user();
+        $user = $request->user();
+        $year = $this->year($data['school_year_id'] ?? null);
+
+        if ($request->boolean('summary')) {
+            return response()->json($this->summary($user, $year, $data['rating_period_id'] ?? null));
+        }
+
         $led     = $this->ledUnits($user);
         $catalog = $led;
-        $year = $this->year($data['school_year_id'] ?? null);
 
         if (! $year || $catalog->isEmpty()) {
             if ($user->role === 'employee' && $year) {
@@ -497,6 +502,86 @@ class AttendanceController extends Controller
             'category_rates' => $categoryRates ?: (object) [],
             'meetings'       => [],
         ];
+    }
+
+    /**
+     * Office averages for the head's dashboard. Stored rates only, so the
+     * page does not rebuild every day mark.
+     */
+    private function summary(User $user, ?SchoolYear $year, ?int $periodId): array
+    {
+        $empty = [
+            'daily_pct'    => null,
+            'activity_pct' => null,
+            'rows'         => [],
+            'categories'   => [],
+        ];
+
+        $led = $this->ledUnits($user);
+
+        if (! $year || $led->isEmpty()) {
+            return $empty;
+        }
+
+        $period = $this->period($year, $periodId);
+
+        if (! $period) {
+            return $empty;
+        }
+
+        $members = $this->peopleIn(
+            OrgUnit::subtreeIds($led->pluck('id')->map(fn ($id) => (int) $id)->all()),
+            $user
+        );
+        $daily = AttendanceRate::forPeriod((int) $period->id, 'daily');
+        $activities = AttendanceRate::forPeriod((int) $period->id, 'activities');
+        $byCategory = AttendanceRate::categoriesForPeriod((int) $period->id);
+        $rows = $members->map(function (User $member) use ($daily, $activities) {
+            return [
+                'id'           => $member->id,
+                'name'         => $member->name,
+                'daily_pct'    => $daily[$member->id]['pct'] ?? null,
+                'activity_pct' => $activities[$member->id]['pct'] ?? null,
+            ];
+        })->sortByDesc(fn (array $row) => $row['daily_pct'] ?? -1)->values();
+
+        $categories = [];
+
+        foreach (AttendanceMeeting::CATEGORIES as $key => $label) {
+            $pcts = [];
+
+            foreach ($members as $member) {
+                $pct = $byCategory[$member->id][$key]['pct'] ?? null;
+
+                if ($pct !== null) {
+                    $pcts[] = $pct;
+                }
+            }
+
+            $categories[] = [
+                'key'   => $key,
+                'label' => $label,
+                'pct'   => $this->mean($pcts),
+            ];
+        }
+
+        return [
+            'daily_pct'    => $this->mean($rows->pluck('daily_pct')->all()),
+            'activity_pct' => $this->mean($rows->pluck('activity_pct')->all()),
+            'rows'         => $rows,
+            'categories'   => $categories,
+        ];
+    }
+
+    private function mean(array $pcts): ?int
+    {
+        $pcts = array_values(array_filter($pcts, fn ($pct) => $pct !== null));
+
+        if ($pcts === []) {
+            return null;
+        }
+
+        return (int) round(array_sum($pcts) / count($pcts));
     }
 
     private function year(?int $id): ?SchoolYear

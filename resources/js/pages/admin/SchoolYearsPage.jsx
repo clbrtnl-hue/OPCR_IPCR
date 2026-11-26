@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useRef, useState } from "react";
 import {
     Alert,
     Button,
@@ -27,6 +27,8 @@ import dayjs from "dayjs";
 import api, { errorText } from "~/utils/api";
 import PageHeader from "~/components/PageHeader";
 
+const DEFAULT_PERIODS = ["Mid-year Review", "End-year Review"];
+
 const PERIOD_STATUS = [
     { value: "upcoming", label: "Upcoming" },
     { value: "open", label: "Open" },
@@ -40,6 +42,21 @@ const rangePickerProps = {
     inputReadOnly: phoneRange,
     classNames: { popup: { root: "pms-range-popup" } },
 };
+
+// "2027" for a calendar-year cycle, "2026-2027" when it crosses a year end.
+function yearLabel(start, end) {
+    return start.year() === end.year() ? `${start.year()}` : `${start.year()}-${end.year()}`;
+}
+
+// The first and second half of the year that starts on `start`.
+function halfYearWindows(start) {
+    const middle = start.add(6, "month");
+
+    return [
+        [start, middle.subtract(1, "day")],
+        [middle, start.add(12, "month").subtract(1, "day")],
+    ];
+}
 
 function periodWindow(period) {
     if (!period?.opens_at || !period?.closes_at) return undefined;
@@ -67,12 +84,42 @@ export default function SchoolYearsPage() {
         form.resetFields();
     };
 
+    // Filled in for a new year, but the admin can still change any of it.
+    // Once a field is edited by hand, changing the dates stops overwriting it.
+    const edited = useRef({ label: false, windows: false });
+
+    const fillFromRange = (range, { label = true, windows = true } = {}) => {
+        const [start, end] = range;
+        const patch = {};
+
+        if (label) patch.label = yearLabel(start, end);
+
+        if (windows) {
+            const halves = halfYearWindows(start);
+
+            patch.periods = DEFAULT_PERIODS.map((name, index) => ({
+                label: form.getFieldValue(["periods", index, "label"]) ?? name,
+                window: halves[index],
+            }));
+        }
+
+        form.setFieldsValue(patch);
+    };
+
     const openCreate = () => {
+        const latestEnd = years
+            .map((year) => dayjs(year.end_date))
+            .sort((a, b) => b.valueOf() - a.valueOf())[0];
+        const start = latestEnd ? latestEnd.add(1, "day") : dayjs().startOf("year");
+        const range = [start, start.add(1, "year").subtract(1, "day")];
+        const halves = halfYearWindows(start);
+
+        edited.current = { label: false, windows: false };
         setEditing(null);
         form.setFieldsValue({
-            label: undefined,
-            range: undefined,
-            periods: [{ label: "Mid-year Review" }, { label: "End-year Review" }],
+            label: yearLabel(...range),
+            range,
+            periods: DEFAULT_PERIODS.map((label, index) => ({ label, window: halves[index] })),
         });
         setOpen(true);
     };
@@ -87,7 +134,7 @@ export default function SchoolYearsPage() {
             label: year.label,
             range: [dayjs(year.start_date), dayjs(year.end_date)],
             periods: [0, 1].map((index) => ({
-                label: periods[index]?.label ?? (index === 0 ? "Mid-year Review" : "End-year Review"),
+                label: periods[index]?.label ?? DEFAULT_PERIODS[index],
                 window: periodWindow(periods[index]),
             })),
         });
@@ -416,7 +463,20 @@ export default function SchoolYearsPage() {
                     layout="vertical"
                     requiredMark={false}
                     initialValues={{
-                        periods: [{ label: "Mid-year Review" }, { label: "End-year Review" }],
+                        periods: DEFAULT_PERIODS.map((label) => ({ label })),
+                    }}
+                    onValuesChange={(changed) => {
+                        if (editing) return;
+
+                        if (changed.label !== undefined) edited.current.label = true;
+                        if (changed.periods) edited.current.windows = true;
+
+                        if (changed.range?.[0] && changed.range?.[1]) {
+                            fillFromRange(changed.range, {
+                                label: !edited.current.label,
+                                windows: !edited.current.windows,
+                            });
+                        }
                     }}
                     onFinish={(values) =>
                         save.mutate({
@@ -425,8 +485,8 @@ export default function SchoolYearsPage() {
                             start_date: values.range[0].format("YYYY-MM-DD"),
                             end_date: values.range[1].format("YYYY-MM-DD"),
                             is_active: editing ? undefined : false,
-                            periods: values.periods.map((p) => ({
-                                label: p.label,
+                            periods: values.periods.map((p, index) => ({
+                                label: p.label?.trim() || DEFAULT_PERIODS[index],
                                 opens_at: p.window?.[0]?.format("YYYY-MM-DD") ?? null,
                                 closes_at: p.window?.[1]?.format("YYYY-MM-DD") ?? null,
                             })),
@@ -434,7 +494,7 @@ export default function SchoolYearsPage() {
                     }
                 >
                     <Form.Item name="label" label="Label" rules={[{ required: true, message: "Name the school year." }]}>
-                        <Input placeholder="SY 2026-2027" />
+                        <Input placeholder="2027" />
                     </Form.Item>
                     <Form.Item name="range" label="Covers" rules={[{ required: true, message: "Pick the date range." }]}>
                         <DatePicker.RangePicker {...rangePickerProps} />
@@ -447,12 +507,8 @@ export default function SchoolYearsPage() {
                             title={index === 0 ? "First review point" : "Second review point"}
                             style={{ marginBottom: 12 }}
                         >
-                            <Form.Item
-                                name={["periods", index, "label"]}
-                                label="Name"
-                                rules={[{ required: true, message: "Name this review point." }]}
-                            >
-                                <Input />
+                            <Form.Item name={["periods", index, "label"]} label="Name">
+                                <Input placeholder={DEFAULT_PERIODS[index]} />
                             </Form.Item>
                             <Form.Item name={["periods", index, "window"]} label="Submission window">
                                 <DatePicker.RangePicker {...rangePickerProps} />

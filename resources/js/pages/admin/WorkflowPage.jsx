@@ -10,6 +10,7 @@ import {
     InputNumber,
     Popconfirm,
     Row,
+    Segmented,
     Select,
     Space,
     Spin,
@@ -23,6 +24,15 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import api from "~/utils/api";
 import PageHeader from "~/components/PageHeader";
 import { ROLE_LABELS } from "~/utils/constants";
+
+function slotLabel(slot) {
+    return {
+        head_user_id: "The unit's head",
+        dean_user_id: "The unit's dean",
+        director_review: "The unit's director",
+        vp_user_id: "The unit's VP",
+    }[slot] ?? "The unit";
+}
 
 const KEY_LABELS = {
     review_stages: "Review chain",
@@ -84,11 +94,22 @@ export default function WorkflowPage() {
     const opcr = settings.opcr ?? {};
     const rating = settings.rating ?? {};
 
-    const setStage = (index, patch) =>
+    const setStage = (index, patch) => {
+        const nextPatch = { ...patch };
+
+        if (index === stages.length - 1 && patch.role) {
+            nextPatch.source = "role";
+            nextPatch.skippable = false;
+
+            if (patch.role === "president") nextPatch.label = "With the President";
+            if (patch.role === "qa") nextPatch.label = "With QA";
+        }
+
         put(
             "review_stages",
-            stages.map((s, i) => (i === index ? { ...s, ...patch } : s))
+            stages.map((s, i) => (i === index ? { ...s, ...nextPatch } : s))
         );
+    };
 
     const moveStage = (index, by) => {
         const next = [...stages];
@@ -125,6 +146,14 @@ export default function WorkflowPage() {
     };
 
     const last = stages.length - 1;
+    const raterRole = stages[last]?.role ?? "qa";
+    const raterOptions = [
+        { value: "qa", label: "QA" },
+        { value: "president", label: "President" },
+        ...(raterRole && !["qa", "president"].includes(raterRole)
+            ? [{ value: raterRole, label: ROLE_LABELS[raterRole] ?? raterRole }]
+            : []),
+    ];
 
     return (
         <>
@@ -148,171 +177,90 @@ export default function WorkflowPage() {
                 style={{ marginBottom: 16 }}
             >
                 <Typography.Paragraph type="secondary">
-                    An IPCR walks these stages in order. A stage nobody fills is passed
-                    over, so the form is not left waiting on an empty step — a head's own
-                    form skips the head stage, a unit with no dean or director skips those,
-                    and a VP's goes straight to QA. The last stage closes the form and
-                    cannot be skipped. Name the person for a new step on Setup → Hierarchy.
+                    An IPCR walks these steps in order. An empty step is passed over — a head&apos;s
+                    own form skips the head, and a unit with no dean or director skips those.
+                    Name the person for a new step on Setup → Hierarchy.
                 </Typography.Paragraph>
 
-                <Space.Compact style={{ marginBottom: 12, width: "100%", maxWidth: 420 }}>
-                    <Input
-                        placeholder="New step, for example Coordinator"
-                        value={stepName}
-                        onChange={(e) => setStepName(e.target.value)}
-                        onPressEnter={addStage}
-                    />
-                    <Button type="primary" onClick={addStage} disabled={!stepName.trim() || save.isPending}>
-                        Add step
-                    </Button>
-                </Space.Compact>
-
-                <div className="pms-mobile-only pms-pds-cards">
-                    {stages.map((stage, i) => (
-                        <article key={stage.status} className="pms-pds-card">
-                            <div className="pms-pds-line">
-                                <span>Stage</span>
-                                <Input
-                                    size="small"
-                                    style={{ width: 180 }}
-                                    defaultValue={stage.label}
-                                    key={`${stage.status}-${stage.label}`}
-                                    onBlur={(e) => {
-                                        const next = e.target.value.trim();
-                                        if (next && next !== stage.label) setStage(i, { label: next });
-                                    }}
-                                    onPressEnter={(e) => e.currentTarget.blur()}
-                                />
-                            </div>
+                <div className="pms-chain-edit">
+                    {stages.slice(0, -1).map((stage, i) => (
+                        <div key={stage.status} className="pms-chain-edit-row">
+                            <Input
+                                size="small"
+                                defaultValue={stage.label}
+                                key={`${stage.status}-${stage.label}`}
+                                onBlur={(e) => {
+                                    const next = e.target.value.trim();
+                                    if (next && next !== stage.label) setStage(i, { label: next });
+                                }}
+                                onPressEnter={(e) => e.currentTarget.blur()}
+                            />
                             {stage.source === "role" ? (
                                 <Select
                                     size="small"
-                                    style={{ width: "100%" }}
                                     value={stage.role}
                                     options={roleOptions}
                                     onChange={(role) => setStage(i, { role })}
                                 />
                             ) : (
-                                <Tag>
-                                    {{
-                                        head_user_id: "The unit's head",
-                                        dean_user_id: "The unit's dean",
-                                        director_review: "The unit's director",
-                                        vp_user_id: "The unit's VP",
-                                    }[stage.slot] ?? "The unit"}
-                                </Tag>
+                                <Tag style={{ margin: 0, justifySelf: "start" }}>{slotLabel(stage.slot)}</Tag>
                             )}
-                            <div className="pms-pds-actions">
-                                <span className="pms-late-only">
+                            <div className="pms-chain-edit-tools">
+                                <span className="pms-chain-edit-skip">
                                     <Switch
                                         size="small"
                                         checked={stage.skippable ?? true}
-                                        disabled={i === last}
                                         onChange={(skippable) => setStage(i, { skippable })}
                                     />
-                                    Skippable
+                                    Skip
                                 </span>
-                                <Button size="small" disabled={i === 0 || i === last} onClick={() => moveStage(i, -1)}>
+                                <Button type="text" size="small" disabled={i === 0} onClick={() => moveStage(i, -1)}>
                                     Up
                                 </Button>
-                                <Button size="small" disabled={i >= last - 1} onClick={() => moveStage(i, 1)}>
+                                <Button type="text" size="small" disabled={i >= last - 1} onClick={() => moveStage(i, 1)}>
                                     Down
                                 </Button>
-                                {i !== last && (
-                                    <Popconfirm title="Remove this step?" onConfirm={() => removeStage(i)}>
-                                        <Button size="small" danger>
-                                            Remove
-                                        </Button>
-                                    </Popconfirm>
-                                )}
+                                <Popconfirm title="Remove this step?" onConfirm={() => removeStage(i)}>
+                                    <Button type="text" size="small" danger>
+                                        Remove
+                                    </Button>
+                                </Popconfirm>
                             </div>
-                        </article>
+                        </div>
                     ))}
-                </div>
-                <div className="pms-desktop-only">
-                <Table
-                    rowKey="status"
-                    dataSource={stages}
-                    pagination={false}
-                    size="small"
-                    columns={[
-                        {
-                            title: "#",
-                            render: (_, __, i) => i + 1,
-                            width: 50,
-                        },
-                        {
-                            title: "Stage",
-                            render: (_, stage, i) => (
-                                <Input
-                                    size="small"
-                                    defaultValue={stage.label}
-                                    key={`${stage.status}-${stage.label}`}
-                                    onBlur={(e) => {
-                                        const next = e.target.value.trim();
-                                        if (next && next !== stage.label) setStage(i, { label: next });
-                                    }}
-                                    onPressEnter={(e) => e.currentTarget.blur()}
-                                />
-                            ),
-                        },
-                        {
-                            title: "Filled by",
-                            render: (_, stage, i) =>
-                                stage.source === "role" ? (
-                                    <Select
-                                        size="small"
-                                        style={{ width: 180 }}
-                                        value={stage.role}
-                                        options={roleOptions}
-                                        onChange={(role) => setStage(i, { role })}
-                                    />
-                                ) : (
-                                    <Tag>
-                                        {{
-                                            head_user_id: "The unit's head",
-                                            dean_user_id: "The unit's dean",
-                                        director_review: "The unit's director",
-                                            vp_user_id: "The unit's VP",
-                                        }[stage.slot] ?? "The unit"}
-                                    </Tag>
-                                ),
-                        },
-                        {
-                            title: "Skippable",
-                            width: 110,
-                            render: (_, stage, i) => (
-                                <Switch
-                                    size="small"
-                                    checked={stage.skippable ?? true}
-                                    disabled={i === last}
-                                    onChange={(skippable) => setStage(i, { skippable })}
-                                />
-                            ),
-                        },
-                        {
-                            title: "",
-                            width: 180,
-                            render: (_, __, i) => (
-                                <Space size={4}>
-                                    <Button size="small" disabled={i === 0 || i === last} onClick={() => moveStage(i, -1)}>
-                                        ↑
-                                    </Button>
-                                    <Button size="small" disabled={i >= last - 1} onClick={() => moveStage(i, 1)}>
-                                        ↓
-                                    </Button>
-                                    {i !== last && (
-                                        <Popconfirm title="Remove this step?" onConfirm={() => removeStage(i)}>
-                                            <Button size="small" danger>
-                                                Remove
-                                            </Button>
-                                        </Popconfirm>
-                                    )}
-                                </Space>
-                            ),
-                        },
-                    ]}
-                />
+                    <div className="pms-chain-edit-add">
+                        <Space.Compact style={{ width: "100%" }}>
+                            <Input
+                                placeholder="New step, for example Coordinator"
+                                value={stepName}
+                                onChange={(e) => setStepName(e.target.value)}
+                                onPressEnter={addStage}
+                            />
+                            <Button type="primary" onClick={addStage} disabled={!stepName.trim() || save.isPending}>
+                                Add step
+                            </Button>
+                        </Space.Compact>
+                    </div>
+                    {last >= 0 && (
+                        <div className="pms-chain-edit-rate">
+                            <div>
+                                <strong>Rates the IPCR</strong>
+                                <span>
+                                    {raterRole === "president"
+                                        ? "The last step. The President rates it and closes the form."
+                                        : raterRole === "qa"
+                                          ? "The last step. QA rates it. QA’s own IPCR still goes to the President."
+                                          : `The last step. ${ROLE_LABELS[raterRole] ?? raterRole} rates it and closes the form.`}
+                                </span>
+                            </div>
+                            <Segmented
+                                value={raterRole}
+                                options={raterOptions}
+                                onChange={(role) => setStage(last, { role })}
+                                disabled={save.isPending}
+                            />
+                        </div>
+                    )}
                 </div>
             </Card>
 
