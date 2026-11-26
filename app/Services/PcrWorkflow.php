@@ -902,16 +902,21 @@ class PcrWorkflow
     }
 
     /**
-     * The head picks which attendance record backs a support line, and only
-     * while that IPCR is on their rating step. Later reviewers read the percent.
+     * The leader who reviews this IPCR at their own stage (head, dean, or
+     * director) picks which attendance record backs a support line. Once the
+     * form moves on to the VP or QA, everyone reads the percent only.
      */
     public static function canLinkAttendance(User $user, PcrForm $form): bool
     {
-        if ($form->type !== 'ipcr' || $form->status !== 'head_review') {
+        if ($form->type !== 'ipcr' || (int) $form->user_id === (int) $user->id) {
             return false;
         }
 
-        if ((int) $form->head_reviewer_id !== (int) $user->id) {
+        if (! in_array($form->status, ['head_review', 'dean_review', 'director_review'], true)) {
+            return false;
+        }
+
+        if (! self::isReviewerFor($user, $form, $form->status)) {
             return false;
         }
 

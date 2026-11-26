@@ -96,10 +96,17 @@ export default function IpcrSheet({
     onRestartUi = null,
 }) {
     const { user } = useAuth();
+    // The leader reviewing at their own stage (head, dean, or director) picks
+    // the attendance evidence. Later stages only read the percent.
+    const stageReviewerId =
+        form?.review_steps?.find((step) => step.status === form?.status)?.reviewer?.id ??
+        (form?.status === "head_review" ? form?.head_reviewer_id : null) ??
+        (form?.status === "dean_review" ? form?.dean_reviewer_id : null);
     const canLinkAttendance =
         form?.type === "ipcr" &&
-        form?.status === "head_review" &&
-        Number(form?.head_reviewer_id) === Number(user?.id) &&
+        ["head_review", "dean_review", "director_review"].includes(form?.status) &&
+        Boolean(stageReviewerId) &&
+        Number(stageReviewerId) === Number(user?.id) &&
         Boolean(scoreEdit?.canEdit);
     const { data: attendanceCategories = [] } = useQuery({
         queryKey: ["attendance-categories"],

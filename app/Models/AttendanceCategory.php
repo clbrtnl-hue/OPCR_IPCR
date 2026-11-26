@@ -60,16 +60,17 @@ class AttendanceCategory extends Model
         return static::query()->orderBy('sort_order')->orderBy('name')->get();
     }
 
-    /** Named head of an office. That is who records employee attendance. */
+    /**
+     * Someone named on a review seat of an office (head, dean, director, or
+     * QA when they head one). Admin, VP, and the President do not record attendance.
+     */
     public static function linkableBy(User $user): bool
     {
         if (in_array($user->role, ['admin', 'vp', 'president'], true)) {
             return false;
         }
 
-        return OrgUnit::query()->whereHas('reviewers', function ($reviewers) use ($user) {
-            $reviewers->where('user_id', $user->id)->where('slot', 'head_user_id');
-        })->exists();
+        return OrgUnit::query()->whereLedBy((int) $user->id)->exists();
     }
 
     public static function manageableBy(User $user): bool

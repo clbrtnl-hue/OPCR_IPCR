@@ -25,7 +25,6 @@ class CalendarActivityTest extends PmsTestCase
             'slot' => 'director_review',
             'user_id' => $head->id,
         ]);
-        $unit->update(['head_user_id' => $head->id]);
 
         $this->actingAsUser($employee);
         $this->postJson('/api/attendance-categories', ['name' => 'Accreditation'])->assertStatus(403);

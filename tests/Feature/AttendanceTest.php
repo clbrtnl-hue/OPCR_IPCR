@@ -403,17 +403,14 @@ class AttendanceTest extends PmsTestCase
             'user_id'          => $faculty->id,
             'day'              => $monday->toDateString(),
             'status'           => 'present',
-        ])->assertStatus(403);
+        ])->assertOk();
         $this->postJson('/api/attendance/meetings', [
             'org_unit_id'      => $college->id,
             'rating_period_id' => $period->id,
             'title'            => 'Faculty meeting',
             'category'         => 'meeting',
             'held_on'          => $monday->toDateString(),
-        ])->assertStatus(403);
-        $this->getJson("/api/attendance?rating_period_id={$period->id}")
-            ->assertOk()
-            ->assertJsonPath('members', []);
+        ])->assertCreated();
 
         $this->actingAsUser($hr);
 
@@ -563,6 +560,41 @@ class AttendanceTest extends PmsTestCase
         $this->postJson('/api/pcr-outputs', $payload)->assertStatus(403);
     }
 
+    public function test_the_dean_links_evidence_at_their_own_review_stage(): void
+    {
+        ['hr' => $hr, 'staff' => $staff, 'year' => $year, 'period' => $period, 'monday' => $monday] = $this->office();
+
+        $dean = User::factory()->create(['role' => 'program_head', 'name' => 'College Dean']);
+
+        $form = $this->makeForm([
+            'school_year_id' => $year->id,
+            'org_unit_id'    => $staff->org_unit_id,
+            'user_id'        => $staff->id,
+            'status'         => 'dean_review',
+        ]);
+        $form->forceFill(['dean_reviewer_id' => $dean->id])->save();
+
+        $output = PcrOutput::create([
+            'form_id' => $form->id,
+            'section' => 'support',
+            'title'   => 'Accreditation documents',
+        ]);
+        $category = AttendanceCategory::ensure()->firstWhere('slug', 'meeting');
+        $payload = [
+            'id'                     => $output->id,
+            'form_id'                => $form->id,
+            'section'                => 'support',
+            'attendance_category_id' => $category->id,
+        ];
+
+        $this->actingAsUser($hr);
+        $this->postJson('/api/pcr-outputs', $payload)->assertStatus(403);
+
+        $this->actingAsUser($dean);
+        $this->postJson('/api/pcr-outputs', $payload)->assertOk();
+        $this->assertSame($category->id, (int) $output->fresh()->attendance_category_id);
+    }
+
     private function office(): array
     {
         $this->makeOrganization();
@@ -621,7 +653,7 @@ class AttendanceTest extends PmsTestCase
             'code'         => 'CTE',
             'type'         => 'college',
             'parent_id'    => $division->id,
-            'head_user_id' => $head->id,
+            'dean_user_id' => $head->id,
         ]);
         $head->update(['org_unit_id' => $college->id]);
 

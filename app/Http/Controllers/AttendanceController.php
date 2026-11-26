@@ -649,9 +649,7 @@ class AttendanceController extends Controller
     private function ledUnits(User $user): Collection
     {
         return OrgUnit::query()
-            ->whereHas('reviewers', function ($reviewers) use ($user) {
-                $reviewers->where('user_id', $user->id)->where('slot', 'head_user_id');
-            })
+            ->whereLedBy($user->id)
             ->orderBy('name')
             ->get(['id', 'name', 'code']);
     }

@@ -273,7 +273,7 @@ function EverydayAttendance({ year, chosenPeriodId }) {
                 <Alert
                     type="info"
                     showIcon
-                    message={watching ? "No offices to show yet." : "Everyday attendance opens for the head of an office. The Calendar tab is open to everyone."}
+                    message={watching ? "No offices to show yet." : "Everyday attendance opens for the head, dean, or director of an office. The Calendar tab is open to everyone."}
                 />
             ) : (
                 <div className="gs" ref={sheetRef} tabIndex={0} onKeyDown={onGridKey}>
