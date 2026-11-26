@@ -672,6 +672,7 @@ export default function FormEditorPage({ formId = null, periodBar = null, yearSe
 
             (form.outputs ?? []).forEach((output) => {
                 (output.indicators ?? []).forEach((indicator) => {
+                    if (!countsTowardRating(indicator)) return;
                     if (periodForScores && indicator.rating_period_id && indicator.rating_period_id !== periodForScores) {
                         return;
                     }
@@ -946,8 +947,20 @@ export default function FormEditorPage({ formId = null, periodBar = null, yearSe
         !cycleClosed &&
         commitmentsApproved &&
         ["commitments_approved", "returned"].includes(form.status);
+    const rateableSelfIds = useMemo(
+        () =>
+            new Set(
+                (form?.outputs ?? []).flatMap((output) =>
+                    (output.indicators ?? [])
+                        .filter((line) => countsTowardRating(line))
+                        .map((line) => Number(line.id))
+                )
+            ),
+        [form]
+    );
     const selfRateRows = () =>
         Object.entries(selfScores).flatMap(([indicatorId, value]) => {
+            if (!rateableSelfIds.has(Number(indicatorId))) return [];
             const hasScore = ["q", "e", "t"].some((key) => value?.[key] != null && value[key] !== "");
             const remarks = String(value?.remarks ?? "").trim();
             const touched = selfDirty.current.has(Number(indicatorId));
