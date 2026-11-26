@@ -7,6 +7,7 @@ use App\Models\PcrForm;
 use App\Models\PcrIndicator;
 use App\Models\PcrOutput;
 use App\Models\PcrTargetAssignment;
+use App\Models\User;
 use App\Services\PcrWorkflow;
 use App\Support\Html;
 use Illuminate\Http\Request;
@@ -31,6 +32,11 @@ class PcrOutputController extends Controller
         ]);
 
         $form = PcrForm::findOrFail($data['form_id']);
+        $existing = $id ? PcrOutput::find($id) : null;
+
+        if ($existing && $this->categoryOnly($data, $existing)) {
+            return $this->linkAttendance($request->user(), $form, $existing, $data['attendance_category_id'] ?? null);
+        }
 
         if (! PcrWorkflow::canEditCommitments($request->user(), $form)) {
             return response()->json([
@@ -48,8 +54,6 @@ class PcrOutputController extends Controller
                 'message' => 'Strategic priorities belong to the office OPCR, not an individual IPCR.',
             ], 422);
         }
-
-        $existing = $id ? PcrOutput::find($id) : null;
 
         $parentId = array_key_exists('parent_output_id', $data)
             ? $data['parent_output_id']
@@ -124,16 +128,6 @@ class PcrOutputController extends Controller
 
         if ($section !== 'support') {
             $attributes['attendance_category_id'] = null;
-        } elseif (array_key_exists('attendance_category_id', $data)) {
-            $categoryId = $data['attendance_category_id'];
-
-            if ($categoryId && ! AttendanceCategory::query()->whereKey($categoryId)->exists()) {
-                return response()->json([
-                    'message' => 'Choose an attendance category from this organization.',
-                ], 422);
-            }
-
-            $attributes['attendance_category_id'] = $categoryId ?: null;
         }
 
         if ($id) {
@@ -146,6 +140,45 @@ class PcrOutputController extends Controller
         $output = PcrOutput::create($attributes);
 
         return response()->json(['data' => 'created', 'output' => $output->load('indicators')], 201);
+    }
+
+    /**
+     * A category pick sends no title. Commitment edits keep the category already stored.
+     *
+     * @param  array<string, mixed>  $data
+     */
+    private function categoryOnly(array $data, ?PcrOutput $existing): bool
+    {
+        return $existing
+            && array_key_exists('attendance_category_id', $data)
+            && ! array_key_exists('title', $data)
+            && ! array_key_exists('parent_output_id', $data)
+            && ! array_key_exists('sort_order', $data);
+    }
+
+    private function linkAttendance(User $user, PcrForm $form, PcrOutput $output, mixed $categoryId)
+    {
+        if (! PcrWorkflow::canLinkAttendance($user, $form)) {
+            return response()->json([
+                'message' => 'Only the head can choose attendance evidence while rating this IPCR.',
+            ], 403);
+        }
+
+        if ((int) $output->form_id !== (int) $form->id || $output->section !== 'support') {
+            return response()->json([
+                'message' => 'Attendance evidence belongs on a support line.',
+            ], 422);
+        }
+
+        if ($categoryId && ! AttendanceCategory::query()->whereKey($categoryId)->exists()) {
+            return response()->json([
+                'message' => 'Choose an attendance category from this organization.',
+            ], 422);
+        }
+
+        $output->update(['attendance_category_id' => $categoryId ?: null]);
+
+        return response()->json(['data' => 'updated', 'output' => $output->load('indicators')]);
     }
 
     public function destroy(Request $request, $id)

@@ -287,7 +287,7 @@ class CalendarEventController extends Controller
         $periodId = null;
 
         if (! $scheduleOnly && $data['visibility'] !== 'only_me' && ! empty($data['category_id'])) {
-            if (! AttendanceCategory::manageableBy($request->user())) {
+            if (! AttendanceCategory::linkableBy($request->user())) {
                 abort(response()->json([
                     'message' => 'Only a head can attach an attendance category.',
                 ], 403));

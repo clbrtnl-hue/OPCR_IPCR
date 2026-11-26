@@ -901,6 +901,23 @@ class PcrWorkflow
         return $ownerUnitId && in_array((int) $ownerUnitId, $ids, true);
     }
 
+    /**
+     * The head picks which attendance record backs a support line, and only
+     * while that IPCR is on their rating step. Later reviewers read the percent.
+     */
+    public static function canLinkAttendance(User $user, PcrForm $form): bool
+    {
+        if ($form->type !== 'ipcr' || $form->status !== 'head_review') {
+            return false;
+        }
+
+        if ((int) $form->head_reviewer_id !== (int) $user->id) {
+            return false;
+        }
+
+        return self::formLockMessage($user, $form) === null;
+    }
+
     public static function canEditCommitments(User $user, PcrForm $form): bool
     {
         if (self::cycleClosedMessage($form)) {

@@ -96,9 +96,15 @@ export default function IpcrSheet({
     onRestartUi = null,
 }) {
     const { user } = useAuth();
+    const canLinkAttendance =
+        form?.type === "ipcr" &&
+        form?.status === "head_review" &&
+        Number(form?.head_reviewer_id) === Number(user?.id) &&
+        Boolean(scoreEdit?.canEdit);
     const { data: attendanceCategories = [] } = useQuery({
         queryKey: ["attendance-categories"],
         queryFn: () => api.get("attendance-categories").then((response) => response.data.categories ?? []),
+        enabled: canLinkAttendance,
     });
     const scale = ratingRules(user);
     const queryClient = useQueryClient();
@@ -543,12 +549,11 @@ export default function IpcrSheet({
                             }
                         />
                     </div>
-                    {section === "support" && (
+                    {section === "support" && canLinkAttendance && (
                         <Select
                             className="pms-attendance-category"
                             size="small"
                             allowClear
-                            disabled={!canEdit}
                             placeholder="Attendance evidence"
                             value={output.attendance_category_id ?? undefined}
                             options={attendanceCategories.map((item) => ({

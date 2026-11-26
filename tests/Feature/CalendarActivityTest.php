@@ -25,6 +25,7 @@ class CalendarActivityTest extends PmsTestCase
             'slot' => 'director_review',
             'user_id' => $head->id,
         ]);
+        $unit->update(['head_user_id' => $head->id]);
 
         $this->actingAsUser($employee);
         $this->postJson('/api/attendance-categories', ['name' => 'Accreditation'])->assertStatus(403);
@@ -114,6 +115,7 @@ class CalendarActivityTest extends PmsTestCase
         $period = $this->makePeriod($year);
         $unit = $this->makeUnit();
         $head = User::factory()->create(['role' => 'program_head', 'org_unit_id' => $unit->id]);
+        $unit->update(['head_user_id' => $head->id]);
         $staff = User::factory()->create(['role' => 'employee', 'org_unit_id' => $unit->id]);
 
         AttendanceDay::create([

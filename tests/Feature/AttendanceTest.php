@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Models\AttendanceCategory;
 use App\Models\AttendanceDay;
 use App\Models\AttendanceMeeting;
 use App\Models\AttendanceRate;
@@ -402,14 +403,17 @@ class AttendanceTest extends PmsTestCase
             'user_id'          => $faculty->id,
             'day'              => $monday->toDateString(),
             'status'           => 'present',
-        ])->assertOk();
+        ])->assertStatus(403);
         $this->postJson('/api/attendance/meetings', [
             'org_unit_id'      => $college->id,
             'rating_period_id' => $period->id,
             'title'            => 'Faculty meeting',
             'category'         => 'meeting',
             'held_on'          => $monday->toDateString(),
-        ])->assertCreated();
+        ])->assertStatus(403);
+        $this->getJson("/api/attendance?rating_period_id={$period->id}")
+            ->assertOk()
+            ->assertJsonPath('members', []);
 
         $this->actingAsUser($hr);
 
@@ -492,6 +496,73 @@ class AttendanceTest extends PmsTestCase
             ->assertJsonPath('rows.0.daily_pct', 100);
     }
 
+    public function test_the_head_links_support_evidence_while_rating(): void
+    {
+        ['hr' => $hr, 'staff' => $staff, 'year' => $year, 'period' => $period, 'monday' => $monday] = $this->office();
+
+        $this->actingAsUser($hr);
+        $meeting = $this->postJson('/api/attendance/meetings', [
+            'org_unit_id'      => $staff->org_unit_id,
+            'rating_period_id' => $period->id,
+            'title'            => 'Committee',
+            'category'         => 'meeting',
+            'held_on'          => $monday->toDateString(),
+        ])->assertCreated();
+        $this->putJson("/api/attendance/meetings/{$meeting->json('meeting.id')}/marks", [
+            'user_id' => $staff->id,
+            'status'  => 'present',
+        ])->assertOk();
+
+        $form = $this->makeForm([
+            'school_year_id' => $year->id,
+            'org_unit_id'    => $staff->org_unit_id,
+            'user_id'        => $staff->id,
+            'status'         => 'draft',
+        ]);
+        $output = PcrOutput::create([
+            'form_id' => $form->id,
+            'section' => 'support',
+            'title'   => 'Accreditation documents',
+        ]);
+        $category = AttendanceCategory::ensure()->firstWhere('slug', 'meeting');
+
+        $payload = [
+            'id'                     => $output->id,
+            'form_id'                => $form->id,
+            'section'                => 'support',
+            'attendance_category_id' => $category->id,
+        ];
+
+        $this->actingAsUser($staff);
+        $this->postJson('/api/pcr-outputs', $payload)->assertStatus(403);
+        $this->assertNull($output->fresh()->attendance_category_id);
+
+        $form->forceFill(['status' => 'head_review', 'head_reviewer_id' => $hr->id])->save();
+
+        $this->actingAsUser($hr);
+        $this->postJson('/api/pcr-outputs', $payload)->assertOk();
+        $this->assertSame($category->id, (int) $output->fresh()->attendance_category_id);
+
+        $qa = User::factory()->create(['role' => 'qa']);
+        $form->forceFill(['status' => 'qa_rating'])->save();
+        $this->actingAsUser($qa);
+        $this->getJson("/api/pcr-forms/{$form->id}")
+            ->assertOk()
+            ->assertJsonPath('outputs.0.attendance_category', 'meeting')
+            ->assertJsonPath("attendance.{$period->id}.meeting.pct", 100)
+            ->assertJsonPath("attendance.{$period->id}.meeting.suggested", 5);
+
+        $vp = User::factory()->create(['role' => 'vp', 'name' => 'Academic VP']);
+        $form->forceFill(['status' => 'vp_review', 'vp_reviewer_id' => $vp->id])->save();
+        $this->actingAsUser($vp);
+        $this->getJson("/api/pcr-forms/{$form->id}")
+            ->assertOk()
+            ->assertJsonPath("attendance.{$period->id}.meeting.pct", 100);
+
+        $this->actingAsUser($hr);
+        $this->postJson('/api/pcr-outputs', $payload)->assertStatus(403);
+    }
+
     private function office(): array
     {
         $this->makeOrganization();
@@ -550,7 +621,7 @@ class AttendanceTest extends PmsTestCase
             'code'         => 'CTE',
             'type'         => 'college',
             'parent_id'    => $division->id,
-            'dean_user_id' => $head->id,
+            'head_user_id' => $head->id,
         ]);
         $head->update(['org_unit_id' => $college->id]);
 

@@ -17,6 +17,7 @@ class AttendanceCategoryController extends Controller
 
         return response()->json([
             'can_manage' => AttendanceCategory::manageableBy($request->user()),
+            'can_link'   => AttendanceCategory::linkableBy($request->user()),
             'categories' => $categories->map(fn (AttendanceCategory $category) => $this->payload($category))->values(),
         ]);
     }

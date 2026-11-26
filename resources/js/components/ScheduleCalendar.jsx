@@ -767,6 +767,7 @@ export default function ScheduleCalendar() {
                 onlyMe={onlyMe}
                 viewerId={user?.id}
                 categories={(categoryList?.categories ?? []).filter((item) => item.source === "event")}
+                canLink={Boolean(categoryList?.can_link)}
                 years={years}
                 saving={save.isPending}
                 removing={remove.isPending}
@@ -811,7 +812,7 @@ function markMenu(current, onPick) {
     };
 }
 
-function EventDrawer({ draft, people, leads, collegeWide, scheduleOnly, onlyMe, viewerId, categories, years, saving, removing, onCancel, onSubmit, onDelete, onOpen }) {
+function EventDrawer({ draft, people, leads, collegeWide, scheduleOnly, onlyMe, viewerId, categories, canLink, years, saving, removing, onCancel, onSubmit, onDelete, onOpen }) {
     const queryClient = useQueryClient();
     const [form] = Form.useForm();
     const open = Boolean(draft);
@@ -1070,7 +1071,7 @@ function EventDrawer({ draft, people, leads, collegeWide, scheduleOnly, onlyMe, 
                                 </Form.Item>
                             )}
                         </Form.Item>
-                        {!scheduleOnly && (
+                        {!scheduleOnly && canLink && (
                         <Form.Item noStyle shouldUpdate={(prev, next) => prev.visibility !== next.visibility || prev.category_id !== next.category_id}>
                             {({ getFieldValue }) => getFieldValue("visibility") !== "only_me" && (
                                 <>
