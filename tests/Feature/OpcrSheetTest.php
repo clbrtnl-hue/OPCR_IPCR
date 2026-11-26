@@ -311,4 +311,40 @@ class OpcrSheetTest extends PmsTestCase
         $this->assertSame(35, (int) $fileOnly->fresh()->progress_pct);
         $this->assertSame('ongoing', $fileOnly->fresh()->progress_status);
     }
+
+    public function test_an_opcr_opens_when_a_completed_child_indicator_has_a_target_date_and_no_completed_on(): void
+    {
+        ['unit' => $unit, 'year' => $year, 'president' => $president, 'opcr' => $opcr] = $this->college('published');
+        $period = $year->periods()->first();
+
+        $output = PcrOutput::create(['form_id' => $opcr->id, 'section' => 'core', 'title' => 'Enrollment']);
+        $target = PcrIndicator::create([
+            'output_id'   => $output->id,
+            'description' => '<p>Increase enrollment by 5%.</p>',
+        ]);
+
+        $faculty = User::factory()->create(['role' => 'employee', 'org_unit_id' => $unit->id]);
+        $ipcr = $this->makeForm([
+            'type' => 'ipcr', 'org_unit_id' => $unit->id, 'school_year_id' => $year->id,
+            'rating_period_id' => $period->id, 'user_id' => $faculty->id, 'status' => 'commitments_approved',
+        ]);
+        $ipcrOutput = PcrOutput::create([
+            'form_id' => $ipcr->id, 'parent_output_id' => $output->id, 'section' => 'core', 'title' => 'Enrollment',
+        ]);
+        PcrIndicator::create([
+            'output_id'           => $ipcrOutput->id,
+            'parent_indicator_id' => $target->id,
+            'description'         => '<p>Increase enrollment by 5%.</p>',
+            'progress_status'     => 'completed',
+            'progress_pct'        => 100,
+            'target_date'         => '2032-12-15',
+            'completed_on'        => null,
+        ]);
+
+        $this->actingAsUser($president);
+
+        $this->getJson("/api/pcr-forms/{$opcr->id}")
+            ->assertOk()
+            ->assertJsonPath('outputs.0.indicators.0.children.0.progress_status', 'completed');
+    }
 }

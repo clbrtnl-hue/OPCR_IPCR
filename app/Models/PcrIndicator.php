@@ -122,7 +122,7 @@ class PcrIndicator extends Model
         }
 
         $done = $this->progress_status === 'completed';
-        $against = $done ? ($this->completed_on ?? $this->updated_at) : now();
+        $against = $done ? ($this->completed_on ?? $this->updated_at ?? now()) : now();
         $days = (int) $due->startOfDay()->diffInDays($against->startOfDay(), false);
 
         if ($done) {

@@ -149,7 +149,7 @@ class PcrFormController extends Controller
                 ->select([
                     'id', 'parent_indicator_id', 'output_id', 'description', 'assigned_by',
                     'progress_status', 'progress_pct', 'rating_period_id',
-                    'target_date', 'completed_on',
+                    'target_date', 'completed_on', 'updated_at',
                 ])
                 ->withCount([
                     'accomplishments as recorded_count' => fn ($q) => $q
