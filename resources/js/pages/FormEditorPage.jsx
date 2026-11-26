@@ -947,16 +947,12 @@ export default function FormEditorPage({ formId = null, periodBar = null, yearSe
         !cycleClosed &&
         commitmentsApproved &&
         ["commitments_approved", "returned"].includes(form.status);
-    const rateableSelfIds = useMemo(
-        () =>
-            new Set(
-                (form?.outputs ?? []).flatMap((output) =>
-                    (output.indicators ?? [])
-                        .filter((line) => countsTowardRating(line))
-                        .map((line) => Number(line.id))
-                )
-            ),
-        [form]
+    const rateableSelfIds = new Set(
+        (form?.outputs ?? []).flatMap((output) =>
+            (output.indicators ?? [])
+                .filter((line) => countsTowardRating(line))
+                .map((line) => Number(line.id))
+        )
     );
     const selfRateRows = () =>
         Object.entries(selfScores).flatMap(([indicatorId, value]) => {
